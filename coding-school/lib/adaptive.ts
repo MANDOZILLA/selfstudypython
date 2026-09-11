@@ -24,22 +24,31 @@ const unique = (attempts: AttemptRecord[]) => {
 export function deriveSkillEvidence(attempts: AttemptRecord[], skillId: string): SkillEvidence {
   const relevant = unique(attempts).filter(a => a.skillOutcomes.some(s => s.skillId === skillId) || a.introducedSkillIds.includes(skillId));
   const taughtAt = relevant.find(a => a.purpose === "instruction" && a.passed && a.introducedSkillIds.includes(skillId))?.completedAt ?? null;
-  const successes = relevant.filter(a => a.passed && a.executionOk && independent(a) &&
-    (a.purpose === "project" || a.purpose === "retrieval") && a.skillOutcomes.some(s => s.skillId === skillId && s.passed));
-  const project = successes.find(a => a.purpose === "project");
-  // Each qualifying step must add a task, a real context, and a different UTC date.
-  const diversity: AttemptRecord[] = [];
-  if (project) {
-    diversity.push(project);
-    for (const attempt of successes) {
-      if (attempt.completedAt <= project.completedAt ||
-        diversity.some(a => a.taskId === attempt.taskId || a.contextId === attempt.contextId || a.completedAt.slice(0, 10) === attempt.completedAt.slice(0, 10))) continue;
-      diversity.push(attempt);
+  const eligible = (a: AttemptRecord) => a.passed && a.executionOk && independent(a) &&
+    (a.purpose === "project" || a.purpose === "retrieval") && a.skillOutcomes.some(s => s.skillId === skillId && s.passed);
+  const successes = relevant.filter(eligible);
+  // Identical later work cannot add a context, but its actual later date can establish
+  // delayed retrieval. Retain these occurrences when choosing the qualifying subset.
+  const candidates = ordered(attempts).filter(eligible);
+  const distinct = (a: AttemptRecord, b: AttemptRecord) => a.taskId !== b.taskId && a.contextId !== b.contextId && a.completedAt.slice(0, 10) !== b.completedAt.slice(0, 10);
+  let diversity: AttemptRecord[] = [];
+  let mastered = false;
+  // Only three witnesses are required. Search for a valid subset instead of greedily
+  // reserving the first date/context; adding evidence cannot invalidate an old subset.
+  projectSearch: for (const project of candidates.filter(a => a.purpose === "project")) {
+    if (!diversity.length) diversity = [project];
+    const later = candidates.filter(a => a.completedAt > project.completedAt && distinct(a, project));
+    for (const first of later) {
+      if (diversity.length < 2) diversity = [project, first];
+      for (const second of later) {
+        if (!distinct(first, second)) continue;
+        const delayed = [first, second].some(a => a.purpose === "retrieval" && Date.parse(a.completedAt) - Date.parse(project.completedAt) >= 3 * DAY);
+        if (delayed) { diversity = [project, first, second]; mastered = true; break projectSearch; }
+      }
     }
   }
-  const delayed = diversity.some(a => a.purpose === "retrieval" && Date.parse(a.completedAt) - Date.parse(project!.completedAt) >= 3 * DAY);
-  const status: EvidenceStatus = diversity.length >= 3 && delayed ? "Mastered" :
-    diversity.length >= 2 ? "Demonstrated again later" : project ? "Demonstrated in project" : relevant.length ? "Practicing" : "Not started";
+  const status: EvidenceStatus = mastered ? "Mastered" :
+    diversity.length >= 2 ? "Demonstrated again later" : diversity.length ? "Demonstrated in project" : relevant.length ? "Practicing" : "Not started";
   return { skillId, status, independentSuccesses: successes.length, distinctContexts: diversity.length,
     attemptCount: relevant.length, lastDemonstratedAt: successes.at(-1)?.completedAt ?? null,
     taughtAt, evidenceAttemptIds: diversity.map(a => a.id) };
@@ -50,7 +59,13 @@ export function deriveReviewSchedule(attempts: AttemptRecord[]): Record<string, 
   const schedules: Record<string, ReviewSchedule> = {};
   const steps: Record<string, number> = {};
   const intervals = [1, 3, 7, 14] as const;
-  for (const a of unique(attempts)) {
+  const processed = new Set<string>();
+  const creditedRuns = new Set<string>();
+  for (const a of ordered(attempts)) {
+    // Review events belong to their run, unlike globally deduplicated mastery credit.
+    const eventKey = JSON.stringify([a.runId, a.taskId, a.graderId, a.graderVersion, a.sourceHash, a.resultHash]);
+    if (processed.has(eventKey)) continue;
+    processed.add(eventKey);
     if (a.purpose === "reflection") continue;
     const skills = new Set([...a.introducedSkillIds, ...a.skillOutcomes.map(s => s.skillId)]);
     for (const skillId of skills) {
@@ -65,8 +80,11 @@ export function deriveReviewSchedule(attempts: AttemptRecord[]): Record<string, 
       } else if (!success) {
         steps[skillId] = 0; reason = "repair";
       } else if (a.purpose === "retrieval" && independent(a)) {
+        const runSkill = JSON.stringify([a.runId, skillId]);
+        if (creditedRuns.has(runSkill)) continue;
         // Early reruns do not lengthen the schedule.
         if (schedules[skillId] && a.completedAt < schedules[skillId].dueAt) continue;
+        creditedRuns.add(runSkill);
         steps[skillId] = Math.min(3, (steps[skillId] ?? 0) + 1); reason = "retrieval";
       } else if (!demonstrated) {
         continue;

@@ -166,3 +166,20 @@ fixtures = [
 ]
 json.dumps(grade(submission_source, fixtures))
 `;
+export const settlementReconciliationSuite = harness + String.raw`
+def request(export_text, confirmed_ids):
+    return json.dumps({'export': export_text, 'confirmed_ids': confirmed_ids})
+empty_export = 'id,status\n'
+fixtures = [
+ ('sample', [(request('id,status\n a ,settled\nb,pending\nc,settled\n', ['a']), {'matched':['a'], 'missing':['c']})]),
+ ('empty', [(request(empty_export, []), {'matched':[], 'missing':[]})]),
+ ('envelope', [(text,None) for text in ['null','[]','{}','{"export":null,"confirmed_ids":[]}','{"export":"id,status\\n","confirmed_ids":{}}','{"export":"id,status\\n","confirmed_ids":"a"}']]),
+ ('malformed', [(text,None) for text in ['{','not json','{"export":"id,status\\n","confirmed_ids":[]} trailing']]),
+ ('types', [(request(empty_export, [None, True, 2, [], {}, ' ', ' ok ']), {'matched':[], 'missing':[]})]),
+ ('header', [(request(text, []),None) for text in ['status,id\nsettled,a\n','id,state\na,settled\n','id,status,extra\na,settled,x\n']]),
+ ('invalid', [(request('id,status\n,settled\na,done\nb\nbad,settled,extra\nok, settled \n', []), {'matched':[], 'missing':['ok']})]),
+ ('duplicates', [(request('id,status\nx,pending\n x ,settled\ny,settled\ny,settled\n', ['y']), {'matched':['y'], 'missing':[]})]),
+ ('join', [(request('id,status\n a ,settled\nb,settled\nC,pending\n', [' a ', 'c', None]), {'matched':['a'], 'missing':['b']})]),
+]
+json.dumps(grade(submission_source, fixtures))
+`;

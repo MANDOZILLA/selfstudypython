@@ -123,3 +123,37 @@ def solve(text):
   expect((await grade(source, graderId, exerciseId)).passed).toBe(true);
   expect((await grade("def solve(value):\n    return []", graderId, exerciseId)).passed).toBe(false);
 });
+
+const reconciliationReference = `import csv, io, json
+def solve(text):
+    try: payload = json.loads(text)
+    except json.JSONDecodeError: return None
+    if type(payload) is not dict or type(payload.get('export')) is not str or type(payload.get('confirmed_ids')) is not list:
+        return None
+    confirmed = {value.strip() for value in payload['confirmed_ids'] if type(value) is str and value.strip()}
+    reader = csv.DictReader(io.StringIO(payload['export']))
+    if reader.fieldnames != ['id','status']: return None
+    result = {'matched': [], 'missing': []}
+    seen = set()
+    for row in reader:
+        if None in row or any(value is None for value in row.values()): continue
+        identifier, status = row['id'].strip(), row['status'].strip().lower()
+        if not identifier or status not in {'settled','pending'} or identifier in seen: continue
+        seen.add(identifier)
+        if status == 'settled':
+            bucket = 'matched' if identifier in confirmed else 'missing'
+            result[bucket].append(identifier)
+    return result`;
+it("grades transfer from CSV and JSON to settlement reconciliation", async () => {
+  expect((await grade(reconciliationReference, "settlement-reconciliation-v1", "settlement-reconciliation-challenge")).passed).toBe(true);
+});
+it.each([
+  ["envelope", reconciliationReference.replace("type(payload.get('confirmed_ids')) is not list", "False")],
+  ["duplicate status", reconciliationReference.replace(" or identifier in seen", "")],
+  ["pending", reconciliationReference.replace("if status == 'settled':", "if True:")],
+  ["join direction", reconciliationReference.replace("identifier in confirmed", "identifier not in confirmed")],
+  ["invalid rows", reconciliationReference.replace("if None in row or any", "if False or any")],
+  ["header", reconciliationReference.replace("reader.fieldnames != ['id','status']", "set(reader.fieldnames or []) != {'id','status'}")],
+])("rejects reconciliation bug: %s", async (_label, source) => {
+  expect((await grade(source, "settlement-reconciliation-v1", "settlement-reconciliation-challenge")).passed).toBe(false);
+});

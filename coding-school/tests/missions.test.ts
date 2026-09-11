@@ -32,7 +32,62 @@ function toBuild() {
   return engine.advanceMissionStage(state, state.missionRuns[0].id, day(11));
 }
 
+function completeAuthoredMissions() {
+  let state = start();
+  for (let mission = 0; mission < 2; mission++) {
+    if (mission) state = engine.startOrResumeMission(state, day(11));
+    const runId = state.missionRuns.at(-1)!.id;
+    for (let stage = state.missionRuns.at(-1)!.stageIndex; stage < 4; stage++) {
+      for (const taskId of state.missionRuns.at(-1)!.stages[stage].taskIds) state = submit(state, taskId);
+      state = engine.advanceMissionStage(state, runId, day(11));
+    }
+  }
+  return state;
+}
+
 describe("continuous missions and honest evidence", () => {
+  it("advances later review runs with identical correct source without creating mastery diversity", () => {
+    const state = submit(toBuild(), "csv-project");
+    const project = state.attempts.at(-1)!;
+    const first = { ...project, id: "review-1", runId: "review-run-1", taskId: "csv-tags-retrieval", purpose: "retrieval" as const, contextId: "label-export", completedAt: day(12).toISOString(), duplicateOf: null };
+    const later = { ...first, id: "review-2", runId: "review-run-2", completedAt: day(15).toISOString(), duplicateOf: first.id };
+    const attempts = [...state.attempts, first, later];
+    expect(adaptive.deriveReviewSchedule(attempts)["csv-cleaning"]).toMatchObject({ intervalDays: 7, dueAt: day(22).toISOString() });
+    expect(adaptive.deriveSkillEvidence(attempts, "csv-cleaning")).toMatchObject({ status: "Demonstrated again later", distinctContexts: 2, independentSuccesses: 2 });
+    expect(adaptive.deriveReviewSchedule([...attempts, { ...later, id: "repeat-in-run", completedAt: day(22).toISOString() }])["csv-cleaning"].dueAt).toBe(day(22).toISOString());
+  });
+  it("does not let repeated earlier reviews starve a later JSON review", () => {
+    const state = completeAuthoredMissions();
+    const template = state.attempts.find(attempt => attempt.taskId === "csv-project")!;
+    const outcomes = (...skillIds: string[]) => skillIds.map(skillId => ({ skillId, checkIds: ["sample"], passed: true }));
+    const csvProject = { ...template, id: "csv-project-evidence", runId: "mission-csv", skillOutcomes: outcomes("csv-cleaning", "python-functions", "data-structures"), completedAt: day(11).toISOString() };
+    const financeProject = { ...template, id: "finance-project-evidence", runId: "mission-finance", taskId: "finance-project", contextId: "finance-project", skillOutcomes: outcomes("financial-data"), completedAt: day(11).toISOString() };
+    const csvReview = { ...csvProject, id: "csv-review-1", runId: "review-1", taskId: "csv-tags-retrieval", contextId: "label-export", purpose: "retrieval" as const, completedAt: day(12).toISOString(), duplicateOf: null };
+    const financeReview = { ...financeProject, id: "finance-review-1", runId: "review-1", taskId: "invoice-cents-retrieval", contextId: "invoice-budget", purpose: "retrieval" as const, completedAt: day(12).toISOString(), duplicateOf: null };
+    const jsonInstruction = { ...template, id: "json-instruction-evidence", runId: "mission-json", taskId: "json-instruction", contextId: "json-teaching", purpose: "instruction" as const, introducedSkillIds: ["json-validation"], skillOutcomes: outcomes("json-validation"), completedAt: day(15).toISOString() };
+    state.attempts = [
+      csvProject,
+      financeProject,
+      csvReview,
+      financeReview,
+      { ...csvReview, id: "csv-review-2", runId: "review-2", completedAt: day(15).toISOString(), duplicateOf: csvReview.id },
+      { ...financeReview, id: "finance-review-2", runId: "review-2", completedAt: day(15).toISOString(), duplicateOf: financeReview.id },
+      jsonInstruction,
+      { ...template, id: "reconciliation-draft", runId: "draft", taskId: "settlement-reconciliation-retrieval", purpose: "reflection" as const, introducedSkillIds: [], skillOutcomes: [], completedAt: day(15).toISOString() },
+    ];
+
+    const selection = adaptive.selectToday(state, day(16));
+    expect(selection.reviewTaskIds.some(taskId => authored.getTask(taskId)?.skillIds.includes("json-validation"))).toBe(true);
+  });
+  it("finds a qualifying subset even when extra early success uses the later retrieval context", () => {
+    const state = submit(toBuild(), "csv-project");
+    const project = state.attempts.at(-1)!;
+    const early = { ...project, id: "early", taskId: "inventory-retrieval", purpose: "retrieval" as const, contextId: "inventory", completedAt: day(12).toISOString(), duplicateOf: null };
+    const transfer = { ...project, id: "transfer", taskId: "json-project", contextId: "api-payments", completedAt: day(13).toISOString(), duplicateOf: null };
+    const delayed = { ...early, id: "delayed", runId: "later-run", completedAt: day(15).toISOString(), duplicateOf: null };
+    expect(adaptive.deriveSkillEvidence([...state.attempts, transfer, delayed], "data-structures").status).toBe("Mastered");
+    expect(adaptive.deriveSkillEvidence([...state.attempts, early, transfer, delayed], "data-structures").status).toBe("Mastered");
+  });
   it("starts empty without fabricated skill or review claims", () => {
     const state = engine.createDefaultState();
     expect(state.missionRuns).toEqual([]);
@@ -176,8 +231,8 @@ describe("continuous missions and honest evidence", () => {
     const state = submit(toBuild(), "csv-project");
     const project = state.attempts.at(-1)!;
     const retrieval = { ...project, id: "r1", taskId: "inventory-retrieval", purpose: "retrieval" as const, contextId: "inventory", completedAt: day(12).toISOString(), duplicateOf: null };
-    const r2 = { ...retrieval, id: "r2", sourceHash: "r2", completedAt: day(15).toISOString() };
-    const r3 = { ...retrieval, id: "r3", sourceHash: "r3", completedAt: day(22).toISOString() };
+    const r2 = { ...retrieval, id: "r2", runId: "review-run-2", sourceHash: "r2", completedAt: day(15).toISOString() };
+    const r3 = { ...retrieval, id: "r3", runId: "review-run-3", sourceHash: "r3", completedAt: day(22).toISOString() };
     expect(adaptive.deriveReviewSchedule([...state.attempts, retrieval, r2])["data-structures"]).toMatchObject({ intervalDays: 7, dueAt: day(22).toISOString() });
     expect(adaptive.deriveReviewSchedule([...state.attempts, retrieval, r2, r3])["data-structures"]).toMatchObject({ intervalDays: 14, dueAt: "2026-10-06T12:00:00.000Z" });
     expect(adaptive.deriveReviewSchedule([...state.attempts, retrieval, { ...r2, completedAt: day(13).toISOString() }])["data-structures"].dueAt).toBe(day(15).toISOString());
@@ -190,6 +245,25 @@ describe("continuous missions and honest evidence", () => {
 });
 
 describe("authored mission contracts", () => {
+  it.each(["csv-cleaning", "json-validation"])("provides enough graded contexts for %s to reach mastery after delayed retrieval", skillId => {
+    const tasks = [...authored.curriculum.missions.flatMap(m => m.stages.flatMap(s => s.tasks)), ...authored.curriculum.reviewTasks].filter(t => (t.purpose === "project" || t.purpose === "retrieval") && t.skillIds.includes(skillId));
+    expect(new Set(tasks.flatMap(t => t.variants.map(v => v.contextId))).size).toBeGreaterThanOrEqual(3);
+    const project = tasks.find(task => task.purpose === "project")!;
+    const retrievals = tasks.filter(task => task.purpose === "retrieval").slice(0, 2);
+    const template = completeAuthoredMissions().attempts.find(attempt => attempt.taskId === project.id)!;
+    const evidence = [project, ...retrievals].map((task, index) => ({
+      ...template,
+      id: `${skillId}-${index}`,
+      runId: `${skillId}-run-${index}`,
+      taskId: task.id,
+      contextId: task.variants[0].contextId,
+      purpose: task.purpose,
+      skillOutcomes: [{ skillId, checkIds: task.variants[0].skillChecks[skillId], passed: true }],
+      completedAt: day([11, 12, 15][index]).toISOString(),
+      duplicateOf: null,
+    }));
+    expect(adaptive.deriveSkillEvidence(evidence, skillId).status).toBe("Mastered");
+  });
   it("has a short executable retrieval for every taught skill", () => {
     for (const skill of authored.curriculum.skills) {
       expect(authored.curriculum.reviewTasks.some(task => task.skillIds.includes(skill.id))).toBe(true);
