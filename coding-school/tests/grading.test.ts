@@ -57,7 +57,7 @@ async function run(code: string, graderId = "payments-csv-v1", exerciseId = "mes
 
 describe("exercise-specific Python grading", () => {
   it.each([
-    ["starter", curriculum.lessons[3].exercise.starterFiles["main.py"]],
+    ["starter", curriculum.lessons[0].exercise.starterFiles["main.py"]],
     ["arbitrary code", "value = 3"],
     ["print-only code", "print('all tests pass')"],
     ["constant answer", "def solve(value):\n    return [42]"],

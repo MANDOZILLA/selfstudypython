@@ -1,0 +1,108 @@
+import type { MissionDefinition, MissionTask, TaskVariant } from "../lib/mission-types";
+
+const basics = ["python-functions", "data-structures"];
+const csvSkills = [...basics, "csv-cleaning", "financial-data"];
+const jsonSkills = [...basics, "json-validation", "financial-data"];
+const textVariant = (id: string, contextId: string): TaskVariant => ({ id, contextId, graderId: "", exerciseId: "", starterFiles: {}, skillChecks: {} });
+const contactVariant: TaskVariant = {
+  id: "contacts-v1", contextId: "contact-import", exerciseId: "contacts-challenge", graderId: "contacts-v1",
+  starterFiles: { "main.py": "def solve(records):\n    result = []\n    seen = set()\n    # Validate each dictionary before using its fields.\n    # Normalize email and keep the first valid occurrence.\n    return result\n" },
+  skillChecks: { "python-functions": ["empty", "sample"], "data-structures": ["invalid", "duplicates", "shape"] },
+};
+const contactTask: MissionTask = {
+  id: "contacts-retrieval", title: "Recall a safe record transformation", kind: "code", purpose: "retrieval", skillIds: basics, introducedSkillIds: [],
+  explanation: "A contact export contains dictionaries and broken records. Recall the validate → normalize → collect pattern from your project without opening your old solution. This short retrieval is allowed to fail; its purpose is to find what needs repair.",
+  examples: ["Input: [{'email': ' A@EXAMPLE.COM '}, {'email': 'a@example.com'}, None]\nOutput: ['a@example.com']"],
+  requirements: ["Define solve(records). A non-list input returns [].", "Only dictionaries with a string email qualify. Trim and lowercase the email. Require exactly one @ with nonempty text on both sides and no whitespace anywhere. This is a small import contract, not full email validation.", "Return unique normalized email strings in first-valid-occurrence order. Ignore additional fields and do not mutate input."],
+  hints: ["Guard the list, dictionary, and string types before calling string methods.", "Use a set for membership and a list for ordered output.", "Normalize before checking duplicates."], variants: [contactVariant],
+};
+const inventoryTask: MissionTask = {
+  id: "inventory-retrieval", title: "Transfer validation to stock counts", kind: "code", purpose: "retrieval", skillIds: basics, introducedSkillIds: [],
+  explanation: "Inventory counts arrive as mixed records. Reuse explicit type guards, validation before deduplication, and an ordered result. Unlike money text, a quantity must already be an integer; Python booleans must not pass as counts.",
+  examples: ["Input: [{'sku':' A ', 'quantity':2}, {'sku':'A', 'quantity':9}, {'sku':'B', 'quantity':True}]\nOutput: [{'sku':'A', 'quantity':2}]"],
+  requirements: ["Define solve(records). Non-list input returns [].", "Accept dictionaries whose sku is a nonempty trimmed string and whose quantity has exact type int and is at least zero. Ignore extra keys.", "Return dictionaries with exactly sku and quantity, preserving first valid occurrence of each case-sensitive trimmed SKU. Invalid entries must not reserve SKUs; do not mutate input."],
+  hints: ["type(quantity) is int excludes booleans.", "Validate before adding the SKU to seen.", "Build a new dictionary containing only the two specified fields."],
+  variants: [{ id: "inventory-v1", contextId: "inventory", exerciseId: "inventory-challenge", graderId: "inventory-v1", starterFiles: { "main.py": "def solve(records):\n    return []\n" }, skillChecks: { "python-functions": ["sample", "empty"], "data-structures": ["invalid", "duplicates", "shape"] } }],
+};
+export const reviewTasks: MissionTask[] = [contactTask, inventoryTask, {
+  id: "csv-tags-retrieval", title: "Recall CSV parsing with quoted fields", kind: "code", purpose: "retrieval", skillIds: ["csv-cleaning", ...basics], introducedSkillIds: [],
+  explanation: "A small labeling export replaces the payments context. Recall how a CSV reader handles quoted commas and how to validate row shape before stripping values. This short task focuses on parsing; it does not ask you to rebuild the full money validator.",
+  examples: ['Input: \'id,tag\\n"a,b", review \\nx,\\n\'\nOutput: [{\'id\':\'a,b\',\'tag\':\'review\'}]'],
+  requirements: ["Define solve(text). Read CSV with exactly id,tag as the ordered header; empty, header-only or other headers return [].", "Skip extra/missing columns or blank trimmed values. Return new dictionaries with exactly trimmed string id and tag in input order. Keep duplicate IDs; this export can give one item multiple tags. Handle quoted commas and newlines."],
+  hints: ["Use csv.DictReader(io.StringIO(text)).", "Check reader.fieldnames, None keys and None values before stripping."],
+  variants: [{ id: "csv-tags-v1", contextId: "label-export", exerciseId: "csv-tags-challenge", graderId: "csv-tags-v1", starterFiles: { "main.py": "import csv\nimport io\n\ndef solve(text):\n    return []\n" }, skillChecks: { "csv-cleaning": ["quoted", "header", "invalid"], "python-functions": ["sample", "empty"], "data-structures": ["sample", "invalid"] } }],
+}, {
+  id: "invoice-cents-retrieval", title: "Recall exact money at a new boundary", kind: "code", purpose: "retrieval", skillIds: ["financial-data", "python-functions"], introducedSkillIds: [],
+  explanation: "An invoice service needs integer cents, not formatted payment dictionaries. Reuse your exact-money rules to build a small conversion function. Invalid values return None, while a valid zero must return the integer 0.",
+  examples: ["solve(' 12.30 ') → 1230\nsolve('0.001') → None\nsolve('-0.00') → 0"],
+  requirements: ["Define solve(text). Accept only strings containing a finite, nonnegative exact-cent Decimal-compatible amount. Invalid/blank text, other types, fractional cents, and values that cannot quantize using Decimal's default precision return None.", "Return exact integer cents for accepted text. Normalize negative zero to 0. Preserve large exact amounts; do not convert through float or round invalid fractions into validity."],
+  hints: ["Parse the original text using Decimal; guard nonfinite values before comparing.", "Quantize to 0.01 and require equality, then return int(amount * 100). Catch InvalidOperation."],
+  variants: [{ id: "invoice-cents-v1", contextId: "invoice-budget", exerciseId: "invoice-cents-challenge", graderId: "invoice-cents-v1", starterFiles: { "main.py": "from decimal import Decimal, InvalidOperation\n\ndef solve(text):\n    return None\n" }, skillChecks: { "financial-data": ["precision", "invalid"], "python-functions": ["sample", "invalid"] } }],
+}, {
+  id: "webhook-events-retrieval", title: "Recall JSON envelope guards", kind: "code", purpose: "retrieval", skillIds: ["json-validation", ...basics], introducedSkillIds: [],
+  explanation: "A webhook batch uses a new events envelope. Recall the layers of validation: syntax, outer object, events list, each object, then its identifier. Preserve valid siblings even when nearby records are broken.",
+  examples: ['Input: \'{"events":[{"id":" a "},null,{"id":"a"},{"id":"B"}]}\'\nOutput: [\'a\',\'B\']'],
+  requirements: ["Define solve(text) for JSON text. Malformed JSON, non-object roots, or missing/non-list events return [].", "Accept only dictionary events with a nonempty trimmed string id. Ignore extra keys. Return unique case-sensitive IDs in first-valid-occurrence order; skip invalid siblings."],
+  hints: ["Catch JSONDecodeError and guard each type before looking deeper.", "Use a set for seen IDs and a list for ordered output."],
+  variants: [{ id: "webhook-events-v1", contextId: "webhook-events", exerciseId: "webhook-events-challenge", graderId: "webhook-events-v1", starterFiles: { "main.py": "import json\n\ndef solve(text):\n    return []\n" }, skillChecks: { "json-validation": ["envelope", "invalid"], "python-functions": ["sample", "empty"], "data-structures": ["duplicates", "invalid"] } }],
+}];
+
+const csvProject: MissionTask = {
+  id: "csv-project", title: "Repair a payments export", kind: "code", purpose: "project", skillIds: csvSkills, introducedSkillIds: [],
+  explanation: "A teammate needs a reliable list of payments from an unreliable CSV export. Build the whole transformation yourself. Keep the parsing boundary separate from row validation. Make each accepted row a new dictionary, use exact decimal arithmetic, and preserve the original order. The examples describe the contract; the full implementation is yours.",
+  examples: ["id,amount,currency\n pay_101 ,12.00, usd \npay_102,,USD\npay_103,0.10,EUR\npay_101,90.00,USD", "Expected: [{'id':'pay_101','amount':'12.00','currency':'USD'}, {'id':'pay_103','amount':'0.10','currency':'EUR'}]"],
+  requirements: [
+    "Define solve(csv_text: str). Use csv.DictReader on the executed parsing path and Decimal to parse accepted money values from text.",
+    "The header must be exactly id,amount,currency in that order. Empty, header-only, and unexpected-header inputs return []. Handle quoted CSV fields, including commas inside IDs.",
+    "Return an ordered list of new dictionaries with exactly three string fields: id, amount, currency. Trim all values and uppercase currency. IDs are case-sensitive.",
+    "Accept only USD, EUR, GBP and nonempty IDs. Skip missing/extra columns, blank or invalid amounts, nonfinite numbers, negatives, and fractional cents. Decimal-compatible numeric text is accepted; values must fit default Decimal precision when quantized to cents.",
+    "Format amounts with exactly two decimal places. Both 0 and -0.00 become 0.00. Reject fractional cents without rounding them into validity.",
+    "Keep the first valid occurrence of each trimmed ID, in CSV order. An invalid row must not reserve its ID.",
+  ],
+  hints: ["Use csv.DictReader(io.StringIO(csv_text)) and inspect fieldnames first.", "Reject the None key (extra columns) and None values (missing columns) before stripping strings.", "Catch InvalidOperation. Check is_finite(), amount >= 0, and equality with quantize(Decimal('0.01')).", "Add an ID to seen only after all validation passes. Format abs(amount) with '.2f'."],
+  variants: [{ id: "payments-export-v1", contextId: "csv-payments", exerciseId: "messy-csv-challenge", graderId: "payments-csv-v1", starterFiles: { "main.py": "import csv\nimport io\nfrom decimal import Decimal, InvalidOperation\n\ndef solve(csv_text: str):\n    # Parse, validate, and normalize payment rows.\n    return []\n" }, skillChecks: { "python-functions": ["sample", "empty"], "data-structures": ["duplicates", "quoted", "shape"], "csv-cleaning": ["concept-csv", "header", "invalid", "quoted"], "financial-data": ["concept-decimal", "precision", "invalid"] } }],
+};
+const jsonProject: MissionTask = {
+  id: "json-project", title: "Normalize a payment API response", kind: "code", purpose: "project", skillIds: jsonSkills, introducedSkillIds: [],
+  explanation: "The same payments now arrive from an API as JSON text. Reuse your CSV-era function, list/dictionary, validation-order, deduplication, and Decimal skills. Replace the CSV parser with a JSON boundary. This mission uses saved response fixtures; it does not make live HTTP requests or assess networking/retries.",
+  examples: ['Input: \'{"payments":[{"id":" p1 ","money":{"amount":"0.10","currency":"eur"}}, {"id":"p2","money":null}]}\'\nOutput: [{\'id\':\'p1\',\'amount\':\'0.10\',\'currency\':\'EUR\'}]', "Malformed JSON, a list at the root, or a non-list payments field → []. A bad entry inside payments is skipped without losing good entries."],
+  requirements: [
+    "Define solve(json_text: str). Parse using json.loads. Malformed JSON, a non-object root, or missing/non-list payments returns []. No network calls are needed.",
+    "Each accepted payment must be a dictionary with a string id and a dictionary money containing string amount and string currency. Ignore extra fields; skip wrong types, including numeric amounts and booleans.",
+    "Trim id, amount, currency; uppercase currency. Accept nonempty case-sensitive IDs and only USD/EUR/GBP. Use Decimal directly from the amount text; accept only finite nonnegative exact cents that fit default Decimal quantize precision.",
+    "Return a list of dictionaries with exactly string id, amount, currency. Format money to two decimal places; normalize negative zero to 0.00. Reject fractional cents without rounding.",
+    "Keep first valid occurrence of each trimmed ID in API order. Invalid entries must not reserve IDs. An invalid sibling must not discard valid payments.",
+  ],
+  hints: ["Wrap json.loads in try/except JSONDecodeError, then check the envelope and payments list types.", "Check record, money, and each field type before using .strip().", "Reuse the CSV money policy: finite, nonnegative, exact cents; Decimal parses the original text.", "Keep the same seen-set and result-list pattern. Add IDs after validation and construct a fresh flat dictionary."],
+  variants: [{ id: "api-payments-v1", contextId: "api-payments", exerciseId: "api-normalization-challenge", graderId: "api-normalization-v1", starterFiles: { "main.py": "import json\nfrom decimal import Decimal, InvalidOperation\n\ndef solve(json_text: str):\n    # Validate the envelope, then normalize each payment.\n    return []\n" }, skillChecks: { "python-functions": ["sample", "empty"], "data-structures": ["duplicates", "shape", "mixed"], "json-validation": ["concept-json", "envelope", "malformed", "types", "mixed"], "financial-data": ["concept-decimal", "precision", "invalid"] } }],
+};
+
+export const missions: MissionDefinition[] = [
+  {
+    id: "csv-foundations", version: "1.0.0", title: "From small functions to a clean payments CSV", summary: "Practice safe record transformations, then build a reliable CSV importer and explain its decisions.", prerequisites: [], introducedSkillIds: csvSkills, revisitedSkillIds: [], estimatedMinutes: 45,
+    stages: [
+      { id: "csv-review", kind: "review", title: "Review", estimatedMinutes: 5, advanceRule: "attempt-review", tasks: [] },
+      { id: "csv-learn", kind: "learn", title: "Learn", estimatedMinutes: 10, advanceRule: "complete-tasks", tasks: [
+        { id: "csv-instruction", title: "Validate before you transform", kind: "instruction", purpose: "instruction", skillIds: csvSkills, introducedSkillIds: csvSkills,
+          explanation: "A function accepts an input and returns a value; printing is only observation. Use a list when output order matters, dictionaries for named fields, and a set for duplicate lookup. Guard each type or missing field before using it. Normalize first, validate second, and add an identifier to seen only after the complete record is valid. CSV adds a parsing boundary: DictReader understands quoted commas; split(',') does not. DictReader uses None for extra columns and missing values. Money is text: Decimal('0.10') keeps the decimal value while binary floats may lose cents. Check finite/nonnegative before quantizing; equality with the quantized amount rejects fractional cents. Catch InvalidOperation around conversion and quantization.",
+          examples: ["def normalize_name(value):\n    if not isinstance(value, str):\n        return None\n    name = value.strip()\n    return name if name else None\n\n# normalize_name(' Ada ') → 'Ada'; normalize_name(None) → None", "result, seen = [], set()\nfor raw in [' A ', '', 'A', 'B']:\n    name = normalize_name(raw)\n    if name is None or name in seen:\n        continue\n    seen.add(name)\n    result.append({'name': name})\n# [{'name':'A'}, {'name':'B'}]", "from decimal import Decimal\namount = Decimal('12.345')\ncents = amount.quantize(Decimal('0.01'))\n# amount != cents: reject, do not silently round\n# Decimal('NaN').is_finite() → False"],
+          requirements: ["Read the examples, trace one rejected value, and acknowledge the lesson. Reading records exposure only; it does not demonstrate a skill."], hints: [], variants: [textVariant("csv-reading-v1", "csv-teaching")] },
+        { ...contactTask, id: "csv-guided", title: "Guided practice: clean a contact list", purpose: "guided-practice", explanation: "Practice the same building blocks on a smaller contact list before tackling CSV. Start with the provided result list and seen set. First return [] for a non-list input. In the loop, reject non-dictionaries and non-string emails. Normalize a valid email string, validate its two parts around @, then append it only if unseen. Use the hints freely; this task records practice." },
+      ] },
+      { id: "csv-build", kind: "build", title: "Build", estimatedMinutes: 25, advanceRule: "complete-tasks", tasks: [csvProject] },
+      { id: "csv-explain-stage", kind: "explain", title: "Explain", estimatedMinutes: 5, advanceRule: "complete-tasks", tasks: [{ id: "csv-explain", title: "Explain your validation choices", kind: "explanation", purpose: "reflection", skillIds: csvSkills, introducedSkillIds: [], explanation: "Describe your decisions in your own words. The saved reflection supports your learning journal; it is not an automatically graded correctness claim. Reopen the project whenever a counterexample exposes a gap.", examples: ["Trace an invalid row followed by a valid row with the same ID. At which point does the ID enter seen?"], requirements: ["Explain why splitting CSV on commas fails for quoted IDs.", "Explain why invalid rows cannot reserve IDs and why fractional cents must be rejected.", "Give one concrete input/output example and one remaining uncertainty. Write at least 20 characters."], hints: [], variants: [textVariant("csv-reflection-v1", "csv-reflection")] }] },
+    ],
+  },
+  {
+    id: "json-api-normalization", version: "1.0.0", title: "Carry your validation skills into a JSON API", summary: "Reuse ordered transformations and exact money rules while learning to validate nested response envelopes.", prerequisites: ["csv-foundations"], introducedSkillIds: ["json-validation"], revisitedSkillIds: csvSkills, estimatedMinutes: 45,
+    stages: [
+      { id: "json-review", kind: "review", title: "Review", estimatedMinutes: 5, advanceRule: "attempt-review", tasks: [] },
+      { id: "json-learn", kind: "learn", title: "Learn", estimatedMinutes: 10, advanceRule: "complete-tasks", tasks: [
+        { id: "json-instruction", title: "Validate every layer of a response", kind: "instruction", purpose: "instruction", skillIds: jsonSkills, introducedSkillIds: ["json-validation"], explanation: "JSON parsing only proves syntax, not the shape or meaning of the data. json.loads can return a dictionary, list, string, number, boolean, or None. Check the outer shape before looking up payments; then check each payment and its nested money dictionary. An absent key and a key whose value is null both need explicit handling. Your CSV-era validator still owns business rules: allowed currencies, exact cents, nonempty IDs, first valid occurrence. Keep those rules independent of the transport parser so future database imports can reuse them.", examples: ["import json\ntry:\n    payload = json.loads('{\"payments\": null}')\nexcept json.JSONDecodeError:\n    payload = None\n# Parsing succeeds, but payments is not a list.", "row = {'money': {'amount': '0.10'}}\nmoney = row.get('money')\nif isinstance(money, dict):\n    text = money.get('amount')\n    # Verify text is a string before Decimal(text).", "# JSON true becomes Python True.\n# isinstance(True, int) is True; exact field types matter.\n# A JSON numeric amount is outside this mission's text-money contract."], requirements: ["Read and acknowledge the boundary checks. Reading records exposure, not mastery."], hints: [], variants: [textVariant("json-reading-v1", "json-teaching")] },
+        { ...inventoryTask, id: "json-guided", title: "Guided practice: guard nested-data building blocks", purpose: "guided-practice", explanation: "Before adding the JSON envelope, practise strict field types on an inventory list. Work in this order: guard the list; guard each dictionary; read sku and quantity; require a string SKU and exact integer quantity; trim, validate, deduplicate, and append a fresh dictionary. In particular, True is not a valid quantity even though bool subclasses int in Python. The same care will prevent API numeric amounts or null objects from slipping through." },
+      ] },
+      { id: "json-build", kind: "build", title: "Build", estimatedMinutes: 25, advanceRule: "complete-tasks", tasks: [jsonProject] },
+      { id: "json-explain-stage", kind: "explain", title: "Explain", estimatedMinutes: 5, advanceRule: "complete-tasks", tasks: [{ id: "json-explain", title: "Explain what transferred from CSV", kind: "explanation", purpose: "reflection", skillIds: jsonSkills, introducedSkillIds: [], explanation: "Compare the two projects. Name the validation rules that survived the transport change and the new checks needed at the JSON boundary. This is a saved reflection, not an automatic correctness assessment.", examples: ["A valid JSON object with payments=null is syntactically valid but violates the response contract."], requirements: ["Explain the difference between parsing JSON and validating its contract.", "Name two reused CSV-era rules and trace one mixed valid/invalid response.", "State what this fixture exercise does not establish about live HTTP resilience. Write at least 20 characters."], hints: [], variants: [textVariant("json-reflection-v1", "json-reflection")] }] },
+    ],
+  },
+];

@@ -1,6 +1,12 @@
 export const paymentsCsv = 'id,amount,currency\n pay_101 ,12.00, usd \npay_102,,USD\npay_103,0.10,EUR\npay_101,90.00,USD\npay_104,-1.00,GBP\n';
 export const graderCatalog = Object.freeze({
   "payments-csv-v1": Object.freeze({ exerciseId: "messy-csv-challenge", version: "1.2.0", requiredTests: ["concept-csv", "concept-decimal", "sample", "empty", "header", "precision", "invalid", "duplicates", "quoted", "shape"] }),
+  "api-normalization-v1": Object.freeze({ exerciseId: "api-normalization-challenge", version: "1.0.0", requiredTests: ["concept-json", "concept-decimal", "sample", "empty", "envelope", "malformed", "types", "mixed", "precision", "invalid", "duplicates", "shape"] }),
+  "contacts-v1": Object.freeze({ exerciseId: "contacts-challenge", version: "1.0.0", requiredTests: ["sample", "empty", "invalid", "duplicates", "shape"] }),
+  "inventory-v1": Object.freeze({ exerciseId: "inventory-challenge", version: "1.0.0", requiredTests: ["sample", "empty", "invalid", "duplicates", "shape"] }),
+  "csv-tags-v1": Object.freeze({ exerciseId: "csv-tags-challenge", version: "1.0.0", requiredTests: ["sample", "empty", "header", "quoted", "invalid"] }),
+  "invoice-cents-v1": Object.freeze({ exerciseId: "invoice-cents-challenge", version: "1.0.0", requiredTests: ["sample", "precision", "invalid"] }),
+  "webhook-events-v1": Object.freeze({ exerciseId: "webhook-events-challenge", version: "1.0.0", requiredTests: ["sample", "empty", "envelope", "invalid", "duplicates"] }),
 });
 export function getGrader(exerciseId, graderId) {
   const grader = Object.hasOwn(graderCatalog, graderId) ? graderCatalog[graderId] : undefined;

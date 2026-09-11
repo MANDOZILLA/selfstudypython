@@ -3,6 +3,9 @@ import {
   getState,
   resetState,
   saveState,
+  startOrResumeMission,
+  advanceMissionStage,
+  saveMissionDraft,
   type LearningState,
 } from "../lib/state";
 
@@ -54,13 +57,6 @@ describe("learner state", () => {
       ...getState(),
       dashboard: { activeTab: "lessons" },
       diagnostic: { completed: true, completedAt: "2026-09-10T12:00:00.000Z" },
-      attempts: [{ id: "attempt-1", contentId: "exercise-clean-csv", kind: "exercise", score: 0.8, hintsUsed: 1, aiAssisted: false, independent: true, completedAt: "2026-09-10T12:00:00.000Z" }],
-      mastery: {
-        "data-cleaning": { skillId: "data-cleaning", score: 62, confidence: 0.5, independentEvidence: 1, totalEvidence: 2, lastDemonstratedAt: "2026-09-10T12:00:00.000Z" },
-      },
-      reviewSchedule: {
-        "data-cleaning": { skillId: "data-cleaning", dueAt: "2026-09-13T12:00:00.000Z", reason: "practice" },
-      },
       portfolio: [{ projectId: "project-csv-repair", title: "Repair a messy CSV", sourceFiles: { "main.py": "print('ok')" }, tests: [{ name: "removes blank rows", passed: true }], feedback: "Handles malformed rows.", score: 0.88, skillIds: ["data-cleaning"], completedAt: "2026-09-10T12:00:00.000Z" }],
     };
 
@@ -84,11 +80,11 @@ describe("learner state", () => {
 
     const migrated = getState();
 
-    expect(migrated.version).toBe(1);
+    expect(migrated.version).toBe(2);
     expect(migrated.dashboard.activeTab).toBe("learned");
     expect(migrated.diagnostic.completed).toBe(true);
-    expect(migrated.mastery["python-functions"]?.score).toBe(78);
-    expect(migrated.reviewSchedule["python-functions"]?.reason).toBe("retrieval");
+    expect(migrated.mastery).toEqual({});
+    expect(migrated.reviewSchedule).toEqual({});
   });
 
   it("recovers to defaults when stored JSON is malformed and reset clears storage", () => {
@@ -101,5 +97,20 @@ describe("learner state", () => {
 
     expect(browserStorage.getItem(storageKey)).toBeNull();
     expect(getState().diagnostic.completed).toBe(false);
+  });
+  it("persists and resumes the mission and its exact draft through browser storage", () => {
+    installBrowserStorage();
+    let state = startOrResumeMission(getState(), new Date("2026-09-11T12:00:00.000Z"));
+    const runId = state.missionRuns[0].id;
+    state = advanceMissionStage(state, runId);
+    state = saveMissionDraft(state, runId, "csv-guided", { sourceFiles: { "main.py": "def solve(records):\n    return records" }, response: "my note", assistance: { hintsUsed: 1, aiAssisted: false, solutionViewed: false } });
+    saveState(state);
+    const resumed = startOrResumeMission(getState(), new Date("2026-09-12T12:00:00.000Z"));
+    expect(resumed.missionRuns[0].id).toBe(runId);
+    expect(resumed.missionRuns[0].drafts["csv-guided"].sourceFiles["main.py"]).toBe("def solve(records):\n    return records");
+  });
+  it("surfaces unavailable persistence so the UI cannot claim a draft was saved", () => {
+    Object.defineProperty(globalThis, "window", { configurable: true, value: { get localStorage() { throw new Error("blocked"); } } });
+    expect(() => saveState(getState())).toThrow(/storage/i);
   });
 });

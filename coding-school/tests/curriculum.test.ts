@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { curriculum, validateCurriculum } from "../lib/curriculum";
 
 describe("seed curriculum", () => {
-  it("contains ten complete, schema-valid lessons", () => {
+  it("exposes complete authored missions through the compatibility lesson view", () => {
     expect(validateCurriculum(curriculum).success).toBe(true);
-    expect(curriculum.lessons).toHaveLength(10);
+    expect(curriculum.lessons).toHaveLength(2);
     for (const lesson of curriculum.lessons) {
       expect(lesson.objectives.length).toBeGreaterThan(1);
       expect(lesson.examples.length).toBeGreaterThanOrEqual(2);
