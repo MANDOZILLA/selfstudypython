@@ -12,6 +12,9 @@
 
 # testing
 /coverage
+/.artifacts/
+/public/monaco/
+/test-results/
 
 # next.js
 /.next/

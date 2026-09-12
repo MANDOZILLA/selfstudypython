@@ -4,7 +4,7 @@ export type GradeResult = ReturnType<typeof failureResult>;
 export type GradeRequest = { type: "run"; requestId: string; exerciseId: string; graderId: string; files: Record<string, string> };
 type WorkerTransport = Pick<Worker, "onmessage" | "onerror" | "onmessageerror" | "postMessage" | "terminate">;
 
-export function startGradingRun(request: GradeRequest, onComplete: (result: GradeResult) => void, createWorker: () => WorkerTransport = () => new Worker("/python-worker.js", { type: "module" }), timeoutMs = 15000): () => void {
+export function startGradingRun(request: GradeRequest, onComplete: (result: GradeResult) => void, createWorker: () => WorkerTransport = () => new Worker("/python-worker.js", { type: "module" }), timeoutMs = 15000, onProgress?: (phase: "loading" | "running") => void): () => void {
   let active = true;
   let worker: WorkerTransport | undefined;
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -23,6 +23,10 @@ export function startGradingRun(request: GradeRequest, onComplete: (result: Grad
     timeout = setTimeout(() => finish(failureResult(request, "Timed out after 15 seconds. Your code is preserved; the worker was stopped.")), timeoutMs);
     worker.onmessage = ({ data }) => {
       if (!active) return;
+      if (data?.type === "progress") {
+        if (data.requestId === request.requestId && data.exerciseId === request.exerciseId && data.graderId === request.graderId && (data.phase === "loading" || data.phase === "running")) onProgress?.(data.phase);
+        return;
+      }
       const result = verifyWorkerResult(request, data);
       if (result) finish(result);
     };

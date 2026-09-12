@@ -14,6 +14,17 @@ const request = { type: "run" as const, requestId: "run-1", exerciseId: "messy-c
 const required = ["concept-csv", "concept-decimal", "sample", "empty", "header", "precision", "invalid", "duplicates", "quoted", "shape"].map(id => ({ id, name: id, passed: true, required: true, detail: "" }));
 afterEach(() => vi.useRealTimers());
 describe("worker lifecycle", () => {
+  it("reports matching Python progress without accepting it as a grade", () => {
+    const worker = new WorkerTransport();
+    const completed = vi.fn();
+    const progress = vi.fn();
+    startGradingRun(request, completed, () => worker, 15000, progress);
+    worker.onmessage?.({ data: { ...request, type: "progress", requestId: "old", phase: "running" } });
+    expect(progress).not.toHaveBeenCalled();
+    worker.onmessage?.({ data: { ...request, type: "progress", phase: "running" } });
+    expect(progress).toHaveBeenCalledWith("running");
+    expect(completed).not.toHaveBeenCalled();
+  });
   it("ignores mismatched results then accepts the current verified result", () => {
     const worker = new WorkerTransport();
     const completed = vi.fn();
