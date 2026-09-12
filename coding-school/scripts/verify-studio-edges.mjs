@@ -30,18 +30,23 @@ try {
   await page.getByRole("button", { name: /I’ve read the examples/ }).click();
   await page.getByRole("button", { name: "Use plain text" }).click();
   const starter = await code().inputValue();
+  const beforeInfrastructure = await count();
+  const reviewsBeforeInfrastructure = (await state()).reviewSchedule;
 
   await page.route("**/python-worker.js", route => route.abort());
   await run(); await waitStatus("Couldn't run");
   assert.equal(await code().inputValue(), starter);
-  assert.equal((await state()).attempts.at(-1).passed, false);
+  assert.equal(await count(), beforeInfrastructure);
+  assert.deepEqual((await state()).reviewSchedule, reviewsBeforeInfrastructure);
   await page.unroute("**/python-worker.js");
-  console.log("PASS worker startup failure: Couldn't run, failed attempt, code preserved.");
+  console.log("PASS worker startup failure: Couldn't run, no learner attempt, reviews unchanged, code preserved.");
 
   await code().fill("while True:\n    pass\n");
   await run(); await waitStatus("Timed out");
   assert.equal(await code().inputValue(), "while True:\n    pass\n");
   assert.equal((await state()).missionRuns[0].stageIndex, 1);
+  assert.equal(await count(), beforeInfrastructure);
+  assert.deepEqual((await state()).reviewSchedule, reviewsBeforeInfrastructure);
   await page.screenshot({ path: "test-results/timed-out-desktop.png" });
   console.log("PASS timeout: worker terminated, draft preserved, no advancement.");
 

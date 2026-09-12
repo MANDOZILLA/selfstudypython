@@ -94,6 +94,7 @@ export function recordMissionAttempt(state: LearningState, runId: string, taskId
   const request = { type: "run", requestId: "evidence", exerciseId: variant.exerciseId, graderId: variant.graderId, files: input.sourceFiles };
   const grader = getGrader(variant.exerciseId, variant.graderId);
   const result = aggregateResult(request, input.result);
+  if (task!.kind === "code" && !result.executionOk) return state;
   if (task!.kind === "code" && input.result?.graderVersion !== grader?.version) throw new Error("Grader version does not match this task.");
   const passed = task!.kind === "code" ? result.passed : task!.kind === "instruction" ? true : response.trim().length >= 20;
   const checks: AttemptRecord["checks"] = task!.kind === "code" ? result.tests : [];
@@ -170,6 +171,7 @@ export function migrateState(value: unknown): LearningState {
       if (a.graderVersion !== grader?.version) return [];
       const result = aggregateResult({ requestId: "hydrate", exerciseId: variant.exerciseId, graderId: variant.graderId }, { executionOk: a.executionOk, tests: a.checks });
       a.passed = result.passed; a.executionOk = result.executionOk; a.checks = result.tests;
+      if (!a.executionOk) return [];
       a.skillOutcomes = task.skillIds.map(skillId => {
         const checkIds = variant.skillChecks[skillId] ?? [];
         return { skillId, checkIds, passed: a.executionOk && checkIds.length > 0 && checkIds.every(id => a.checks.some(c => c.id === id && c.passed)) };
@@ -205,15 +207,24 @@ function storage(): Storage | undefined {
   if (typeof window === "undefined") return undefined;
   try { return window.localStorage; } catch { return undefined; }
 }
+export class StateRecoveryError extends Error {
+  constructor(public raw: string) { super("Saved data could not be read. Recover or export it before resetting."); }
+}
 export function getState(): LearningState {
-  try { const serialized = storage()?.getItem(STORAGE_KEY); return serialized ? migrateState(JSON.parse(serialized)) : createDefaultState(); }
-  catch { return createDefaultState(); }
+  const serialized = storage()?.getItem(STORAGE_KEY);
+  if (!serialized) return createDefaultState();
+  let parsed: unknown;
+  try { parsed = JSON.parse(serialized); } catch { throw new StateRecoveryError(serialized); }
+  if (!object(parsed)) throw new StateRecoveryError(serialized);
+  return migrateState(parsed);
 }
 export function saveState(state: LearningState): LearningState {
   const normalized = migrateState(state);
   // Surface a failed write to the caller; a UI must not claim an unsaved draft persisted.
   const browserStorage = storage();
   if (typeof window !== "undefined" && !browserStorage) throw new Error("Browser storage is unavailable; your changes have not been saved.");
+  // Never overwrite an unreadable payload with fresh state without explicit recovery.
+  getState();
   browserStorage?.setItem(STORAGE_KEY, JSON.stringify(normalized));
   return clone(normalized);
 }

@@ -19,6 +19,36 @@ function learn() { const state = start(); return advanceMissionStage(state, stat
 function submit(state: LearningState, id: string, pass = true) { return recordMissionAttempt(state, state.missionRuns[0].id, id, submission(id, pass), now); }
 
 describe("persisted studio views", () => {
+  it("does not store infrastructure failures or alter their review schedule", () => {
+    const state = submit(learn(), "csv-instruction");
+    for (const message of ["Worker failed", "Timed out after 15 seconds."]) {
+      const task = getTask("csv-guided")!;
+      const variant = task.variants[0];
+      const result = failureResult({ requestId: "failure", exerciseId: variant.exerciseId, graderId: variant.graderId }, message);
+      const saved = persistAttempt(state, state.missionRuns[0].id, task.id, { ...submission(task.id), result }, migrateState, now);
+      expect(saved.saved).toBe(false);
+      expect(saved.error).toBeNull();
+      expect(saved.state).toBe(state);
+      expect(saved.state.reviewSchedule).toEqual(state.reviewSchedule);
+      expect(recordMissionAttempt(state, state.missionRuns[0].id, task.id, { ...submission(task.id), result }, now)).toEqual(state);
+    }
+  });
+  it("stores executed failed checks as negative practice, never positive evidence", () => {
+    const state = submit(learn(), "csv-instruction");
+    const saved = persistAttempt(state, state.missionRuns[0].id, "csv-guided", submission("csv-guided", false), migrateState, now);
+    expect(saved.saved).toBe(true);
+    expect(saved.state.attempts.at(-1)).toMatchObject({ passed: false, executionOk: true });
+    expect(saved.state.mastery["csv-cleaning"].independentSuccesses).toBe(0);
+    expect(getWorkbenchModel(saved.state, state.missionRuns[0].id)?.stageComplete).toBe(false);
+    expect(saved.state.reviewSchedule[saved.state.attempts.at(-1)!.skillOutcomes[0].skillId].reason).toBe("repair");
+  });
+  it("review-only activity never downgrades a completed library mission", () => {
+    const state = start();
+    state.missionRuns[0].status = "completed";
+    state.missionRuns.push({ ...structuredClone(state.missionRuns[0]), id: "review", mode: "review", status: "active" });
+    expect(getLibraryRows(state)[0].status).toBe("Completed");
+    expect(getLibraryRows(state)[1].blockedReason).toBeNull();
+  });
   it("moves keyboard focus through mobile panels with wrapping and Home/End", () => {
     expect(nextWorkbenchPanel("instructions", "ArrowRight")).toBe("code");
     expect(nextWorkbenchPanel("instructions", "ArrowLeft")).toBe("checks");

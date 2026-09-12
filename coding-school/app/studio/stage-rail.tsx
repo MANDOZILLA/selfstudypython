@@ -1,8 +1,8 @@
 import type { MissionDefinition, MissionRun } from "../../lib/mission-types";
 
-export function StageRail({ mission, run }: { mission: MissionDefinition; run?: MissionRun }) {
-  return <ol className="stage-rail" aria-label="Mission stages">
-    {mission.stages.map((stage, index) => {
+export function StageRail({ mission, run, reviewOnly = run?.mode === "review" }: { mission: MissionDefinition; run?: MissionRun; reviewOnly?: boolean }) {
+  return <ol className={`stage-rail${reviewOnly ? " review-only" : ""}`} aria-label={reviewOnly ? "Review stage" : "Mission stages"}>
+    {(reviewOnly ? mission.stages.slice(0, 1) : mission.stages).map((stage, index) => {
       const completed = run?.stages[index].status === "completed";
       const current = Boolean(run && run.stageIndex === index && run.status !== "completed");
       return <li key={stage.id} className={current ? "current" : ""} aria-current={current ? "step" : undefined}>

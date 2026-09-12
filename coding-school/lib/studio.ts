@@ -30,7 +30,7 @@ export function getDashboardModel(state: LearningState, now = new Date()) {
 }
 
 export function getLibraryRows(state: LearningState) {
-  const active = state.missionRuns.find(r => r.status !== "completed");
+  const active = state.missionRuns.find(r => r.mode === "mission" && r.status !== "completed");
   const completed = new Set(state.missionRuns.filter(r => r.mode === "mission" && r.status === "completed").map(r => r.missionId));
   return curriculum.missions.map(mission => {
     const status = active?.missionId === mission.id ? "In progress" : completed.has(mission.id) ? "Completed" : "Not started";
@@ -77,8 +77,19 @@ export function getWorkbenchModel(state: LearningState, runId: string, selectedT
 }
 
 export function persistAttempt(state: LearningState, runId: string, taskId: string, input: AttemptSubmission, persist: (state: LearningState) => LearningState, now = new Date()) {
+  if (getTask(taskId)?.kind === "code" && !input.result?.executionOk) return { state, saved: false, error: null };
   try { return { state: persist(recordMissionAttempt(state, runId, taskId, input, now)), saved: true, error: null }; }
   catch (error) { return { state, saved: false, error: error instanceof Error ? error.message : String(error) }; }
+}
+
+export function getProjectReview(state: LearningState, runId?: string, now = new Date()) {
+  const attempts = state.attempts.filter(a => !runId || a.runId === runId);
+  const project = attempts.filter(a => a.purpose === "project" && a.executionOk).at(-1);
+  const reflection = project ? attempts.filter(a => a.runId === project.runId && a.purpose === "reflection").at(-1) : undefined;
+  const skills = project?.skillOutcomes.map(outcome => ({ ...deriveSkillEvidence(state.attempts, outcome.skillId), title: curriculum.skills.find(s => s.id === outcome.skillId)?.title ?? outcome.skillId })) ?? [];
+  const remaining = [...new Set([...(project?.checks.filter(c => !c.passed).map(c => c.name) ?? []), ...Object.values(deriveReviewSchedule(state.attempts)).filter(r => r.dueAt <= now.toISOString()).map(r => `Review ${curriculum.skills.find(s => s.id === r.skillId)?.title ?? r.skillId}`)])];
+  return { project, reflection, skills, remaining, title: project ? getTask(project.taskId)?.title : undefined,
+    assistance: project ? getEvidenceRows(state).find(row => row.attempt.id === project.id)?.assistance : undefined };
 }
 
 export type RunStatus = "Ready" | "Loading Python" | "Running checks" | "Passed" | "Needs changes" | "Timed out" | "Couldn't run";

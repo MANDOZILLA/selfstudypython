@@ -66,7 +66,7 @@ export function deriveReviewSchedule(attempts: AttemptRecord[]): Record<string, 
     const eventKey = JSON.stringify([a.runId, a.taskId, a.graderId, a.graderVersion, a.sourceHash, a.resultHash]);
     if (processed.has(eventKey)) continue;
     processed.add(eventKey);
-    if (a.purpose === "reflection") continue;
+    if (a.purpose === "reflection" || !a.executionOk) continue;
     const skills = new Set([...a.introducedSkillIds, ...a.skillOutcomes.map(s => s.skillId)]);
     for (const skillId of skills) {
       const exposed = a.purpose === "instruction" && a.passed && a.introducedSkillIds.includes(skillId);

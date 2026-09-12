@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   getState,
+  createDefaultState,
   resetState,
   saveState,
   startOrResumeMission,
@@ -87,12 +88,13 @@ describe("learner state", () => {
     expect(migrated.reviewSchedule).toEqual({});
   });
 
-  it("recovers to defaults when stored JSON is malformed and reset clears storage", () => {
+  it("preserves malformed JSON and blocks writes until explicit reset", () => {
     installBrowserStorage();
     browserStorage.setItem(storageKey, "not json");
 
-    expect(getState().dashboard.activeTab).toBe("overview");
-    saveState({ ...getState(), dashboard: { activeTab: "portfolio" } });
+    expect(() => getState()).toThrow(/recover/i);
+    expect(() => saveState(createDefaultState())).toThrow(/recover/i);
+    expect(browserStorage.getItem(storageKey)).toBe("not json");
     resetState();
 
     expect(browserStorage.getItem(storageKey)).toBeNull();

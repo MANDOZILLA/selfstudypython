@@ -352,4 +352,35 @@ pre { font: 12px/1.75 var(--mono); white-space: pre-wrap; overflow-wrap: anywher
   .storage-error { flex-direction: column; align-items: stretch; padding: 16px; }
   .storage-error+.workbench { height: auto; min-height: calc(100dvh - 56px); overflow: visible; }
 }
+.stage-rail.review-only { grid-template-columns: 1fr; }
+.teaching-block { margin: 24px 0; padding-top: 4px; }
+.teaching-block h3 { font-size: 15px; margin-top: 8px; }
+.requirement-block { border-top: 2px solid var(--line); border-bottom: 1px solid var(--line); padding: 16px 0; }
+.example-block figure { margin: 16px 0; }
+.example-block figcaption { color: var(--secondary); font-size: 12px; font-weight: 500; }
+.example-block .example { border-left: 3px solid #6f8bb1; }
+.task-content p, .stage-document p, .reading-aside p { font-size: 16px; }
+.requirements { font-size: 14px; }
+.task-content .eyebrow, .task-outcome .eyebrow, .stage-rail small, .workbench-heading .stage-rail small,
+.stage-rail strong, .workbench-heading .stage-rail strong, .mode-description, .status-label, .run-status,
+.check-results p, .result-label, .evidence-description>span, .save-indicator, .editor-actions .save-indicator,
+.editor-shortcut, .console-output summary, .hint-section .section-heading>span, .example, .console-output pre { font-size: 12px; }
+.stage-rail small { white-space: normal; line-height: 1.4; }
+.independent-note { padding: 16px; background: #f1f5fb; border-left: 3px solid var(--action); }
+.summary-actions, .completion-record { margin-top: 24px; }
+.button-row { flex-wrap: wrap; }
+[hidden] { display: none !important; }
+@media (max-width: 1023px) { .desktop-stop { display: none; } }
+@media (max-width: 600px) {
+  .stage-rail { gap: 6px; }
+  .workbench-heading .stage-rail strong { font-size: 12px; }
+  .workbench-heading .stage-rail small { font-size: 12px; }
+  .mission-topline .eyebrow { font-size: 12px; }
+  .workbench-topline { gap: 8px; }
+  .learning-toggle { flex-shrink: 0; }
+  .task-content p { font-size: 15px; }
+  .editor-actions .save-indicator { flex-basis: 100%; text-align: left; }
+  .code-pane, .active-code .code-pane { grid-template-rows: 44px minmax(120px, 1fr) auto auto; }
+  .editor-shortcut { padding-top: 6px; padding-bottom: 8px; }
+}
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; } }
