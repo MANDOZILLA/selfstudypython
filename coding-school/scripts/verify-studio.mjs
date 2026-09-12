@@ -91,6 +91,21 @@ for (const [name, viewport] of [["desktop", { width: 1280, height: 720 }], ["mob
     assert.equal(await page.getByRole("button", { name: "Run checks", exact: true }).count(), 0);
     await page.getByRole("button", { name: /I’ve read the examples/ }).click();
     await page.getByRole("heading", { name: "Guided practice: clean a contact list" }).waitFor();
+    assert.equal(await page.locator(".teaching-block").count(), 3);
+    if (mobile) {
+      const tabs = page.getByRole("tab");
+      assert.equal(await tabs.count(), 3);
+      assert.equal(await page.locator('[role="tabpanel"]').count(), 3);
+      assert.equal(await page.getByRole("tabpanel", { name: "Instructions" }).isVisible(), true);
+      assert.equal(await page.locator("#panel-code").getAttribute("hidden"), "");
+      assert.equal(await page.locator("#panel-checks").getAttribute("hidden"), "");
+      const proseSize = await page.locator(".task-explanation").evaluate(node => Number.parseFloat(getComputedStyle(node).fontSize));
+      const requirementSize = await page.locator(".requirements").evaluate(node => Number.parseFloat(getComputedStyle(node).fontSize));
+      const labelSize = await page.locator(".task-content .eyebrow").first().evaluate(node => Number.parseFloat(getComputedStyle(node).fontSize));
+      assert.ok(proseSize >= 15, `mobile instruction prose is ${proseSize}px`);
+      assert.ok(requirementSize >= 15, `mobile requirement text is ${requirementSize}px`);
+      assert.ok(labelSize >= 12, `mobile task label is ${labelSize}px`);
+    }
     await codePanel();
     if (mobile) {
       await page.getByRole("tab", { name: "Code", exact: true }).focus();
@@ -108,15 +123,25 @@ for (const [name, viewport] of [["desktop", { width: 1280, height: 720 }], ["mob
       assert.equal(await page.evaluate(() => document.activeElement.id), "run-checks");
     }
     await noOverflow(); await snapshot("workbench");
-    await run("Needs changes");
+    if (mobile) {
+      await page.getByRole("button", { name: "Run checks", exact: true }).click();
+      await page.getByRole("button", { name: "Stop run", exact: true }).waitFor();
+      assert.ok(await page.getByRole("button", { name: "Stop run", exact: true }).isVisible());
+      await page.locator(".run-status").filter({ hasText: "Needs changes" }).waitFor({ timeout: 25000 });
+      const resultSize = await page.locator(".check-results li").first().evaluate(node => Number.parseFloat(getComputedStyle(node).fontSize));
+      assert.ok(resultSize >= 15, `mobile check result text is ${resultSize}px`);
+    } else await run("Needs changes");
     assert.equal((await savedState()).attempts.at(-1).passed, false);
     assert.equal(await page.getByRole("button", { name: /Continue to Build/ }).count(), 0);
+    assert.equal(await page.getByText("Evidence captured", { exact: true }).count(), 0);
     await snapshot("failed-checks");
     await instructions();
     assert.equal(await page.getByRole("button", { name: "Reveal hint 1" }).count(), 0);
     await page.getByRole("checkbox", { name: "Learning Mode" }).uncheck();
     await page.getByRole("button", { name: "Reveal hint 1" }).click();
-    assert.equal(await page.getByRole("checkbox", { name: "Learning Mode" }).isDisabled(), true);
+    assert.equal(await page.getByRole("checkbox", { name: "Learning Mode" }).isDisabled(), false);
+    await page.getByRole("checkbox", { name: "Learning Mode" }).check();
+    assert.ok(await page.getByText(/Independent Mode applies when you start the next task/).isVisible());
     await (await plain()).fill(contactSolution);
     await nav("Today");
     await page.goBack();
@@ -132,7 +157,8 @@ for (const [name, viewport] of [["desktop", { width: 1280, height: 720 }], ["mob
     await snapshot("passed-practice");
     await page.getByRole("button", { name: "Continue to Build", exact: false }).filter({ visible: true }).click();
     await page.getByRole("heading", { name: "Repair a payments export" }).waitFor();
-    await page.getByRole("checkbox", { name: "Learning Mode" }).check();
+    assert.equal(await page.getByRole("checkbox", { name: "Learning Mode" }).isChecked(), true);
+    assert.equal(await page.getByRole("button", { name: "Reveal hint 1" }).count(), 0);
     await run("Needs changes");
     await (await plain()).fill(csvSolution);
     await run("Passed");
@@ -144,6 +170,8 @@ for (const [name, viewport] of [["desktop", { width: 1280, height: 720 }], ["mob
     await page.getByRole("button", { name: /Save reflection & finish/ }).click();
     await page.getByRole("heading", { name: "Your project and reflection are saved." }).waitFor();
     assert.ok(await page.getByText(/Project assistance: Independent/).isVisible());
+    assert.ok(await page.getByRole("heading", { name: "Saved artifact" }).isVisible());
+    assert.ok(await page.getByText(csvSolution, { exact: true }).isVisible());
     await snapshot("completion-summary");
     await page.reload();
     await page.getByRole("heading", { name: "Your project and reflection are saved." }).waitFor();

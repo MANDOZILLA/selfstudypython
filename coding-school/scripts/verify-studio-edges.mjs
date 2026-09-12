@@ -83,9 +83,11 @@ try {
   assert.ok(await page.getByText(/this attempt has not been saved/).isVisible());
   await page.screenshot({ path: "test-results/storage-failure-desktop.png" });
   await page.evaluate(() => { Storage.prototype.setItem = window.originalStudioSetItem; });
-  await run(); await waitStatus("Passed");
+  await page.getByRole("button", { name: "Retry saving", exact: true }).click();
   assert.equal(await count(), attemptsBeforeFailure + 1);
-  console.log("PASS failed persistence: no saved evidence claim, no advancement, retry succeeds.");
+  assert.equal(await page.getByRole("button", { name: /Continue to Build/ }).count(), 1);
+  assert.ok(await page.getByText(/practice attempt is saved/).isVisible());
+  console.log("PASS failed persistence: no saved evidence claim or advancement before a truthful retry succeeds.");
 
   const toggle = page.getByRole("checkbox", { name: "Learning Mode" });
   assert.equal(await toggle.isChecked(), true);
@@ -97,5 +99,29 @@ try {
   console.log("PASS Learning Mode preference persists; in-app AI remains unavailable.");
 } finally {
   await context.close();
+}
+
+const recovery = await browser.newContext({ viewport: { width: 375, height: 812 }, acceptDownloads: true });
+const recoveryPage = await recovery.newPage();
+try {
+  await recoveryPage.addInitScript(() => localStorage.setItem("coding-school:learner-state", "{corrupt saved work"));
+  await recoveryPage.goto(base);
+  await recoveryPage.getByRole("heading", { name: "Recover your saved work" }).waitFor();
+  assert.equal(await recoveryPage.evaluate(() => localStorage.getItem("coding-school:learner-state")), "{corrupt saved work");
+  assert.ok(await recoveryPage.getByRole("button", { name: "Export original data" }).isVisible());
+  assert.ok(await recoveryPage.getByRole("button", { name: "Retry recovery" }).isVisible());
+  assert.ok(await recoveryPage.getByRole("button", { name: "Back up data & reset" }).isVisible());
+  const download = recoveryPage.waitForEvent("download");
+  await recoveryPage.getByRole("button", { name: "Export original data" }).click();
+  assert.equal((await download).suggestedFilename(), "coding-school-recovery.txt");
+  await recoveryPage.getByRole("button", { name: "Retry recovery" }).click();
+  assert.equal(await recoveryPage.evaluate(() => localStorage.getItem("coding-school:learner-state")), "{corrupt saved work");
+  await recoveryPage.getByRole("button", { name: "Back up data & reset" }).click();
+  assert.equal(await recoveryPage.evaluate(() => localStorage.getItem("coding-school:learner-state")), null);
+  assert.equal(await recoveryPage.evaluate(() => Object.keys(localStorage).some(key => key.startsWith("coding-school:recovery:"))), true);
+  await recoveryPage.getByRole("button", { name: "Start 45-minute mission" }).waitFor();
+  console.log("PASS corrupt recovery: original payload is preserved until explicit export/retry/backup-reset recovery.");
+} finally {
+  await recovery.close();
   await browser.close();
 }

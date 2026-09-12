@@ -378,7 +378,7 @@ pre { font: 12px/1.75 var(--mono); white-space: pre-wrap; overflow-wrap: anywher
   .mission-topline .eyebrow { font-size: 12px; }
   .workbench-topline { gap: 8px; }
   .learning-toggle { flex-shrink: 0; }
-  .task-content p { font-size: 15px; }
+  .task-content p, .requirements, .checks-message, .check-results li, .check-results p { font-size: 15px; }
   .editor-actions .save-indicator { flex-basis: 100%; text-align: left; }
   .code-pane, .active-code .code-pane { grid-template-rows: 44px minmax(120px, 1fr) auto auto; }
   .editor-shortcut { padding-top: 6px; padding-bottom: 8px; }

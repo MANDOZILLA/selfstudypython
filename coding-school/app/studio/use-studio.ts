@@ -105,7 +105,7 @@ export function useStudio() {
   }
   function updateDraft(partial: Partial<MissionDraft>) {
     if (!workbench?.task || !workbench.draft) return;
-    if (learningMode && partial.assistance) return;
+    if (learningMode && !assistanceUsed && partial.assistance) return;
     cancelRun(); setResult(null); setStatus("Ready"); setAttemptSaved(false);
     const current = draftRef.current[workbench.task.id] ?? workbench.draft;
     const next = { ...current, ...partial, updatedAt: new Date().toISOString() };
@@ -161,7 +161,6 @@ export function useStudio() {
   }
   function stopRun() { cancelRun(); setStatus("Ready"); setResult(null); }
   function toggleLearningMode() {
-    if (!learningMode && assistanceUsed) return;
     try { window.localStorage.setItem("coding-school:learning-mode", learningMode ? "off" : "on"); setLearningMode(!learningMode); }
     catch { setStorageError("Could not save Learning Mode. Your current setting remains active."); }
   }

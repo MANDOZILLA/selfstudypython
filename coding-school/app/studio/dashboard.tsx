@@ -48,6 +48,7 @@ function ProjectReview({ studio, runId }: { studio: Studio; runId?: string }) {
     <span className="eyebrow">LATEST PROJECT REVIEW</span><h2>{review.title}</h2>
     <p>{review.project.passed ? "The required checks passed for this saved project." : "This saved project needs changes."} {review.project.checks.filter(c => c.passed).length} of {review.project.checks.length} verified checks passed.</p>
     <p>Project assistance: {review.assistance}. Completed {formatDate(review.project.completedAt)}.</p>
+    <h3>Saved artifact</h3>{Object.entries(review.project.sourceFiles).map(([name, source]) => <div className="saved-artifact" key={name}><strong>{name}</strong><pre>{source}</pre></div>)}
     <h3>Verified checks</h3><ul className="saved-checks">{review.project.checks.map(c => <li key={c.id}><strong>{c.passed ? "Passed" : "Needs changes"}: {c.name}</strong>{c.detail && <p>{c.detail}</p>}</li>)}</ul>
     <h3>Your reflection</h3><p>{review.reflection?.response || "No reflection saved for this project yet."}</p>
     <h3>Evidence-backed strengths</h3>{review.skills.some(s => s.evidenceAttemptIds.length) ? <ul className="skill-list">{review.skills.filter(s => s.evidenceAttemptIds.length).map(s => <li key={s.skillId}><span>{s.title}</span><span>{s.status}</span></li>)}</ul> : <p>No independent project strengths established yet. Assisted work remains practice.</p>}

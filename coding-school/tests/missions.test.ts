@@ -158,6 +158,16 @@ describe("continuous missions and honest evidence", () => {
     const failed = { ...retrieval, id: "failed", resultHash: "failed-result", completedAt: day(15).toISOString(), passed: false, skillOutcomes: retrieval.skillOutcomes.map(s => ({ ...s, passed: false })) };
     expect(adaptive.deriveReviewSchedule([...reviews, failed])["data-structures"]).toMatchObject({ intervalDays: 1, reason: "repair", dueAt: day(16).toISOString() });
   });
+  it("excludes unsuccessful executions from review scheduling", () => {
+    const state = submit(toBuild(), "csv-project");
+    const before = adaptive.deriveReviewSchedule(state.attempts);
+    const infrastructureFailure = {
+      ...state.attempts.at(-1)!, id: "worker-failure", runId: "failed-run", executionOk: false, passed: false,
+      resultHash: "worker-failure", completedAt: day(15).toISOString(),
+      skillOutcomes: state.attempts.at(-1)!.skillOutcomes.map(outcome => ({ ...outcome, passed: false })),
+    };
+    expect(adaptive.deriveReviewSchedule([...state.attempts, infrastructureFailure])).toEqual(before);
+  });
   it("selects active first, rejects locked missions, then adds bounded relevant review", () => {
     expect(() => engine.startOrResumeMission(engine.createDefaultState(), day(11), "json-api-normalization")).toThrow(/prerequisite/i);
     let state = submit(toBuild(), "csv-project");
