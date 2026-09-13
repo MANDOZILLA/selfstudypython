@@ -1,4 +1,6 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+Workbench School is a single-learner Python studio that runs on this computer.
+Mission progress, drafts and grading evidence are saved in `.data/coding-school.db`.
+See [local data, backup and recovery](db/README.md) before moving or restoring the database.
 
 ## Getting Started
 

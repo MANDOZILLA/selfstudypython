@@ -14,6 +14,6 @@ export function Navigation({ studio }: { studio: Studio }) {
         <span className="nav-icon" aria-hidden="true">{["◫", "▤", "≡", "◇"][i]}</span>{destination.label}
       </a>)}
     </nav>
-    <div className="nav-note"><span className="eyebrow">YOUR CODING PRACTICE</span><p>Build something useful.<br />Keep the evidence.</p><span className="local-note">Saved in this browser</span></div>
+    <div className="nav-note"><span className="eyebrow">YOUR CODING PRACTICE</span><p>Build something useful.<br />Keep the evidence.</p><span className="local-note">{!studio.ready ? "Opening local database" : studio.storageError ? "Save needs attention" : studio.saving ? "Saving your work…" : "Stored on this computer"}</span>{studio.ready && !studio.importPending && !studio.recoveryRaw && <button className="text-button" onClick={studio.exportBackup}>Export backup</button>}</div>
   </aside>;
 }

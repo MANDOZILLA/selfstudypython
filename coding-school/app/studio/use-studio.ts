@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { advanceMissionStage, createDefaultState, getState, resetState, StateRecoveryError, saveMissionDraft, saveState, startOrResumeMission, type LearningState, type MissionDraft } from "../../lib/state";
-import { destinations, getWorkbenchModel, persistAttempt, runStatus, type Destination, type RunStatus } from "../../lib/studio";
+import { advanceMissionStage, createDefaultState, resetState, StateRecoveryError, saveMissionDraft, recordMissionAttempt, startOrResumeMission, type LearningState, type MissionDraft } from "../../lib/state";
+import { destinations, getWorkbenchModel, runStatus, type Destination, type RunStatus } from "../../lib/studio";
 import { startGradingRun, type GradeResult } from "../../lib/runner";
+import { LearnerStore } from "../../lib/learner-store";
+import type { Snapshot } from "../../lib/persistence-contract";
 
 type Route = { destination: Destination; runId?: string; taskId?: string; completedRunId?: string };
 function readRoute(): Route {
@@ -28,7 +30,13 @@ export function useStudio() {
   const [ready, setReady] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
   const [recoveryRaw, setRecoveryRaw] = useState<string | null>(null);
-  const pendingWrite = useRef<LearningState | null>(null);
+  const storeRef = useRef<LearnerStore | null>(null);
+  const [importPending, setImportPending] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const savingCount = useRef(0);
+  const actionLock = useRef(false);
+  const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [learningMode, setLearningMode] = useState(true);
   const [localDrafts, setLocalDrafts] = useState<Record<string, MissionDraft>>({});
   const draftRef = useRef(localDrafts);
@@ -36,10 +44,25 @@ export function useStudio() {
   const [status, setStatus] = useState<RunStatus>("Ready");
   const [attemptSaved, setAttemptSaved] = useState(false);
   const runRef = useRef<{ cancel: () => void; requestId: string } | null>(null);
+  const editRevision = useRef(0);
 
   function cancelRun() {
+    editRevision.current++;
     runRef.current?.cancel();
     runRef.current = null;
+  }
+  function accept(snapshot: Snapshot) {
+    stateRef.current = snapshot.state; setState(snapshot.state); setLearningMode(snapshot.learningMode); setStorageError(null);
+  }
+  async function hydrate() {
+    try {
+      const store = storeRef.current ??= new LearnerStore();
+      const { snapshot, legacy } = await store.hydrate();
+      accept(snapshot); setImportPending(Boolean(legacy)); setRecoveryRaw(null); setReady(true);
+    } catch (error) {
+      if (error instanceof StateRecoveryError) { setRecoveryRaw(error.raw); setReady(true); }
+      else { setReady(false); setStorageError(error instanceof Error ? error.message : "Your saved work could not be loaded."); }
+    }
   }
   useEffect(() => {
     const restore = () => {
@@ -47,16 +70,16 @@ export function useStudio() {
       setResult(null); setStatus("Ready"); setAttemptSaved(false);
       setRoute(readRoute());
     };
-    const frame = requestAnimationFrame(() => {
-      try { const saved = getState(); stateRef.current = saved; setState(saved); }
-      catch (error) { if (error instanceof StateRecoveryError) setRecoveryRaw(error.raw); else setStorageError(String(error)); }
-      try { setLearningMode(window.localStorage.getItem("coding-school:learning-mode") !== "off"); }
-      catch { setStorageError("Browser storage is unavailable. Keep this page open to preserve your draft."); }
-      restore(); setReady(true);
-    });
+    const frame = requestAnimationFrame(() => { restore(); void hydrate(); });
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (draftTimer.current || storeRef.current?.pending || savingCount.current) event.preventDefault();
+    };
     window.addEventListener("popstate", restore);
     window.addEventListener("hashchange", restore);
-    return () => { cancelAnimationFrame(frame); window.removeEventListener("popstate", restore); window.removeEventListener("hashchange", restore); runRef.current?.cancel(); };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => { cancelAnimationFrame(frame); if (draftTimer.current) clearTimeout(draftTimer.current); window.removeEventListener("beforeunload", beforeUnload); window.removeEventListener("popstate", restore); window.removeEventListener("hashchange", restore); runRef.current?.cancel(); };
+    // Hydration runs once; all asynchronous persistence uses store/state refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const workbench = route.runId ? getWorkbenchModel(state, route.runId, route.taskId) : null;
@@ -64,20 +87,26 @@ export function useStudio() {
   const busy = status === "Loading Python" || status === "Running checks";
   const assistanceUsed = Boolean(draft && (draft.assistance.hintsUsed || draft.assistance.aiAssisted || draft.assistance.solutionViewed));
 
-  function commit(next: LearningState) {
-    if (recoveryRaw !== null) return false;
-    pendingWrite.current = next;
+  async function commit(update: (state: LearningState) => LearningState, mode?: boolean) {
+    if (!ready || recoveryRaw !== null || importPending || !storeRef.current) return false;
+    savingCount.current++; setSaving(true);
     try {
-      const saved = saveState(next); stateRef.current = saved; setState(saved); pendingWrite.current = null; setStorageError(null); return true;
+      accept(await storeRef.current.save(update, mode)); return true;
     } catch (error) {
       setStorageError(`${error instanceof Error ? error.message : String(error)} Your draft remains here. Retry saving before leaving.`); return false;
-    }
+    } finally { savingCount.current--; setSaving(savingCount.current > 0); }
   }
-  function flushDraft() {
+  async function flushDraft() {
+    if (draftTimer.current) { clearTimeout(draftTimer.current); draftTimer.current = null; }
     if (!workbench?.task) return true;
     const current = draftRef.current[workbench.task.id] ?? workbench.draft;
     if (!current) return true;
-    try { return commit(saveMissionDraft(stateRef.current, workbench.run.id, workbench.task.id, current)); }
+    try {
+      const taskId = workbench.task.id;
+      const saved = await commit(state => saveMissionDraft(state, workbench.run.id, taskId, current));
+      if (saved && (!draftRef.current[taskId] || draftRef.current[taskId] === current)) setDirty(false);
+      return saved;
+    }
     catch (error) { setStorageError(String(error)); return false; }
   }
   function go(next: Route, replace = false) {
@@ -87,21 +116,26 @@ export function useStudio() {
     window.scrollTo(0, 0);
     requestAnimationFrame(() => document.getElementById("page-title")?.focus());
   }
-  function navigate(destination: Destination) {
-    if (!flushDraft()) return;
-    const next = { ...stateRef.current, dashboard: { activeTab: destination === "today" ? "overview" as const : destination } };
-    if (commit(next)) go({ destination });
-  }
-  function start(missionId?: string) {
-    if (!flushDraft()) return;
+  async function navigate(destination: Destination) {
+    if (actionLock.current) return;
+    actionLock.current = true;
     try {
-      const next = startOrResumeMission(stateRef.current, new Date(), missionId);
-      const active = next.missionRuns.find(r => r.status === "active");
-      if (active && commit(next)) {
+      if (!await flushDraft()) return;
+      if (await commit(state => ({ ...state, dashboard: { activeTab: destination === "today" ? "overview" as const : destination } }))) go({ destination });
+    } finally { actionLock.current = false; }
+  }
+  async function start(missionId?: string) {
+    if (actionLock.current) return;
+    actionLock.current = true;
+    try {
+      if (!await flushDraft() || !await commit(state => startOrResumeMission(state, new Date(), missionId))) return;
+      const active = stateRef.current.missionRuns.find(r => r.status === "active");
+      if (active) {
         draftRef.current = {}; setLocalDrafts({});
         go({ destination: route.destination, runId: active.id });
       }
     } catch (error) { setStorageError(error instanceof Error ? error.message : String(error)); }
+    finally { actionLock.current = false; }
   }
   function updateDraft(partial: Partial<MissionDraft>) {
     if (!workbench?.task || !workbench.draft) return;
@@ -110,32 +144,48 @@ export function useStudio() {
     const current = draftRef.current[workbench.task.id] ?? workbench.draft;
     const next = { ...current, ...partial, updatedAt: new Date().toISOString() };
     draftRef.current = { ...draftRef.current, [workbench.task.id]: next };
-    setLocalDrafts(draftRef.current);
-    commit(saveMissionDraft(stateRef.current, workbench.run.id, workbench.task.id, next));
+    setLocalDrafts(draftRef.current); setDirty(true);
+    if (draftTimer.current) clearTimeout(draftTimer.current);
+    const taskId = workbench.task.id, runId = workbench.run.id;
+    draftTimer.current = setTimeout(async () => {
+      draftTimer.current = null;
+      const saved = await commit(state => saveMissionDraft(state, runId, taskId, next));
+      if (saved && draftRef.current[taskId] === next) setDirty(false);
+    }, 350);
   }
-  function continueStage() {
-    if (!workbench || !flushDraft()) return;
+  async function advance() {
+    if (!workbench || !await flushDraft()) return;
     try {
       const current = getWorkbenchModel(stateRef.current, workbench.run.id)!;
       if (!current.stageComplete) { go({ ...route, taskId: current.task?.id }, true); return; }
-      const next = advanceMissionStage(stateRef.current, workbench.run.id);
-      if (!commit(next)) return;
-      const run = next.missionRuns.find(r => r.id === workbench.run.id)!;
+      if (!await commit(state => advanceMissionStage(state, workbench.run.id))) return;
+      const run = stateRef.current.missionRuns.find(r => r.id === workbench.run.id)!;
       if (run.status === "completed") go({ destination: "today", completedRunId: run.id });
       else go({ ...route, taskId: undefined }, true);
     } catch (error) { setStorageError(error instanceof Error ? error.message : String(error)); }
   }
-  function submitText() {
-    if (!workbench?.task || !draft || !flushDraft()) return;
-    const task = workbench.task;
-    const saved = persistAttempt(stateRef.current, workbench.run.id, task.id, { variantId: task.variants[0].id, ...draft }, saveState);
-    if (!saved.saved) { setStorageError(saved.error); return; }
-    stateRef.current = saved.state; setState(saved.state); setStorageError(null);
-    // Acknowledging instruction opens its guided practice; reflection ends the mission.
-    continueStage();
+  async function continueStage() {
+    if (actionLock.current) return;
+    actionLock.current = true;
+    try { await advance(); } finally { actionLock.current = false; }
   }
-  function runChecks() {
-    if (runRef.current || !workbench?.task || !draft || !flushDraft()) return;
+  async function submitText() {
+    if (actionLock.current || !workbench?.task || !draft) return;
+    actionLock.current = true;
+    try {
+      if (!await flushDraft()) return;
+      const task = workbench.task;
+      if (!await commit(state => recordMissionAttempt(state, workbench.run.id, task.id, { variantId: task.variants[0].id, ...draft }))) return;
+      await advance();
+    } finally { actionLock.current = false; }
+  }
+  async function runChecks() {
+    if (actionLock.current || runRef.current || !workbench?.task || !draft) return;
+    actionLock.current = true;
+    const submittedRevision = editRevision.current;
+    const flushed = await flushDraft();
+    actionLock.current = false;
+    if (!flushed || submittedRevision !== editRevision.current) return;
     const task = workbench.task, variant = task.variants[0], runId = workbench.run.id;
     const submitted = { ...draft, sourceFiles: { ...draft.sourceFiles } };
     const requestId = crypto.randomUUID();
@@ -144,49 +194,64 @@ export function useStudio() {
     window.history.replaceState({}, "", routeHash(pinned)); setRoute(pinned);
     setResult(null); setAttemptSaved(false); setStatus("Loading Python");
     runRef.current = { requestId, cancel: () => {} };
-    const cancel = startGradingRun({ type: "run", requestId, exerciseId: variant.exerciseId, graderId: variant.graderId, files: submitted.sourceFiles }, data => {
+    const cancel = startGradingRun({ type: "run", requestId, exerciseId: variant.exerciseId, graderId: variant.graderId, files: submitted.sourceFiles }, async data => {
       if (runRef.current?.requestId !== requestId) return;
       runRef.current = null;
       setResult(data); setStatus(runStatus(data));
-      const saved = persistAttempt(stateRef.current, runId, task.id, { variantId: variant.id, ...submitted, result: data }, next => {
-        pendingWrite.current = next;
-        const written = saveState(next); pendingWrite.current = null; return written;
-      });
-      if (saved.saved) { stateRef.current = saved.state; setState(saved.state); setAttemptSaved(true); setStorageError(null); }
-      else { setAttemptSaved(false); setStorageError(saved.error); }
+      if (!data.executionOk) return;
+      const saved = await commit(state => recordMissionAttempt(state, runId, task.id, { variantId: variant.id, ...submitted, result: data }));
+      if (submittedRevision === editRevision.current) setAttemptSaved(saved);
     }, undefined, 15000, phase => {
       if (runRef.current?.requestId === requestId) setStatus(phase === "loading" ? "Loading Python" : "Running checks");
     });
     if (runRef.current?.requestId === requestId) runRef.current.cancel = cancel;
   }
   function stopRun() { cancelRun(); setStatus("Ready"); setResult(null); }
-  function toggleLearningMode() {
-    try { window.localStorage.setItem("coding-school:learning-mode", learningMode ? "off" : "on"); setLearningMode(!learningMode); }
-    catch { setStorageError("Could not save Learning Mode. Your current setting remains active."); }
+  async function toggleLearningMode() {
+    await commit(state => state, !learningMode);
   }
-  function retrySave() {
-    const pending = pendingWrite.current;
-    const saved = pending ? commit(pending) : workbench?.task ? flushDraft() : commit(stateRef.current);
-    if (saved && result?.executionOk && pending?.attempts.length && pending.attempts.length > state.attempts.length) setAttemptSaved(true);
-    return saved;
+  async function retrySave() {
+    if (!ready) { await hydrate(); return; }
+    const store = storeRef.current;
+    if (!store) return;
+    try {
+      const previousAttempts = stateRef.current.attempts.length;
+      if (store.pending) { accept(await store.retry()); if (!store.legacy) setImportPending(false); }
+      if (result?.executionOk && stateRef.current.attempts.length > previousAttempts) setAttemptSaved(true);
+      if (workbench?.task) await flushDraft();
+      else setStorageError(null);
+    } catch (error) { setStorageError(error instanceof Error ? error.message : String(error)); }
   }
   function exportRecovery() {
     if (recoveryRaw === null) return;
     const url = URL.createObjectURL(new Blob([recoveryRaw], { type: "text/plain" }));
     const link = document.createElement("a"); link.href = url; link.download = "coding-school-recovery.txt"; link.click(); URL.revokeObjectURL(url);
   }
-  function retryRecovery() {
-    try { const saved = getState(); stateRef.current = saved; setState(saved); setRecoveryRaw(null); setStorageError(null); }
-    catch (error) { if (error instanceof StateRecoveryError) setRecoveryRaw(error.raw); setStorageError("The stored data is still unreadable. Export a copy, or reset with a backup."); }
-  }
-  function resetRecovery() {
+  async function retryRecovery() { await hydrate(); }
+  async function resetRecovery() {
     if (recoveryRaw === null) return;
     try {
       window.localStorage.setItem(`coding-school:recovery:${Date.now()}`, recoveryRaw);
-      const fresh = resetState(); stateRef.current = fresh; setState(fresh); setRecoveryRaw(null); setStorageError(null); go({ destination: "today" });
+      resetState(); await hydrate(); go({ destination: "today" });
     } catch { setStorageError("Could not create a recovery backup. Export your data before freeing browser storage and retrying."); }
   }
-  return { state, ready, route, workbench, draft, result, status, busy, attemptSaved, learningMode, assistanceUsed, storageError, recoveryRaw,
-    navigate, start, updateDraft, continueStage, submitText, runChecks, stopRun, toggleLearningMode, retrySave, exportRecovery, retryRecovery, resetRecovery };
+  async function importLegacy() {
+    try { if (storeRef.current) { accept(await storeRef.current.importLegacy()); setImportPending(false); } }
+    catch (error) { setStorageError(error instanceof Error ? error.message : String(error)); }
+  }
+  async function startEmpty() {
+    try { if (storeRef.current) { accept(await storeRef.current.startEmpty()); setImportPending(false); } }
+    catch (error) { setStorageError(error instanceof Error ? error.message : String(error)); }
+  }
+  async function exportBackup() {
+    try {
+      const pending = storeRef.current?.pending;
+      const data = pending ? { format: "coding-school-pending-v1", ...pending, localDrafts: draftRef.current } : await storeRef.current?.exportBackup();
+      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+      const link = document.createElement("a"); link.href = url; link.download = pending ? "coding-school-pending.json" : "coding-school-backup.json"; link.click(); URL.revokeObjectURL(url);
+    } catch (error) { setStorageError(error instanceof Error ? error.message : String(error)); }
+  }
+  return { state, ready, route, workbench, draft, result, status, busy, attemptSaved, learningMode, assistanceUsed, storageError, recoveryRaw, importPending, saving: saving || dirty,
+    navigate, start, updateDraft, continueStage, submitText, runChecks, stopRun, toggleLearningMode, retrySave, exportRecovery, retryRecovery, resetRecovery, importLegacy, startEmpty, exportBackup };
 }
 export type Studio = ReturnType<typeof useStudio>;
