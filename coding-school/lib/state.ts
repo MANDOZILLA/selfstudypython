@@ -4,6 +4,8 @@ import { curriculum, getMission, getTask } from "./curriculum";
 import { assistanceSchema, attemptSchema, missionRunSchema, type AttemptRecord, type AttemptSubmission, type MissionDraft, type MissionRun } from "./mission-types";
 import { aggregateResult } from "../public/grading/protocol.js";
 import { getGrader } from "../public/grading/catalog.js";
+import type { DiagnosticState } from "./diagnostic-types";
+import { normalizeDiagnostic } from "./diagnostic";
 export type { AttemptRecord, AttemptSubmission, MissionDraft, MissionRun } from "./mission-types";
 
 const STORAGE_KEY = "coding-school:learner-state";
@@ -18,7 +20,7 @@ const portfolioSchema = z.object({
 export type PortfolioSnapshot = z.infer<typeof portfolioSchema>;
 export type LearningState = {
   version: typeof STATE_VERSION; dashboard: { activeTab: DashboardTab };
-  diagnostic: { completed: boolean; completedAt: string | null };
+  diagnostic: DiagnosticState;
   attempts: AttemptRecord[]; missionRuns: MissionRun[];
   mastery: Record<string, SkillEvidence>; reviewSchedule: Record<string, ScheduledReview>;
   portfolio: PortfolioSnapshot[];
@@ -144,6 +146,7 @@ export function migrateState(value: unknown): LearningState {
   if (["overview", "lessons", "learned", "assessment", "portfolio"].includes(String(tab))) next.dashboard.activeTab = tab as DashboardTab;
   const diagnostic = object(value.diagnostic) ? value.diagnostic : {};
   next.diagnostic = { completed: diagnostic.completed === true || value.diagnosticCompleted === true, completedAt: typeof diagnostic.completedAt === "string" ? diagnostic.completedAt : null };
+  if (diagnostic.sessions !== undefined) next.diagnostic = normalizeDiagnostic(diagnostic);
   const portfolio = Array.isArray(value.portfolio) ? value.portfolio : Array.isArray(value.completedProjects) ? value.completedProjects : [];
   next.portfolio = portfolio.flatMap(item => { const parsed = portfolioSchema.safeParse(item); return parsed.success ? [parsed.data] : []; });
   if (value.version !== STATE_VERSION) return next;

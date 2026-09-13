@@ -6,16 +6,20 @@ import { destinations, getWorkbenchModel, runStatus, type Destination, type RunS
 import { startGradingRun, type GradeResult } from "../../lib/runner";
 import { LearnerStore } from "../../lib/learner-store";
 import type { Snapshot } from "../../lib/persistence-contract";
+import { currentDiagnostic, diagnosticDraft, getDiagnosticItem, recordDiagnosticAttempt, saveDiagnosticDraft, startDiagnostic, submitDiagnostic } from "../../lib/diagnostic";
+import type { DiagnosticDraft } from "../../lib/diagnostic-types";
 
-type Route = { destination: Destination; runId?: string; taskId?: string; completedRunId?: string };
+type Route = { destination: Destination; runId?: string; taskId?: string; completedRunId?: string; diagnostic?: boolean };
 function readRoute(): Route {
   const [name, search] = window.location.hash.slice(1).split("?");
   const params = new URLSearchParams(search);
+  if (name === "baseline") return {destination:"assessment",diagnostic:true};
   if (name === "summary" && params.get("run")) return { destination: "today", completedRunId: params.get("run")! };
   if (name === "workbench" && params.get("run")) return { destination: "today", runId: params.get("run")!, taskId: params.get("task") ?? undefined };
   return { destination: destinations.some(d => d.id === name) ? name as Destination : "today" };
 }
 function routeHash(route: Route) {
+  if (route.diagnostic) return "#baseline";
   if (route.completedRunId) return `#summary?run=${encodeURIComponent(route.completedRunId)}`;
   if (!route.runId) return `#${route.destination}`;
   const params = new URLSearchParams({ run: route.runId });
@@ -45,6 +49,8 @@ export function useStudio() {
   const [attemptSaved, setAttemptSaved] = useState(false);
   const runRef = useRef<{ cancel: () => void; requestId: string } | null>(null);
   const editRevision = useRef(0);
+  const [baselineDrafts,setBaselineDrafts]=useState<Record<string,DiagnosticDraft>>({});
+  const baselineDraftRef=useRef(baselineDrafts);
 
   function cancelRun() {
     editRevision.current++;
@@ -83,6 +89,10 @@ export function useStudio() {
   }, []);
 
   const workbench = route.runId ? getWorkbenchModel(state, route.runId, route.taskId) : null;
+  const baseline=route.diagnostic?currentDiagnostic(state):undefined;
+  const baselineItem=baseline?.currentItemId?getDiagnosticItem(baseline.currentItemId):undefined;
+  const baselineKey=baseline && baselineItem?`${baseline.id}/${baselineItem.id}`:"";
+  const baselineDraft=baseline && baselineItem?baselineDrafts[baselineKey]??diagnosticDraft(baseline,baselineItem):undefined;
   const draft = workbench?.task ? localDrafts[workbench.task.id] ?? workbench.draft : undefined;
   const busy = status === "Loading Python" || status === "Running checks";
   const assistanceUsed = Boolean(draft && (draft.assistance.hintsUsed || draft.assistance.aiAssisted || draft.assistance.solutionViewed));
@@ -98,6 +108,12 @@ export function useStudio() {
   }
   async function flushDraft() {
     if (draftTimer.current) { clearTimeout(draftTimer.current); draftTimer.current = null; }
+    if(baseline && baselineItem){
+      const current=baselineDraftRef.current[baselineKey]??diagnosticDraft(baseline,baselineItem);
+      const saved=await commit(state=>saveDiagnosticDraft(state,baseline.id,baselineItem.id,current));
+      if(saved && (!baselineDraftRef.current[baselineKey] || baselineDraftRef.current[baselineKey]===current)) setDirty(false);
+      return saved;
+    }
     if (!workbench?.task) return true;
     const current = draftRef.current[workbench.task.id] ?? workbench.draft;
     if (!current) return true;
@@ -136,6 +152,40 @@ export function useStudio() {
       }
     } catch (error) { setStorageError(error instanceof Error ? error.message : String(error)); }
     finally { actionLock.current = false; }
+  }
+  async function beginBaseline(retake=false) {
+    if(actionLock.current)return;actionLock.current=true;
+    try { if(await flushDraft() && await commit(state=>startDiagnostic(state,new Date(),retake))) go({destination:"assessment",diagnostic:true}); }
+    finally{actionLock.current=false;}
+  }
+  function updateBaselineDraft(partial:Partial<DiagnosticDraft>) {
+    if(!baseline || !baselineItem || !baselineDraft)return;
+    cancelRun();setResult(null);setStatus("Ready");setAttemptSaved(false);
+    const next={...(baselineDraftRef.current[baselineKey]??baselineDraft),...partial};
+    baselineDraftRef.current={...baselineDraftRef.current,[baselineKey]:next};setBaselineDrafts(baselineDraftRef.current);setDirty(true);
+    if(draftTimer.current)clearTimeout(draftTimer.current);
+    draftTimer.current=setTimeout(async()=>{draftTimer.current=null;const saved=await commit(state=>saveDiagnosticDraft(state,baseline.id,baselineItem.id,next));if(saved&&baselineDraftRef.current[baselineKey]===next)setDirty(false);},250);
+  }
+  async function runBaselineChecks(){
+    if(actionLock.current||runRef.current||!baseline||!baselineItem||!baselineDraft||baselineItem.kind!=="code")return;
+    actionLock.current=true;const submittedRevision=editRevision.current;
+    const flushed=await flushDraft();actionLock.current=false;
+    if(!flushed||submittedRevision!==editRevision.current)return;
+    const sourceFiles={...baselineDraft.sourceFiles};const requestId=crypto.randomUUID();
+    setResult(null);setStatus("Loading Python");setAttemptSaved(false);
+    runRef.current={requestId,cancel:()=>{}};
+    const cancel=startGradingRun({type:"run",requestId,exerciseId:baselineItem.id,graderId:baselineItem.graderId!,files:sourceFiles},async data=>{
+      if(runRef.current?.requestId!==requestId || submittedRevision!==editRevision.current)return;
+      runRef.current=null;setResult(data);setStatus(runStatus(data));
+      const saved=await commit(state=>recordDiagnosticAttempt(state,baseline.id,baselineItem.id,requestId,sourceFiles,data));
+      if(submittedRevision===editRevision.current)setAttemptSaved(saved);
+    },undefined,15000,phase=>{if(runRef.current?.requestId===requestId)setStatus(phase==="loading"?"Loading Python":"Running checks");});
+    if(runRef.current?.requestId===requestId)runRef.current.cancel=cancel;
+  }
+  async function answerBaseline(skip=false){
+    if(actionLock.current||!baseline||!baselineItem)return;actionLock.current=true;
+    try {if(await flushDraft() && await commit(state=>submitDiagnostic(state,baseline.id,baselineItem.id,{requestId:crypto.randomUUID(),skip})))go({destination:"assessment",diagnostic:true},true);}
+    finally{actionLock.current=false;}
   }
   function updateDraft(partial: Partial<MissionDraft>) {
     if (!workbench?.task || !workbench.draft) return;
@@ -218,7 +268,7 @@ export function useStudio() {
       const previousAttempts = stateRef.current.attempts.length;
       if (store.pending) { accept(await store.retry()); if (!store.legacy) setImportPending(false); }
       if (result?.executionOk && stateRef.current.attempts.length > previousAttempts) setAttemptSaved(true);
-      if (workbench?.task) await flushDraft();
+      if (workbench?.task || baselineItem) await flushDraft();
       else setStorageError(null);
     } catch (error) { setStorageError(error instanceof Error ? error.message : String(error)); }
   }
@@ -252,6 +302,7 @@ export function useStudio() {
     } catch (error) { setStorageError(error instanceof Error ? error.message : String(error)); }
   }
   return { state, ready, route, workbench, draft, result, status, busy, attemptSaved, learningMode, assistanceUsed, storageError, recoveryRaw, importPending, saving: saving || dirty,
+    baseline,baselineItem,baselineDraft,beginBaseline,updateBaselineDraft,runBaselineChecks,answerBaseline,
     navigate, start, updateDraft, continueStage, submitText, runChecks, stopRun, toggleLearningMode, retrySave, exportRecovery, retryRecovery, resetRecovery, importLegacy, startEmpty, exportBackup };
 }
 export type Studio = ReturnType<typeof useStudio>;

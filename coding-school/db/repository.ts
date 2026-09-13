@@ -37,17 +37,19 @@ export async function openRepository(override?: string) {
   try {
     for (const pragma of ["PRAGMA foreign_keys=ON", "PRAGMA journal_mode=WAL", "PRAGMA synchronous=FULL", "PRAGMA busy_timeout=5000"]) await client.execute(pragma);
     await client.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)");
-    const sql = await readFile(resolve(process.cwd(), "db/migrations/0001_learner.sql"), "utf8");
-    const checksum = createHash("sha256").update(sql.replaceAll("\r\n", "\n")).digest("hex");
+    const migrations = await Promise.all(["0001_learner", "0002_placement"].map(async (name, index) => {
+      const sql = await readFile(resolve(process.cwd(), `db/migrations/${name}.sql`), "utf8");
+      return {version:index+1,name,sql,checksum:createHash("sha256").update(sql.replaceAll("\r\n", "\n")).digest("hex")};
+    }));
     const transaction = await client.transaction("write");
     try {
       const applied = await transaction.execute("SELECT version, checksum FROM schema_migrations ORDER BY version");
-      if (applied.rows.some(row => row.version !== 1 || row.checksum !== checksum)) throw new PersistenceError("unavailable");
-      if (!applied.rows.length) {
-        // This initial migration is additive. Future destructive migrations must
-        // create a consistent backup before opening their migration transaction.
-        for (const statement of sql.split(";").map(part => part.trim()).filter(Boolean)) await transaction.execute(statement);
-        await transaction.execute({ sql: "INSERT INTO schema_migrations(version,name,checksum) VALUES (?,?,?)", args: [1, "0001_learner", checksum] });
+      if (applied.rows.some((row,index) => row.version !== index+1 || !migrations.some(m=>m.version===row.version && m.checksum===row.checksum))) throw new PersistenceError("unavailable");
+      for (const migration of migrations.filter(m=>!applied.rows.some(row=>row.version===m.version))) {
+        // Both migrations are additive and run atomically. Existing learner data
+        // is untouched by migration; a failed checksum prevents opening the DB.
+        for (const statement of migration.sql.split(";").map(part => part.trim()).filter(Boolean)) await transaction.execute(statement);
+        await transaction.execute({ sql: "INSERT INTO schema_migrations(version,name,checksum) VALUES (?,?,?)", args: [migration.version, migration.name, migration.checksum] });
       }
       await transaction.commit();
     } catch (error) { await transaction.rollback(); throw error; }
@@ -71,6 +73,14 @@ export async function openRepository(override?: string) {
       state.portfolio = (await tx.select().from(schema.portfolioSnapshots).orderBy(asc(schema.portfolioSnapshots.position))).map(row => JSON.parse(row.payload));
       const [diagnostic] = await tx.select().from(schema.diagnosticSessions).where(eq(schema.diagnosticSessions.id, "local"));
       state.diagnostic = { completed: diagnostic.completed, completedAt: diagnostic.completedAt };
+      const placementSessions = await tx.select().from(schema.placementSessions).orderBy(asc(schema.placementSessions.position));
+      if (placementSessions.length) {
+        const drafts = await tx.select().from(schema.placementDrafts);
+        const attempts = await tx.select().from(schema.placementAttempts).orderBy(asc(schema.placementAttempts.position));
+        const responses = await tx.select().from(schema.placementResponses).orderBy(asc(schema.placementResponses.position));
+        const profiles = await tx.select().from(schema.placementProfiles);
+        state.diagnostic.sessions = placementSessions.map(s=>({...JSON.parse(s.payload),drafts:Object.fromEntries(drafts.filter(d=>d.sessionId===s.id).map(d=>[d.itemId,JSON.parse(d.payload)])),attempts:attempts.filter(a=>a.sessionId===s.id).map(a=>JSON.parse(a.payload)),responses:responses.filter(r=>r.sessionId===s.id).map(r=>JSON.parse(r.payload)),profile:profiles.filter(p=>p.sessionId===s.id).map(p=>JSON.parse(p.payload))}));
+      }
       state.dashboard.activeTab = meta.activeTab as typeof state.dashboard.activeTab;
       // Invalid stored records fail closed. Do not silently reset/drop evidence.
       const parsed = snapshotSchema.parse({ state, revision: meta.revision, initialized: meta.initialized, legacyImported: meta.legacyImported, learningMode: meta.learningMode });
@@ -118,6 +128,16 @@ export async function openRepository(override?: string) {
       for (const schedule of Object.values(state.reviewSchedule)) await tx.insert(schema.reviewSchedules).values({ skillId: schedule.skillId, dueAt: schedule.dueAt, intervalDays: schedule.intervalDays, payload: JSON.stringify(schedule) });
       for (const [position, snapshot] of state.portfolio.entries()) await tx.insert(schema.portfolioSnapshots).values({ position, projectId: snapshot.projectId, payload: JSON.stringify(snapshot) });
       await tx.update(schema.diagnosticSessions).set({ completed: state.diagnostic.completed, completedAt: state.diagnostic.completedAt }).where(eq(schema.diagnosticSessions.id, "local"));
+      await tx.delete(schema.placementResponses);
+      await tx.delete(schema.placementSessions);
+      for (const [position,session] of (state.diagnostic.sessions??[]).entries()) {
+        const {drafts,attempts,responses,profile,...payload}=session;
+        await tx.insert(schema.placementSessions).values({id:session.id,status:session.status,position,payload:JSON.stringify(payload)});
+        for(const [itemId,draft] of Object.entries(drafts)) await tx.insert(schema.placementDrafts).values({sessionId:session.id,itemId,payload:JSON.stringify(draft)});
+        for(const [position,attempt] of attempts.entries()) await tx.insert(schema.placementAttempts).values({id:attempt.id,sessionId:session.id,itemId:attempt.itemId,position,payload:JSON.stringify(attempt)});
+        for(const [position,response] of responses.entries()) await tx.insert(schema.placementResponses).values({id:response.id,sessionId:session.id,itemId:response.itemId,attemptId:response.attemptId,position,payload:JSON.stringify(response)});
+        for(const row of profile) await tx.insert(schema.placementProfiles).values({sessionId:session.id,skillId:row.skillId,payload:JSON.stringify(row)});
+      }
       const revision = meta.revision + 1;
       await tx.update(schema.learnerMeta).set({ revision, initialized: true, legacyImported: meta.legacyImported || request.operation === "import", activeTab: state.dashboard.activeTab, learningMode: request.learningMode }).where(eq(schema.learnerMeta.id, 1));
       await tx.insert(schema.saveReceipts).values({ requestId: request.requestId, payloadHash, revision });

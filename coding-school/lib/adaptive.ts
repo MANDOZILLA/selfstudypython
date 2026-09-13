@@ -1,5 +1,6 @@
 import type { AttemptRecord, LearningState } from "./state";
 import { curriculum } from "./curriculum";
+import { placementRecommendation } from "./diagnostic";
 
 export type EvidenceStatus = "Not started" | "Practicing" | "Demonstrated in project" | "Demonstrated again later" | "Mastered";
 export type SkillEvidence = {
@@ -96,7 +97,7 @@ export function deriveReviewSchedule(attempts: AttemptRecord[]): Record<string, 
   return schedules;
 }
 
-export type TodaySelection = { kind: "resume" | "mission" | "review" | "complete"; missionId: string | null; runId?: string; reviewTaskIds: string[] };
+export type TodaySelection = { kind: "resume" | "mission" | "review" | "complete"; missionId: string | null; runId?: string; reviewTaskIds: string[]; reason?: string; evidenceIds?: string[] };
 export function selectToday(state: LearningState, now: Date): TodaySelection {
   const active = state.missionRuns.find(r => r.status !== "completed");
   if (active) return { kind: "resume", missionId: active.missionId, runId: active.id, reviewTaskIds: active.stages[0].taskIds };
@@ -119,7 +120,8 @@ export function selectToday(state: LearningState, now: Date): TodaySelection {
     if (task) reviewTaskIds.push(task.id);
     if (reviewTaskIds.length === 2) break;
   }
-  return { kind: mission ? "mission" : reviewTaskIds.length ? "review" : "complete", missionId: mission?.id ?? null, reviewTaskIds };
+  const placement = mission ? placementRecommendation(state, mission.id) : undefined;
+  return { kind: mission ? "mission" : reviewTaskIds.length ? "review" : "complete", missionId: mission?.id ?? null, reviewTaskIds, ...(placement ? {reason:placement.reason,evidenceIds:placement.evidenceIds}: {}) };
 }
 
 export type DiagnosticPrompt = { id: string; skillId: string; difficulty: number; kind: "concept" | "coding" };

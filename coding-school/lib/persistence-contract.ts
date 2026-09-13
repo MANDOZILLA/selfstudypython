@@ -1,12 +1,13 @@
 import { z } from "zod";
 import { attemptSchema, missionRunSchema } from "./mission-types";
 import type { LearningState } from "./state";
+import { diagnosticStateSchema } from "./diagnostic-types";
 
 export const MAX_STATE_BYTES = 2_000_000;
 const evidenceSchema = z.object({ skillId: z.string(), status: z.enum(["Not started", "Practicing", "Demonstrated in project", "Demonstrated again later", "Mastered"]), independentSuccesses: z.number().int().nonnegative(), distinctContexts: z.number().int().nonnegative(), attemptCount: z.number().int().nonnegative(), lastDemonstratedAt: z.string().nullable(), taughtAt: z.string().nullable(), evidenceAttemptIds: z.array(z.string()) });
 export const learningStateSchema: z.ZodType<LearningState> = z.object({
   version: z.literal(2), dashboard: z.object({ activeTab: z.enum(["overview", "lessons", "learned", "assessment", "portfolio"]) }),
-  diagnostic: z.object({ completed: z.boolean(), completedAt: z.string().datetime().nullable() }),
+  diagnostic: diagnosticStateSchema,
   attempts: z.array(attemptSchema), missionRuns: z.array(missionRunSchema),
   mastery: z.record(z.string(), evidenceSchema),
   reviewSchedule: z.record(z.string(), z.object({ skillId: z.string(), dueAt: z.string().datetime(), reason: z.enum(["practice", "retrieval", "repair"]), intervalDays: z.union([z.literal(1), z.literal(3), z.literal(7), z.literal(14)]) })),

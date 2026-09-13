@@ -56,7 +56,7 @@ describe("durable learner repository", () => {
     const reopened = await openRepository(path);
     cleanup.push(async () => reopened.close());
     expect((await reopened.load()).state).toEqual(state);
-    expect(await reopened.health()).toMatchObject({ ok: true, schemaVersion: 1, journalMode: "wal", foreignKeys: true });
+    expect(await reopened.health()).toMatchObject({ ok: true, schemaVersion: 2, journalMode: "wal", foreignKeys: true });
     expect(JSON.parse(await reopened.exportJson()).state).toEqual(state);
   });
   it("rejects stale revisions and returns the same receipt for an identical retry", async () => {
