@@ -5,11 +5,12 @@
   "scripts": {
     "predev": "node scripts/prepare-editor.mjs",
     "prebuild": "node scripts/prepare-editor.mjs",
-    "dev": "next dev",
+    "dev": "next dev --hostname 127.0.0.1",
     "build": "next build",
-    "start": "next start",
+    "start": "next start --hostname 127.0.0.1",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "verify:runtime-boundary": "node scripts/verify-runtime-boundary.mjs"
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.3.0",

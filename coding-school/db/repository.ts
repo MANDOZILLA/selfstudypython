@@ -1,7 +1,7 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, realpath, lstat } from "node:fs/promises";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, normalize, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
@@ -14,8 +14,7 @@ export async function resolveDatabasePath(override?: string) {
   // Plain absolute local paths only. No URLs, network shares, devices or URI options.
   const path = override ?? resolve(process.cwd(), ".data", "coding-school.db");
   if (!isAbsolute(path) || /[%?#\0]/.test(path) || path.replace(/^[a-z]:/i, "").includes(":") || /^(?:\\\\|\/\/|file:|https?:|libsql:)/i.test(path) || !/\.db$/i.test(path)) throw new PersistenceError("invalid");
-  // Runtime learner data must never be traced into the build output.
-  const target = resolve(/* turbopackIgnore: true */ path);
+  const target = normalize(path);
   await mkdir(dirname(target), { recursive: true, mode: 0o700 });
   if ((await realpath(dirname(target))).toLowerCase() !== dirname(target).toLowerCase()) throw new PersistenceError("invalid");
   try { if (!(await lstat(target)).isFile()) throw new PersistenceError("invalid"); }
