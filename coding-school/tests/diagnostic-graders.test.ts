@@ -41,3 +41,17 @@ it("requires executed module parsing/rounding and a closed file, not unused impo
 it("every canonical coding item has a passing executable contract", () => {
   expect(diagnosticItems.filter(i=>i.kind === "code").every(i=>Object.hasOwn(references, i.skillId))).toBe(true);
 });
+it.each([
+  ["modules","from math import ceil\ndef solve(value): return list(map(ceil, value))"],
+  ["files","def solve(value):\n    with open(file=value, encoding='utf-8') as f: return [s.strip() for s in f if s.strip()]"],
+  ["csv-json","import json\ndef solve(value): return [r['name'] for r in json.loads(s=value)]"],
+])("accepts equivalent executed %s calls",async(skill,source)=>{expect((await grade(skill,source)).passed).toBe(true);});
+it("rejects an unrelated context manager even when a manually opened file is closed",async()=>{
+  expect((await grade("files","from contextlib import nullcontext\ndef solve(value):\n    with nullcontext():\n        f=open(value,encoding='utf-8')\n        result=[s.strip() for s in f if s.strip()]\n        f.close()\n        return result")).passed).toBe(false);
+});
+it.each(["199 <= value['status'] < 300","200 <= value['status'] <= 300"])("rejects the wrong HTTP boundary %s",async(range)=>{
+  expect((await grade("http",`def solve(value):\n    if ${range}: return value['payload']\n    if value['status']==404: return None\n    raise ValueError('status')`)).passed).toBe(false);
+});
+it("rejects rounding calls whose results are discarded",async()=>{
+  expect((await grade("modules","import math\ndef solve(value):\n    unused=list(map(math.ceil,value))\n    return [int(n) if int(n)==n else int(n)+(n>0) for n in value]")).passed).toBe(false);
+});

@@ -177,6 +177,7 @@ export function useStudio() {
     const cancel=startGradingRun({type:"run",requestId,exerciseId:baselineItem.id,graderId:baselineItem.graderId!,files:sourceFiles},async data=>{
       if(runRef.current?.requestId!==requestId || submittedRevision!==editRevision.current)return;
       runRef.current=null;setResult(data);setStatus(runStatus(data));
+      if(data.tests.some((check:{id:string})=>check.id==="execution")) return;
       const saved=await commit(state=>recordDiagnosticAttempt(state,baseline.id,baselineItem.id,requestId,sourceFiles,data));
       if(submittedRevision===editRevision.current)setAttemptSaved(saved);
     },undefined,15000,phase=>{if(runRef.current?.requestId===requestId)setStatus(phase==="loading"?"Loading Python":"Running checks");});

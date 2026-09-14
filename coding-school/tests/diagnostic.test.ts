@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { existsSync } from "node:fs";
 import { createDefaultState, migrateState, startOrResumeMission } from "../lib/state";
 import { selectToday } from "../lib/adaptive";
-import { failureResult, aggregateResult } from "../public/grading/protocol.js";
+import { failureResult, aggregateResult, verifyWorkerResult } from "../public/grading/protocol.js";
 import { getGrader } from "../public/grading/catalog.js";
 import type { LearningState } from "../lib/state";
 
@@ -16,11 +16,61 @@ async function unableToAnswer(state:LearningState){
   const d=await api();const s=d.currentDiagnostic(state)!;const item=d.getDiagnosticItem(s.currentItemId!)!;
   if(item.kind==="code"){
     const draft=d.diagnosticDraft(s,item);const request={type:"run" as const,requestId:crypto.randomUUID(),exerciseId:item.id,graderId:item.graderId!,files:draft.sourceFiles};
-    state=d.recordDiagnosticAttempt(state,s.id,item.id,request.requestId,draft.sourceFiles,failureResult(request,"The supplied code did not run."));
+    state=d.recordDiagnosticAttempt(state,s.id,item.id,request.requestId,draft.sourceFiles,aggregateResult(request,{executionOk:true,tests:getGrader(item.id,item.graderId!)!.requiredTests.map((id:string)=>({id,name:id,passed:false,required:true,detail:"Incorrect output"}))}));
   }
   return d.submitDiagnostic(state,s.id,item.id,{requestId:crypto.randomUUID(),skip:item.kind==="short"});
 }
 describe("adaptive placement baseline", () => {
+  it("preserves legacy sessions read-only while excluding their evidence from placement",async()=>{
+    const d=await api();let state=d.startDiagnostic(createDefaultState());const session=d.currentDiagnostic(state)!;
+    state=d.saveDiagnosticDraft(state,session.id,session.currentItemId!,{answer:"23 str",sourceFiles:{},hintsUsed:0,aiAssisted:false});
+    state=d.submitDiagnostic(state,session.id,session.currentItemId!,{requestId:"historical-answer"});
+    const old=structuredClone(state);old.diagnostic.sessions![0].version="1.0.0";
+    const restored=migrateState(old);const history=restored.diagnostic.sessions![0];
+    expect(history.responses[0].id).toBe("historical-answer");
+    expect(history.legacy).toBe(true);
+    expect(history.profile.every(p=>p.band==="Untested" && p.evidenceCount===0)).toBe(true);
+    expect(d.placementRecommendation(restored,"mission").evidenceIds).toEqual([]);
+    const retake=d.startDiagnostic(restored,new Date(),true);
+    expect(retake.diagnostic.sessions).toHaveLength(2);
+    expect(d.currentDiagnostic(retake)!.status).toBe("active");
+  });
+  it("retains old grader trials as history without counting them toward coding evidence",async()=>{
+    const d=await api();let state=d.startDiagnostic(createDefaultState());state=await unableToAnswer(state);
+    state=await unableToAnswer(state);
+    const old=structuredClone(state);old.diagnostic.sessions![0].attempts[0].graderVersion="0.0.1";
+    const restored=migrateState(old);const session=d.currentDiagnostic(restored)!;
+    expect(session.attempts).toHaveLength(1);
+    expect(session.legacy).toBe(true);
+    expect(session.profile.every(p=>p.codingCount===0)).toBe(true);
+  });
+  it.each([
+    ["modules-read","ROOT(81)",false], ["strings-easy","YTH",false],
+    ["exceptions-easy","don't catch ValueError around int conversion; skip the invalid row and keep later rows processing",false],
+    ["http-read","too many requests; don't wait for Retry-After before another request",false],
+    ["strings-hard","False; name = name.strip()",true],
+    ["exceptions-easy","Catch ValueError around int(text) inside the loop; skip the invalid row and continue processing later rows.",true],
+    ["http-read","429 means too many requests. Wait for the delay specified by Retry-After before retrying.",true],
+  ])("grades %s with item-specific semantics: %s",async(id,answer,passed)=>{
+    const d=await api();expect(d.gradeShortAnswer(d.getDiagnosticItem(id as string)!,answer as string).passed).toBe(passed);
+  });
+  it("keeps unavailable and invalid execution out of attempts, responses and placement",async()=>{
+    const d=await api();let state=d.startDiagnostic(createDefaultState());state=await unableToAnswer(state);
+    const session=d.currentDiagnostic(state)!;const item=d.getDiagnosticItem(session.currentItemId!)!;const draft=d.diagnosticDraft(session,item);
+    const request={type:"run" as const,requestId:"unavailable",exerciseId:item.id,graderId:item.graderId!,files:draft.sourceFiles};
+    const before=structuredClone(state);
+    expect(()=>d.recordDiagnosticAttempt(state,session.id,item.id,request.requestId,draft.sourceFiles,failureResult(request,"Pyodide failed to load"))).toThrow(/not assessed|retry|unavailable/i);
+    expect(()=>d.submitDiagnostic(state,session.id,item.id,{requestId:"advance"})).toThrow(/run checks/i);
+    expect(state).toEqual(before);
+    const valid=aggregateResult(request,{executionOk:true,tests:getGrader(item.id,item.graderId!)!.requiredTests.map((id:string)=>({id,name:id,passed:true,required:true,detail:""}))});
+    for(const invalid of [{...valid,graderVersion:"stale"},{...valid,tests:[]},{...valid,score:0},{...valid,requestId:"old"}]){
+      expect(verifyWorkerResult(request,invalid)).toBeNull();
+      expect(()=>d.recordDiagnosticAttempt(state,session.id,item.id,request.requestId,draft.sourceFiles,invalid)).toThrow();
+      expect(state).toEqual(before);
+    }
+    state=d.recordDiagnosticAttempt(state,session.id,item.id,request.requestId,draft.sourceFiles,valid);
+    expect(d.currentDiagnostic(state)!.attempts).toHaveLength(1);
+  });
   it("provides validated stable content across every requested topic", async () => {
     const d = await api();
     expect(d.diagnosticItems.length).toBeGreaterThanOrEqual(40);
@@ -121,7 +171,7 @@ describe("adaptive placement baseline", () => {
     const d=await api();const session=d.currentDiagnostic(d.startDiagnostic(createDefaultState()))!;
     const time=new Date().toISOString();
     session.responses=[{id:"answer",itemId:"strings-code",answer:"",outcome:"passed",feedback:"",attemptId:"passed-trial",hintsUsed:0,aiAssisted:false,completedAt:time}];
-    session.attempts=[{id:"failed-trial",itemId:"strings-code",sourceFiles:{"main.py":"return ''"},graderId:"diag-strings-v1",graderVersion:"1.0.0",passed:false,executionOk:true,checks:[],hintsUsed:0,aiAssisted:false,completedAt:time},{id:"passed-trial",itemId:"strings-code",sourceFiles:{"main.py":"return value.strip()"},graderId:"diag-strings-v1",graderVersion:"1.0.0",passed:true,executionOk:true,checks:[],hintsUsed:0,aiAssisted:false,completedAt:time}];
+    session.attempts=[{id:"failed-trial",itemId:"strings-code",sourceFiles:{"main.py":"return ''"},graderId:"diag-strings-v1",graderVersion:"1.1.0",passed:false,executionOk:true,checks:[],hintsUsed:0,aiAssisted:false,completedAt:time},{id:"passed-trial",itemId:"strings-code",sourceFiles:{"main.py":"return value.strip()"},graderId:"diag-strings-v1",graderVersion:"1.1.0",passed:true,executionOk:true,checks:[],hintsUsed:0,aiAssisted:false,completedAt:time}];
     expect(d.deriveDiagnosticProfile(session).find(p=>p.skillId==="strings")).toMatchObject({confidence:"Conflicting",attemptIds:["failed-trial","passed-trial"]});
   });
 });

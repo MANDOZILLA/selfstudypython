@@ -14,6 +14,15 @@ const request = { type: "run" as const, requestId: "run-1", exerciseId: "messy-c
 const required = ["concept-csv", "concept-decimal", "sample", "empty", "header", "precision", "invalid", "duplicates", "quoted", "shape"].map(id => ({ id, name: id, passed: true, required: true, detail: "" }));
 afterEach(() => vi.useRealTimers());
 describe("worker lifecycle", () => {
+  it.each(["version", "checks", "score"])("ignores a malformed %s without relabeling it as current evidence", kind => {
+    const worker = new WorkerTransport(); const completed = vi.fn();
+    const cancel = startGradingRun(request, completed, () => worker);
+    const valid = aggregateResult(request, { executionOk: true, tests: required });
+    const invalid = kind === "version" ? {...valid, graderVersion:"stale"} : kind === "checks" ? {...valid, tests:[]} : {...valid, score:0};
+    worker.onmessage?.({data: invalid});
+    expect(completed).not.toHaveBeenCalled();
+    cancel();
+  });
   it("reports matching Python progress without accepting it as a grade", () => {
     const worker = new WorkerTransport();
     const completed = vi.fn();

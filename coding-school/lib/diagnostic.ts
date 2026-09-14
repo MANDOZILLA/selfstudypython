@@ -8,23 +8,37 @@ import { verifyWorkerResult } from "../public/grading/protocol.js";
 export { diagnosticItems, diagnosticSkills };
 export const getDiagnosticItem = (id: string) => diagnosticItems.find(i => i.id === id);
 export const currentDiagnostic = (state: LearningState) => state.diagnostic.sessions?.at(-1);
+export const isLegacyDiagnostic = (session: DiagnosticSession) => Boolean(session.legacy || session.version !== "1.1.0" || session.attempts.some(a => getGrader(a.itemId,a.graderId)?.version !== a.graderVersion));
 export const diagnosticDraft = (session: DiagnosticSession, item: DiagnosticItem): DiagnosticDraft => session.drafts[item.id] ?? { answer: "", sourceFiles: item.kind === "code" ? {"main.py": item.starter!} : {}, hintsUsed: 0, aiAssisted: false };
 const copy = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 const filesEqual = (a: Record<string,string>, b: Record<string,string>) => Object.keys(a).length === Object.keys(b).length && Object.entries(a).every(([k,v]) => b[k] === v);
-const normalize = (text: string) => text.normalize("NFKC").toLowerCase().replace(/[`'"\[\],]/g, " ").replace(/\s+/g, " ").trim();
+const normalize = (text: string) => text.normalize("NFKC").replace(/[`'"\[\],]/g, " ").replace(/\s+/g, " ").trim();
+function matchesShortItem(item: DiagnosticItem, answer: string): boolean {
+  const text = answer.normalize("NFKC").replaceAll("’", "'").replace(/`/g, "").trim();
+  if (item.id === "modules-read") return /^root\s*\(\s*81\s*\)$/.test(text);
+  if (item.id === "strings-hard") return /^False\s*[;,]?\s*name\s*=\s*name\s*\.\s*strip\s*\(\s*\)\s*;?$/.test(text);
+  if (item.id === "exceptions-easy") {
+    if (/\b(?:not|never|don'?t|avoid|without)\b|catch all|BaseException/i.test(text)) return false;
+    return /\b(?:catch|except|handle)\s+(?:the\s+)?ValueError\b/i.test(text) && /\b(?:int\s*\(|int conversion|integer conversion|conversion|convert)/i.test(text) && /\b(?:around|inside|within|each|per)\b.{0,25}\b(?:loop|row|conversion|int)\b/i.test(text) && /\b(?:skip|ignore)\b.{0,25}\b(?:invalid|bad|that)\b.{0,10}\b(?:row|record)\b/i.test(text) && /\b(?:continue|keep)\b.{0,30}\b(?:later|next|remaining|processing)\b/i.test(text);
+  }
+  if (item.id === "http-read") {
+    if (/\b(?:not|never|don'?t|avoid|without|ignore|immediate\w*)\b/i.test(text)) return false;
+    return /\b(?:too many requests|rate[ -]limit(?:ed|ing)?)\b/i.test(text) && /\b(?:wait|delay|back[ -]?off)\b.{0,70}\bretry[ -]after\b/i.test(text);
+  }
+  const caseSensitive = ["strings-easy", "reasoning-easy", "classes-easy", "files-read", "files-easy", "exceptions-read", "csv-json-read"].includes(item.id);
+  return (item.rubric?.accepted ?? []).some(value => caseSensitive ? normalize(value) === normalize(text) : normalize(value).toLowerCase() === normalize(text).toLowerCase());
+}
 export function gradeShortAnswer(item: DiagnosticItem, answer: string) {
-  const text = normalize(answer); const rubric = item.rubric;
-  const passed = item.kind === "short" && !!rubric && !(rubric.reject ?? []).some(r => new RegExp(r,"i").test(text)) &&
-    ((rubric.accepted ?? []).some(a => normalize(a) === text) || Boolean(rubric.elements?.length && text.split(" ").length >= 8 && rubric.elements.every(r => new RegExp(r,"i").test(text))));
+  const passed = item.kind === "short" && matchesShortItem(item, answer);
   return { passed, feedback: passed ? "This response matches the authored rubric. It is conceptual evidence only." : "This response did not establish the requested behavior. The placement will treat it as an area to revisit; no solution is revealed." };
 }
 export function deriveDiagnosticProfile(session: DiagnosticSession): DiagnosticProfile[] {
   return diagnosticSkills.map(skill => {
     const responses = session.responses.filter(r => getDiagnosticItem(r.itemId)?.skillId === skill.id);
-    const observed = responses.filter(r => r.outcome !== "skipped");
+    const observed = isLegacyDiagnostic(session) ? [] : responses.filter(r => r.outcome !== "skipped");
     const conceptual = observed.filter(r => getDiagnosticItem(r.itemId)?.kind === "short");
     const coding = observed.filter(r => r.attemptId !== null);
-    const trials = session.attempts.filter(a=>responses.some(r=>r.itemId===a.itemId));
+    const trials = isLegacyDiagnostic(session) ? [] : session.attempts.filter(a=>responses.some(r=>r.itemId===a.itemId));
     const independent = observed.filter(r => r.outcome === "passed" && !r.hintsUsed && !r.aiAssisted);
     const failures = observed.some(r => r.outcome === "needs-practice") || trials.some(a=>!a.passed);
     const conflict = failures && observed.some(r => r.outcome === "passed");
@@ -43,7 +57,7 @@ export function selectDiagnosticItem(session: DiagnosticSession): DiagnosticItem
   const profile = deriveDiagnosticProfile(session);
   const core = diagnosticSkills.filter(s => s.core);
   for (const skill of core) if (!session.responses.some(r=>getDiagnosticItem(r.itemId)?.skillId===skill.id)) return diagnosticItems.find(i=>i.skillId===skill.id && i.difficulty===2);
-  const codingCount = session.responses.filter(r=>r.attemptId!==null).length;
+  const codingCount = isLegacyDiagnostic(session) ? 0 : session.responses.filter(r=>r.attemptId!==null).length;
   const coreProfile=profile.filter(p=>core.some(s=>s.id===p.skillId));
   if (answered.size>=12 && codingCount>=5 && coreProfile.filter(p=>p.band==="Strong evidence").length>=4 && coreProfile.every(p=>p.latestResult==="passed" && p.confidence!=="Conflicting")) return undefined;
   let candidates=diagnosticItems.filter(i=>!answered.has(i.id) && profile.find(p=>p.skillId===i.skillId)?.band!=="Strong evidence");
@@ -59,14 +73,14 @@ export function selectDiagnosticItem(session: DiagnosticSession): DiagnosticItem
 }
 export function startDiagnostic(state: LearningState, now=new Date(), retake=false): LearningState {
   const current=currentDiagnostic(state);
-  if (current?.status==="active" || (current && !retake)) return state;
-  const next=copy(state); const session: DiagnosticSession={ id:crypto.randomUUID(), version:"1.0.0", status:"active", currentItemId:null, drafts:{}, attempts:[], responses:[], profile:[], startedAt:now.toISOString(), completedAt:null };
+  if ((current?.status==="active" && !isLegacyDiagnostic(current)) || (current && !retake)) return state;
+  const next=copy(state); const session: DiagnosticSession={ id:crypto.randomUUID(), version:"1.1.0", status:"active", currentItemId:null, drafts:{}, attempts:[], responses:[], profile:[], startedAt:now.toISOString(), completedAt:null };
   session.currentItemId=selectDiagnosticItem(session)!.id; session.profile=deriveDiagnosticProfile(session);
   next.diagnostic={...next.diagnostic,sessions:[...(next.diagnostic.sessions??[]),session]}; return next;
 }
 function active(state:LearningState, sessionId:string,itemId:string) {
   const session=currentDiagnostic(state);
-  if (!session || session.id!==sessionId || session.status!=="active" || session.currentItemId!==itemId) throw new Error("This result is stale; resume the current diagnostic question.");
+  if (!session || isLegacyDiagnostic(session) || session.id!==sessionId || session.status!=="active" || session.currentItemId!==itemId) throw new Error("This result is stale; resume the current diagnostic question.");
   const item=getDiagnosticItem(itemId); if(!item) throw new Error("This diagnostic item is unavailable.");
   return {session,item};
 }
@@ -80,6 +94,7 @@ export function recordDiagnosticAttempt(state:LearningState,sessionId:string,ite
   if(item.kind!=="code" || !filesEqual(draft.sourceFiles,sourceFiles)) throw new Error("This result is stale; run the current code again.");
   const verified=verifyWorkerResult({type:"run",requestId,exerciseId:item.id,graderId:item.graderId!,files:sourceFiles},result);
   if(!verified || verified.graderVersion!==getGrader(item.id,item.graderId!)?.version) throw new Error("The diagnostic grader result could not be verified.");
+  if(verified.tests.some((check:{id:string})=>check.id==="execution")) throw new Error("Python was unavailable; this run is not assessed. Retry Run checks. No evidence was saved.");
   session.attempts.push({id:requestId,itemId,sourceFiles:copy(sourceFiles),graderId:item.graderId!,graderVersion:verified.graderVersion,passed:verified.passed,executionOk:verified.executionOk,checks:verified.tests,hintsUsed:draft.hintsUsed,aiAssisted:draft.aiAssisted,completedAt:now.toISOString()}); return next;
 }
 export function submitDiagnostic(state:LearningState,sessionId:string,itemId:string,input:{requestId:string;skip?:boolean},now=new Date()):LearningState {
@@ -96,7 +111,7 @@ export function submitDiagnostic(state:LearningState,sessionId:string,itemId:str
   return next;
 }
 export function placementRecommendation(state:LearningState,missionId:string) {
-  const session=[...(state.diagnostic.sessions??[])].reverse().find(s=>s.status==="completed");
+  const session=[...(state.diagnostic.sessions??[])].reverse().find(s=>s.status==="completed" && !isLegacyDiagnostic(s));
   if(!session) return {missionId,reason:"Begin with the mission overview and build independent project evidence.",evidenceIds:[] as string[]};
   const profile=deriveDiagnosticProfile(session);
   const uncertain=profile.filter(p=>p.band!=="Strong evidence");
@@ -116,6 +131,11 @@ export function normalizeDiagnostic(value:unknown) {
   const parsed=diagnosticStateSchema.safeParse(value); if(!parsed.success) throw new Error("Invalid diagnostic data.");
   for(const session of parsed.data.sessions??[]){
     if(new Set(session.responses.map(r=>r.id)).size!==session.responses.length || new Set(session.responses.map(r=>r.itemId)).size!==session.responses.length || session.responses.length>25) throw new Error("Duplicate diagnostic responses.");
+    if(isLegacyDiagnostic(session)) {
+      session.legacy=true;
+      session.profile=deriveDiagnosticProfile(session);
+      continue;
+    }
     for(const r of session.responses){
       const item=getDiagnosticItem(r.itemId); if(!item) throw new Error("Unavailable diagnostic response.");
       if(r.outcome==="skipped") continue;
@@ -125,6 +145,7 @@ export function normalizeDiagnostic(value:unknown) {
     for(const a of session.attempts){
       const item=getDiagnosticItem(a.itemId);const grader=item&&getGrader(item.id,item.graderId!);
       if(!grader || a.graderVersion!==grader.version || a.graderId!==item!.graderId) throw new Error("Unavailable diagnostic grader version.");
+      if(a.checks.length!==grader.requiredTests.length || new Set(a.checks.map(c=>c.id)).size!==a.checks.length || !grader.requiredTests.every((id:string)=>a.checks.some(c=>c.id===id && c.required))) throw new Error("Invalid diagnostic checks; execution was not assessed.");
       if(a.passed!==Boolean(a.executionOk && grader.requiredTests.every((id:string)=>a.checks.some(c=>c.id===id && c.passed && c.required)))) throw new Error("Invalid diagnostic checks.");
     }
     session.profile=deriveDiagnosticProfile(session);

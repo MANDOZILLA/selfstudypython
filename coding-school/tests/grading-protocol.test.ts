@@ -17,7 +17,7 @@ describe("fail-closed aggregation", () => {
   it("rejects forged pass flags and ignores stale IDs", () => {
     const passed = aggregateResult(request, { executionOk: true, tests });
     expect(verifyWorkerResult(request, passed)?.passed).toBe(true);
-    expect(verifyWorkerResult(request, { ...passed, tests: [] })?.passed).toBe(false);
+    expect(verifyWorkerResult(request, { ...passed, tests: [] })).toBeNull();
     for (const key of ["requestId", "exerciseId", "graderId"]) expect(verifyWorkerResult(request, { ...passed, [key]: "stale" })).toBeNull();
   });
 });

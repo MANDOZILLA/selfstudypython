@@ -11,7 +11,8 @@ const sources={variables:"def solve(value): return int(value)*2",strings:"def so
 try{
   for(const [name,viewport] of [["desktop",{width:1280,height:850}],["mobile",{width:375,height:812}]]){
     const context=await browser.newContext({viewport});const page=await context.newPage();const errors=[];
-    page.on("pageerror",e=>errors.push(e.message));page.on("console",m=>{if(m.type()==="error")errors.push(m.text());});
+    let expectedLoadFailure=false;const expectedErrors=[];
+    page.on("pageerror",e=>(expectedLoadFailure?expectedErrors:errors).push(e.message));page.on("console",m=>{if(m.type()==="error")(expectedLoadFailure?expectedErrors:errors).push(m.text());});
     await page.goto(base);
     const reset=await page.evaluate(async()=>{
       const snapshot=await (await fetch("/api/learner",{headers:{"X-Coding-School":"local"}})).json();
@@ -31,6 +32,25 @@ try{
       if(code){
         const toggle=page.getByRole("button",{name:"Use plain text",exact:true});if(await toggle.isVisible())await toggle.click();
         const editor=page.getByRole("textbox",{name:"Python code",exact:true});
+        if(count===1){
+          const before=(await snapshot()).state.diagnostic.sessions.at(-1);
+          expectedLoadFailure=true;
+          await context.route("**/pyodide/pyodide.mjs",route=>route.abort("failed"));
+          await page.getByRole("button",{name:"Run checks",exact:true}).click();
+          await page.getByRole("alert").filter({hasText:"Not assessed"}).waitFor({timeout:30000});
+          assert.ok(await page.getByRole("button",{name:"Record attempt & continue"}).isDisabled());
+          const failed=(await snapshot()).state.diagnostic.sessions.at(-1);
+          assert.deepEqual(failed.attempts,before.attempts);assert.deepEqual(failed.responses,before.responses);assert.deepEqual(failed.profile,before.profile);
+          await page.screenshot({path:`test-results/baseline-unavailable-${name}.png`,fullPage:true});
+          await context.unroute("**/pyodide/pyodide.mjs");expectedLoadFailure=false;
+          await context.route("**/python-worker.js",route=>route.fulfill({contentType:"text/javascript",body:`self.onmessage=({data:r})=>{const valid={requestId:r.requestId,exerciseId:r.exerciseId,graderId:r.graderId,graderVersion:'1.1.0',executionOk:true,passed:true,score:1,stdout:'',stderr:'',tests:['behavior','edges','contract'].map(id=>({id,name:id,required:true,passed:true,detail:''}))};self.postMessage({...valid,requestId:'stale-request'});self.postMessage({...valid,graderVersion:'old-version'});self.postMessage({...valid,tests:[]});self.postMessage({type:'progress',requestId:r.requestId,exerciseId:r.exerciseId,graderId:r.graderId,phase:'running'});};`}));
+          await page.getByRole("button",{name:"Run checks",exact:true}).click();
+          await page.locator(".run-status").filter({hasText:"Running checks"}).waitFor();
+          const stale=(await snapshot()).state.diagnostic.sessions.at(-1);
+          assert.deepEqual(stale.attempts,before.attempts);assert.deepEqual(stale.responses,before.responses);assert.deepEqual(stale.profile,before.profile);
+          assert.ok(await page.getByRole("button",{name:"Record attempt & continue"}).isDisabled());
+          await page.getByRole("button",{name:"Stop Python",exact:true}).click();await context.unroute("**/python-worker.js");
+        }
         if(name==="mobile" && count===1){
           await editor.fill("def solve(value): return 'wrong'");
           await page.getByRole("button",{name:"Run checks",exact:true}).click();
@@ -72,10 +92,31 @@ try{
     await page.getByRole("heading",{name:"Your observed starting point.",exact:true}).waitFor();
     await page.screenshot({path:`test-results/baseline-results-${name}.png`,fullPage:true});
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${name}: result overflow`);
-    await page.getByRole("button",{name:"See recommendation on Today"}).click();await page.getByRole("heading",{name:"Why this mission"}).waitFor();
-    await page.getByRole("button",{name:"Start 45-minute mission"}).click();await page.getByRole("button",{name:"Continue to Learn"}).waitFor();
+    await page.getByRole("button",{name:"Start a new placement baseline",exact:true}).click();
+    await page.getByText("Question 1, at least 12; up to 25",{exact:true}).waitFor();
+    await waitSaved(data=>data.state.diagnostic.sessions.length===2);
+    const retake=(await snapshot()).state.diagnostic.sessions.at(-1);
+    await page.getByRole("combobox",{name:"Placement session"}).selectOption(session.id);
+    await page.getByText("Historical session · read-only",{exact:false}).waitFor();
+    assert.equal(await page.getByLabel("Your answer",{exact:true}).count(),0);
+    await page.locator(".baseline-skill summary").first().click();
+    await page.getByText(`Response ID:`,{exact:false}).first().waitFor();
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${name}: history overflow`);
+    await page.screenshot({path:`test-results/baseline-history-${name}.png`,fullPage:true});
+    await page.getByRole("combobox",{name:"Placement session"}).selectOption(retake.id);
+    await page.getByLabel("Your answer",{exact:true}).fill("retake draft survives history");
+    await waitSaved(data=>data.state.diagnostic.sessions.at(-1).drafts["variables-read"]?.answer==="retake draft survives history");
+    await page.reload();await page.getByLabel("Your answer",{exact:true}).waitFor();
+    assert.equal(await page.getByLabel("Your answer",{exact:true}).inputValue(),"retake draft survives history");
+    assert.deepEqual((await snapshot()).state.diagnostic.sessions[0],session);
+    await page.getByRole("combobox",{name:"Placement session"}).selectOption(session.id);
+    await page.getByRole("button",{name:"See recommendation on Today"}).click();
+    await page.getByRole("button",{name:"Resume placement baseline"}).waitFor();
+    await page.getByRole("button",{name:"Resume placement baseline"}).click();
+    await page.getByRole("combobox",{name:"Placement session"}).selectOption(session.id);
+    await page.getByRole("button",{name:"Start recommended mission"}).click();await page.getByRole("button",{name:"Continue to Learn"}).waitFor();
     assert.deepEqual(errors,[],`${name}: browser console errors`);
-    console.log(`PASS ${name}: Dashboard → ${count} adaptive mixed items → profile → Today → mission; conceptual/code reload, Back, overflow and console verified.`);
+    console.log(`PASS ${name}: Dashboard → ${count} adaptive mixed items → profile → retake/history → Today → mission; infrastructure retry, stale/version/malformed rejection, conceptual/code reload, Back, overflow and console verified. Expected load-failure console events: ${expectedErrors.length}.`);
     await context.close();
   }
 }finally{await browser.close();}

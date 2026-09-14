@@ -27,8 +27,11 @@ export function aggregateResult(request, raw, stdout = "", stderr = "") {
 export function verifyWorkerResult(request, value) {
   if (!value || value.requestId !== request.requestId || value.exerciseId !== request.exerciseId || value.graderId !== request.graderId) return null;
   const grader = getGrader(request.exerciseId, request.graderId);
-  if (typeof value.stdout !== "string" || typeof value.stderr !== "string" || value.graderVersion !== grader?.version) return failureResult(request, "Malformed worker response.");
+  if (!grader || typeof value.stdout !== "string" || typeof value.stderr !== "string" || value.graderVersion !== grader.version) return null;
+  // An explicit execution failure is a retryable transport result, never evidence.
+  if (value.executionOk === false && value.passed === false && value.score === 0 && Array.isArray(value.tests) && value.tests.length === 1 && value.tests[0]?.id === "execution" && value.tests[0].passed === false && value.tests[0].required === true && typeof value.tests[0].name === "string" && typeof value.tests[0].detail === "string") return value;
+  if (typeof value.executionOk !== "boolean" || !Array.isArray(value.tests) || value.tests.length !== grader.requiredTests.length || new Set(value.tests.map(test => test?.id)).size !== value.tests.length || !grader.requiredTests.every(id => value.tests.some(test => test?.id === id && typeof test.name === "string" && typeof test.passed === "boolean" && test.required === true && typeof test.detail === "string"))) return null;
   const verified = aggregateResult(request, value, value.stdout, value.stderr);
-  if (value.passed !== verified.passed || value.score !== verified.score) return failureResult(request, "Worker result did not match its required checks.");
+  if (value.passed !== verified.passed || value.score !== verified.score) return null;
   return verified;
 }
