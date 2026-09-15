@@ -8,6 +8,7 @@ import {
   replaceDiagnosticSession,
   type LearningState,
 } from "../lib/state";
+import { convertLegacyPortfolioSnapshot } from "../lib/portfolio";
 import {
   createDiagnosticSession,
   answerConcept,
@@ -103,7 +104,7 @@ describe("sqlite learner-state persistence", () => {
     let state: LearningState = {
       ...createDefaultState(),
       dashboard: { activeTab: "assessment" },
-      portfolio: [{ projectId: "project-csv-repair", title: "Repair a messy CSV", sourceFiles: { "main.py": "print('ok')" }, tests: [{ name: "removes blank rows", passed: true }], feedback: "ok", score: 0.9, skillIds: ["data-cleaning"], completedAt: "2026-09-10T12:00:00.000Z" }],
+      portfolio: [convertLegacyPortfolioSnapshot({ projectId: "project-csv-repair", title: "Repair a messy CSV", sourceFiles: { "main.py": "print('ok')" }, tests: [{ name: "removes blank rows", passed: true }], feedback: "ok", score: 0.9, skillIds: ["data-cleaning"], completedAt: "2026-09-10T12:00:00.000Z" })],
     };
     state = replaceDiagnosticSession(state, session);
     await saveStateToDatabase(db, state);

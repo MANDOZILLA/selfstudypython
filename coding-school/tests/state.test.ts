@@ -10,6 +10,7 @@ import {
   replaceDiagnosticSession,
   type LearningState,
 } from "../lib/state";
+import { convertLegacyPortfolioSnapshot } from "../lib/portfolio";
 import {
   createDiagnosticSession,
   answerConcept,
@@ -71,7 +72,7 @@ describe("learner state", () => {
       ...getState(),
       dashboard: { activeTab: "lessons" },
       diagnostic: { completed: true, completedAt: "2026-09-10T12:00:00.000Z" },
-      portfolio: [{ projectId: "project-csv-repair", title: "Repair a messy CSV", sourceFiles: { "main.py": "print('ok')" }, tests: [{ name: "removes blank rows", passed: true }], feedback: "Handles malformed rows.", score: 0.88, skillIds: ["data-cleaning"], completedAt: "2026-09-10T12:00:00.000Z" }],
+      portfolio: [convertLegacyPortfolioSnapshot({ projectId: "project-csv-repair", title: "Repair a messy CSV", sourceFiles: { "main.py": "print('ok')" }, tests: [{ name: "removes blank rows", passed: true }], feedback: "Handles malformed rows.", score: 0.88, skillIds: ["data-cleaning"], completedAt: "2026-09-10T12:00:00.000Z" })],
     };
 
     saveState(state);

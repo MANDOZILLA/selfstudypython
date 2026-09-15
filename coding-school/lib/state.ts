@@ -1,22 +1,20 @@
-import { z } from "zod";
 import { deriveReviewSchedule, deriveSkillEvidence, selectToday, type SkillEvidence, type ReviewSchedule } from "./adaptive";
 import { curriculum, getMission, getTask } from "./curriculum";
 import { assistanceSchema, attemptSchema, missionRunSchema, type AttemptRecord, type AttemptSubmission, type MissionDraft, type MissionRun } from "./mission-types";
 import { aggregateResult } from "../public/grading/protocol.js";
 import { getGrader } from "../public/grading/catalog.js";
 import { diagnosticSessionSchema, markLegacyDiagnosticSession, type DiagnosticSession } from "./diagnostic";
+import {
+  legacyPortfolioSnapshotSchema, convertLegacyPortfolioSnapshot, portfolioSnapshotSchema,
+  recordRunPortfolioSnapshots, verifyPortfolioSnapshot, type PortfolioSnapshot,
+} from "./portfolio";
 export type { AttemptRecord, AttemptSubmission, MissionDraft, MissionRun } from "./mission-types";
+export type { PortfolioSnapshot } from "./portfolio";
 
 const STORAGE_KEY = "coding-school:learner-state";
 export const STATE_VERSION = 3 as const;
 export type DashboardTab = "overview" | "lessons" | "learned" | "assessment" | "portfolio";
 export type ScheduledReview = ReviewSchedule;
-const portfolioSchema = z.object({
-  projectId: z.string(), title: z.string(), sourceFiles: z.record(z.string(), z.string()),
-  tests: z.array(z.object({ name: z.string(), passed: z.boolean() })), feedback: z.string(),
-  score: z.number().min(0).max(1), skillIds: z.array(z.string()), completedAt: z.string(),
-});
-export type PortfolioSnapshot = z.infer<typeof portfolioSchema>;
 export type LearningState = {
   version: typeof STATE_VERSION; dashboard: { activeTab: DashboardTab };
   diagnostic: { completed: boolean; completedAt: string | null };
@@ -132,7 +130,13 @@ export function advanceMissionStage(state: LearningState, runId: string, now = n
   });
   if (!complete) throw new Error("Complete the required tasks before advancing.");
   stage.status = "completed"; stage.completedAt = now.toISOString(); run.updatedAt = now.toISOString();
-  if (run.stageIndex === 3 || run.mode === "review") { run.status = "completed"; run.completedAt = now.toISOString(); }
+  if (run.stageIndex === 3 || run.mode === "review") {
+    run.status = "completed"; run.completedAt = now.toISOString();
+    // Seal one immutable portfolio snapshot per passed tagged build task. The
+    // reflection comes from the explain stage, which is why snapshots are
+    // created at mission completion rather than when the build checks pass.
+    return recordRunPortfolioSnapshots(next, run.id, now);
+  }
   else { run.stageIndex++; run.stages[run.stageIndex].status = "active"; }
   return next;
 }
@@ -147,7 +151,14 @@ export function migrateState(value: unknown): LearningState {
   const diagnostic = object(value.diagnostic) ? value.diagnostic : {};
   next.diagnostic = { completed: diagnostic.completed === true || value.diagnosticCompleted === true, completedAt: typeof diagnostic.completedAt === "string" ? diagnostic.completedAt : null };
   const portfolio = Array.isArray(value.portfolio) ? value.portfolio : Array.isArray(value.completedProjects) ? value.completedProjects : [];
-  next.portfolio = portfolio.flatMap(item => { const parsed = portfolioSchema.safeParse(item); return parsed.success ? [parsed.data] : []; });
+  // New full snapshots must verify before they are trusted; legacy minimal
+  // snapshots are converted with their unknown fields marked, never invented.
+  next.portfolio = portfolio.flatMap(item => {
+    const full = portfolioSnapshotSchema.safeParse(item);
+    if (full.success) return verifyPortfolioSnapshot(full.data) ? [full.data] : [];
+    const legacy = legacyPortfolioSnapshotSchema.safeParse(item);
+    return legacy.success ? [convertLegacyPortfolioSnapshot(legacy.data)] : [];
+  });
   // Version 2 payloads predate session history but remain readable; anything
   // older is untrusted and dropped. Valid sessions are preserved verbatim;
   // malformed sessions are dropped, never repaired into fabricated evidence.

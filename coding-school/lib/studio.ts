@@ -1,12 +1,14 @@
 import { deriveReviewSchedule, deriveSkillEvidence, selectToday } from "./adaptive";
 import { curriculum, getMission, getTask } from "./curriculum";
+import { PORTFOLIO_PROJECT_DEFINITIONS } from "../curriculum/portfolio-projects";
 import { recordMissionAttempt, type AttemptSubmission, type LearningState, type MissionDraft } from "./state";
 import type { GradeResult } from "./runner";
 
-export type Destination = "today" | "lessons" | "learned" | "assessment";
+export type Destination = "today" | "lessons" | "learned" | "assessment" | "portfolio";
 export const destinations: { id: Destination; label: string }[] = [
   { id: "today", label: "Today" }, { id: "lessons", label: "Lessons" },
   { id: "learned", label: "What I Learned" }, { id: "assessment", label: "Self-Assessment" },
+  { id: "portfolio", label: "Portfolio" },
 ];
 export const unassisted = { hintsUsed: 0, aiAssisted: false, solutionViewed: false };
 export const workbenchPanels = ["instructions", "code", "checks"] as const;
@@ -48,6 +50,13 @@ export function getEvidenceRows(state: LearningState) {
     return { attempt, title: getTask(attempt.taskId)?.title ?? attempt.taskId,
       missionTitle: getMission(attempt.missionId)?.title ?? attempt.missionId,
       assistance: help.join(" · ") || "Independent", nextReview };
+  });
+}
+
+export function getPortfolioModel(state: LearningState) {
+  return PORTFOLIO_PROJECT_DEFINITIONS.map(project => {
+    const snapshots = state.portfolio.filter(s => s.projectId === project.id);
+    return { project, snapshots, complete: snapshots.length === project.components.length };
   });
 }
 

@@ -37,6 +37,8 @@ export const curriculumSchema = z.object({ skills: z.array(skillSchema), lessons
   if (new Set(ids).size !== ids.length) fail("Duplicate mission, stage or task ID");
 });
 export const curriculum = { skills: source.skills, lessons: source.lessons, projects: source.projects, assessments: source.assessments, missions: source.missions, reviewTasks: source.reviewTasks };
+/** Bumped whenever authored curriculum content changes; sealed into portfolio snapshots. */
+export const CURRICULUM_VERSION = "1.0.0";
 export const validateCurriculum = (value: unknown) => curriculumSchema.safeParse(value);
 export type Lesson = z.infer<typeof lessonSchema>;
 export const getMission = (id: string) => curriculum.missions.find(m => m.id === id);

@@ -258,7 +258,7 @@ it.each([
   expect((await grade(source, "pandas-clean-v1", "pandas-clean-challenge")).passed).toBe(false);
 }, 120000);
 
-const pandasProjectReference = `import io
+export const pandasProjectReference = `import io
 import pandas as pd
 
 def solve(csv_text):
@@ -452,7 +452,7 @@ it.each([
   expect((await grade(source, "money-recon-v1", "money-recon-challenge")).passed).toBe(false);
 });
 
-const moneyProjectReference = `import io
+export const moneyProjectReference = `import io
 from decimal import Decimal, InvalidOperation
 import pandas as pd
 
@@ -546,7 +546,7 @@ it.each([
   expect((await grade(source, "http-client-v1", "http-client-challenge")).passed).toBe(false);
 });
 
-const httpProjectReference = `import json as json_module
+export const httpProjectReference = `import json as json_module
 
 def request_with_retry(transport, url, sleep):
     attempts = 0
@@ -673,7 +673,7 @@ it.each([
   expect((await grade(source, "llm-guard-v1", "llm-guard-challenge")).passed).toBe(false);
 });
 
-const llmProjectReference = `import json
+export const llmProjectReference = `import json
 
 FIELDS = ("name", "age", "email")
 
@@ -740,7 +740,7 @@ it.each([
   expect((await grade(source, "llm-project-v1", "llm-project-challenge")).passed).toBe(false);
 });
 
-const recoveryProjectReference = `import json
+export const recoveryProjectReference = `import json
 import re
 
 ERROR_RE = re.compile(r"^([A-Za-z_]\\w*(?:Error|Exception))\\s*:")

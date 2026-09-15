@@ -1,6 +1,6 @@
 import { curriculum } from "../../lib/curriculum";
 import { deriveDiagnosticProfile, latestCompletedDiagnosticSession, type DiagnosticSession } from "../../lib/diagnostic";
-import { getDashboardModel, getEvidenceRows, getLibraryRows, getProjectReview } from "../../lib/studio";
+import { getDashboardModel, getEvidenceRows, getLibraryRows, getPortfolioModel, getProjectReview } from "../../lib/studio";
 import type { Studio } from "./use-studio";
 import { StageRail } from "./stage-rail";
 
@@ -104,6 +104,25 @@ function Completion({ studio }: { studio: Studio }) {
     {run.mode === "review" && <div className="button-row summary-actions"><button className="primary" onClick={() => studio.navigate("learned")}>Go to What I Learned →</button><button className="secondary" onClick={() => studio.navigate("today")}>Back to Today</button></div>}</>;
 }
 
+function Portfolio({ studio }: { studio: Studio }) {
+  const projects = getPortfolioModel(studio.state);
+  const completedCount = projects.reduce((n, p) => n + p.snapshots.length, 0);
+  return <><PageHeading label="PORTFOLIO" title="Ship it. Prove it.">Finished portfolio projects are sealed into immutable snapshots — your source, the fixtures, the named tests, and your reflection. Download any project as a GitHub-ready zip.</PageHeading>{completedCount ? <div>{projects.map(({ project, snapshots, complete }) => {
+    const byComponent = new Map(snapshots.map(s => [s.componentId, s]));
+    return <section className="document" aria-label={project.title} key={project.id}>
+      <span className="eyebrow">PORTFOLIO PROJECT</span>
+      <h2>{project.title}</h2>
+      <p>{project.objective}</p>
+      <p className="muted">{snapshots.length} of {project.components.length} components completed{complete ? " · Project complete" : ""}</p>
+      <ul className="saved-checks">{project.components.map(component => {
+        const snapshot = byComponent.get(component.taskId);
+        return <li key={component.taskId}><strong>{snapshot ? "Completed" : "Not completed yet"}: {component.title}</strong>{snapshot && <p>Sealed {formatDate(snapshot.completedAt)} · {snapshot.tests.filter(t => t.passed).length}/{snapshot.tests.length} checks passed · {snapshot.assistance.hintsUsed} hints used</p>}</li>;
+      })}</ul>
+      {snapshots.length > 0 && <div className="button-row"><button className="primary" onClick={() => studio.downloadPortfolio(project.id)}>Download ZIP<span aria-hidden="true"> ↓</span></button></div>}
+    </section>;
+  })}</div> : <section className="document large-empty"><span className="empty-mark" aria-hidden="true">[ ]</span><h2>No portfolio snapshots yet.</h2><p>Complete a mission whose build project feeds a portfolio project — for example, the payments CSV mission. Its snapshot appears here the moment the mission completes.</p><button className="primary" onClick={() => studio.navigate("lessons")}>Browse missions →</button></section>}</>;
+}
+
 export function Dashboard({ studio }: { studio: Studio }) {
-  return <main id="main-content" className="dashboard">{studio.route.completedRunId ? <Completion studio={studio} /> : studio.route.destination === "lessons" ? <Lessons studio={studio} /> : studio.route.destination === "learned" ? <Learned studio={studio} /> : studio.route.destination === "assessment" ? <Assessment studio={studio} /> : <Today studio={studio} />}</main>;
+  return <main id="main-content" className="dashboard">{studio.route.completedRunId ? <Completion studio={studio} /> : studio.route.destination === "lessons" ? <Lessons studio={studio} /> : studio.route.destination === "learned" ? <Learned studio={studio} /> : studio.route.destination === "assessment" ? <Assessment studio={studio} /> : studio.route.destination === "portfolio" ? <Portfolio studio={studio} /> : <Today studio={studio} />}</main>;
 }

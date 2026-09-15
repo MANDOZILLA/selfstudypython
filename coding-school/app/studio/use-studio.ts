@@ -267,6 +267,26 @@ export function useStudio() {
     try { const saved = getState(); stateRef.current = saved; setState(saved); setRecoveryRaw(null); setStorageError(null); }
     catch (error) { if (error instanceof StateRecoveryError) setRecoveryRaw(error.raw); setStorageError("The stored data is still unreadable. Export a copy, or reset with a backup."); }
   }
+  async function downloadPortfolio(projectId: string) {
+    const snapshots = stateRef.current.portfolio.filter(s => s.projectId === projectId);
+    if (!snapshots.length) { setStorageError("No completed components for this project yet. Finish a tagged mission build to create your first snapshot."); return; }
+    try {
+      const { generatePortfolioZip, sanitizeDirName } = await import("../../lib/zip-export");
+      const { getPortfolioProject } = await import("../../curriculum/portfolio-projects");
+      const project = getPortfolioProject(projectId);
+      const blob = await generatePortfolioZip(projectId, snapshots, "blob");
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${sanitizeDirName(project?.title ?? projectId)}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      setStorageError(`Could not build the portfolio download: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   function resetRecovery() {
     if (recoveryRaw === null) return;
     try {
@@ -275,7 +295,7 @@ export function useStudio() {
     } catch { setStorageError("Could not create a recovery backup. Export your data before freeing browser storage and retrying."); }
   }
   return { state, ready, route, workbench, draft, result, status, busy, attemptSaved, learningMode, assistanceUsed, storageError, recoveryRaw,
-    navigate, start, updateDraft, continueStage, submitText, runChecks, stopRun, toggleLearningMode, retrySave, exportRecovery, retryRecovery, resetRecovery,
+    navigate, start, updateDraft, continueStage, submitText, runChecks, stopRun, toggleLearningMode, retrySave, exportRecovery, retryRecovery, resetRecovery, downloadPortfolio,
     diagnosticResult, diagnosticStatus, diagnosticBusy, diagnosticStale,
     startDiagnostic, retakeDiagnostic, openDiagnosticSession, updateDiagnosticDraft, revealDiagnosticHint, answerDiagnosticConcept, runDiagnosticCode, stopDiagnosticRun, finishDiagnostic };
 }
