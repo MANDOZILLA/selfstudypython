@@ -111,10 +111,10 @@ export function useStudio() {  const [state, setState] = useState(createDefaultS
     const next = { ...stateRef.current, dashboard: { activeTab: destination === "today" ? "overview" as const : destination } };
     if (commit(next)) go({ destination });
   }
-  function start(missionId?: string) {
+  function start(missionId?: string, reviewTaskIds?: string[]) {
     if (!flushDraft()) return;
     try {
-      const next = startOrResumeMission(stateRef.current, new Date(), missionId);
+      const next = startOrResumeMission(stateRef.current, new Date(), missionId, reviewTaskIds);
       const active = next.missionRuns.find(r => r.status === "active");
       if (active && commit(next)) {
         draftRef.current = {}; setLocalDrafts({});

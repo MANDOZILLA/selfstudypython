@@ -1,5 +1,7 @@
 import { curriculum } from "../../lib/curriculum";
 import { deriveDiagnosticProfile, latestCompletedDiagnosticSession, type DiagnosticSession } from "../../lib/diagnostic";
+import { recommendNext, type RecommendationAction } from "../../lib/recommend";
+import { buildSkillGraph, type GraphSkillStatus } from "../../lib/skill-graph";
 import { getDashboardModel, getEvidenceRows, getLibraryRows, getPortfolioModel, getProjectReview } from "../../lib/studio";
 import type { Studio } from "./use-studio";
 import { StageRail } from "./stage-rail";
@@ -44,6 +46,7 @@ function Today({ studio }: { studio: Studio }) {
   const available = model.selection.kind !== "complete" && model.mission;
   return <>
     <PageHeading label="TODAY" title="Make room for useful practice.">A small lesson. A working artifact. A clearer understanding of your code.</PageHeading>
+    <RecommendationCard studio={studio} />
     {available && model.mission ? <section className="mission-document" aria-labelledby="mission-title">
       <div className="mission-topline"><span className="eyebrow">{reviewOnly && model.run ? "YOUR REVIEW IN PROGRESS" : model.run ? "YOUR MISSION IN PROGRESS" : reviewOnly ? "YOUR SCHEDULED REVIEW" : "YOUR NEXT MISSION"}</span><span className="duration">{reviewOnly ? model.mission.stages[0].estimatedMinutes : model.mission.estimatedMinutes} min <span>· suggested pace</span></span></div>
       <div className="mission-intro"><div><h2 id="mission-title">{reviewOnly ? "Bring a familiar pattern back to mind" : model.mission.title}</h2><p>{reviewOnly ? "Revisit the skills scheduled from your saved attempts. A short retrieval will show what needs practice." : model.mission.summary}</p></div>{!reviewOnly && <div className="artifact-preview" aria-label="Mission artifact"><span className="file-symbol" aria-hidden="true">.py</span><div><small>YOU’LL BUILD</small><strong>{model.mission.stages[2].tasks[0]?.title}</strong><span>Python · main.py</span></div></div>}</div>
@@ -57,15 +60,68 @@ function Today({ studio }: { studio: Studio }) {
   </>;
 }
 
+const RECOMMENDATION_EYEBROW: Record<RecommendationAction, string> = {
+  resume: "RESUME", diagnostic: "PLACEMENT", "start-mission": "NEXT MISSION",
+  repair: "REPAIR", retrieval: "RETRIEVAL", assessment: "CHECKPOINT", complete: "COMPLETE",
+};
+
+function RecommendationCard({ studio }: { studio: Studio }) {
+  const rec = recommendNext(studio.state);
+  const mission = rec.missionId ? curriculum.missions.find(m => m.id === rec.missionId) : null;
+  const actions: Record<RecommendationAction, { label: string; run: () => void }> = {
+    resume: { label: "Resume mission", run: () => studio.start() },
+    diagnostic: { label: "Start placement diagnostic", run: () => studio.startDiagnostic() },
+    "start-mission": { label: "Start mission", run: () => studio.start(undefined, rec.reviewTaskIds) },
+    repair: { label: "Start repair", run: () => studio.start(undefined, rec.reviewTaskIds) },
+    retrieval: { label: "Start retrieval", run: () => studio.start(undefined, rec.reviewTaskIds) },
+    assessment: { label: "Open checkpoint", run: () => studio.navigate("assessment") },
+    complete: { label: "Review skill graph", run: () => studio.navigate("learned") },
+  };
+  const action = actions[rec.action];
+  return <section className="document" aria-label="Recommended next step">
+    <div className="section-heading"><h2>Recommended next</h2><span className="eyebrow">{RECOMMENDATION_EYEBROW[rec.action]}</span></div>
+    {mission && <p className="muted">{mission.title}{rec.blockedMissionId ? " · blocked until the repair is done" : ""}</p>}
+    <p>{rec.reason}</p>
+    <div className="button-row"><button className="primary" onClick={action.run}>{action.label} →</button></div>
+  </section>;
+}
+
 function Lessons({ studio }: { studio: Studio }) {
   return <><PageHeading label="LESSON LIBRARY" title="Learn the pattern. Put it to work.">Each mission takes you from a worked example to a project you can explain.</PageHeading><section className="document lesson-library" aria-labelledby="library-title"><div className="library-group"><h2 id="library-title">Reliable data with Python</h2><p>Functions, validation, and useful imports</p></div>{getLibraryRows(studio.state).map((row, index) => <article className="lesson-row" key={row.mission.id}>
       <span className="lesson-index" aria-label={`Mission ${index + 1}`}>{String(index + 1).padStart(2, "0")}</span><div className="lesson-description"><span className="status-label">{row.status}</span><h3>{row.mission.title}</h3><p>{row.mission.summary}</p><span className="artifact-label">Artifact · {row.artifact}</span>{row.blockedReason && <p className="prerequisite">{row.blockedReason}</p>}</div><div className="lesson-action"><span className="duration">{row.mission.estimatedMinutes} min</span><button className="secondary" disabled={Boolean(row.blockedReason)} onClick={() => studio.start(row.mission.id)}>{row.status === "In progress" ? "Resume mission" : row.status === "Completed" ? "Practice again" : "Open mission"}<span aria-hidden="true"> →</span></button></div>
     </article>)}</section><p className="page-footnote">The library shows the authored missions available today. Progress reflects saved mission runs.</p></>;
 }
 
+const SKILL_STATUS_LABELS: Record<GraphSkillStatus, string> = {
+  untested: "Untested",
+  "needs-practice": "Needs practice",
+  "working-evidence": "Working evidence",
+  "demonstrated-in-project": "Demonstrated in project",
+  "demonstrated-again-later": "Demonstrated again later",
+  mastered: "Mastered",
+};
+
+function SkillGraphSection({ studio }: { studio: Studio }) {
+  const graph = buildSkillGraph(studio.state);
+  return <section className="document" aria-labelledby="skill-graph-title">
+    <div className="section-heading"><h2 id="skill-graph-title">Skill graph</h2><span className="eyebrow">ADAPTIVE</span></div>
+    <p className="muted">One qualitative status per skill — never a percentage. Status comes from independent evidence: project work, later retrieval in new contexts, and spaced reviews. Placement only suggests where to start; it never grants status.</p>
+    {graph.map(node => <details className="evidence-entry" key={node.skillId}>
+      <summary><div className="evidence-description"><h2>{node.name}</h2><p>{node.evidenceCount} evidence · {node.lastDemonstratedAt ? `last demonstrated ${formatDate(node.lastDemonstratedAt)}` : "not yet demonstrated"}</p></div><span className="status-label">{SKILL_STATUS_LABELS[node.status]}</span><span className="details-chevron" aria-hidden="true">⌄</span></summary>
+      <div className="evidence-details">
+        <p><strong>Prerequisites:</strong> {node.prerequisites.length ? node.prerequisites.map(p => p.name).join(", ") : "None"}</p>
+        <p><strong>Next review:</strong> {node.nextReviewAt ? `${formatDate(node.nextReviewAt)} · ${node.nextReviewReason}` : "Not scheduled"}</p>
+        <p>{node.readiness}</p>
+        {node.placement !== "untested" && <p className="muted">Placement signal: {node.placement} — placement only, not a status.</p>}
+        {node.evidenceTasks.length > 0 && <><h3>Tasks providing evidence</h3><ul className="saved-checks">{node.evidenceTasks.map(task => <li key={`${task.taskId}-${task.completedAt}`}>{task.title} · {task.kind} · {formatDate(task.completedAt)} · {task.passed ? "passed" : "needs changes"}{task.independent ? "" : " · assisted"}</li>)}</ul></>}
+      </div>
+    </details>)}
+  </section>;
+}
+
 function Learned({ studio }: { studio: Studio }) {
   const rows = getEvidenceRows(studio.state);
-  return <><PageHeading label="EVIDENCE LOG" title="Your work, with the receipts.">Saved attempts show what you tried, what passed, and how much help you used.</PageHeading>{rows.length ? <section className="evidence-list" aria-label="Saved attempts">{rows.map(row => {
+  return <><PageHeading label="EVIDENCE LOG" title="Your work, with the receipts.">Saved attempts show what you tried, what passed, and how much help you used.</PageHeading><SkillGraphSection studio={studio} />{rows.length ? <section className="evidence-list" aria-label="Saved attempts">{rows.map(row => {
     const code = row.attempt.purpose !== "instruction" && row.attempt.purpose !== "reflection";
     const label = row.attempt.purpose === "instruction" ? "Lesson read" : row.attempt.purpose === "reflection" ? "Reflection saved" : row.attempt.passed ? "Passed" : row.attempt.executionOk ? "Needs changes" : "Couldn't run";
     return <details className="document evidence-entry" key={row.attempt.id}><summary><div className="evidence-date"><time dateTime={row.attempt.completedAt}>{formatDate(row.attempt.completedAt)}</time><span>{new Date(row.attempt.completedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span></div><div className="evidence-description"><h2>{row.title}</h2><p>{row.attempt.purpose.replaceAll("-", " ")} · {row.assistance}</p><span>{code ? `${row.attempt.checks.filter(c => c.passed).length}/${row.attempt.checks.length} checks passed` : "Not a graded skill claim"}{row.nextReview ? ` · Next review ${formatDate(row.nextReview)}` : " · No review scheduled"}</span></div><span className={`result-label ${code ? row.attempt.passed ? "success" : "failure" : ""}`}>{label}</span><span className="details-chevron" aria-hidden="true">⌄</span></summary><div className="evidence-details"><p className="muted">{row.missionTitle}{row.attempt.duplicateOf ? " · Repeated submission; no additional mastery credit." : ""}</p>{Object.entries(row.attempt.sourceFiles).map(([file, source]) => <div key={file}><h3>{file}</h3><pre>{source}</pre></div>)}{row.attempt.response && <div><h3>Your reflection</h3><p>{row.attempt.response}</p></div>}{row.attempt.checks.length > 0 && <ul className="saved-checks">{row.attempt.checks.map(check => <li key={check.id}><strong>{check.passed ? "Passed" : "Needs changes"}: {check.name}</strong>{check.detail && <p>{check.detail}</p>}</li>)}</ul>}<p className="muted">{row.assistance}. {row.attempt.purpose === "guided-practice" ? "Guided practice does not establish independent project evidence." : row.attempt.purpose === "project" && row.attempt.passed ? "Mastery requires varied independent evidence and later retrieval." : "This is a record of this attempt only."}</p></div></details>;

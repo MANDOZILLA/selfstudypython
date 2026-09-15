@@ -32,7 +32,7 @@ export function createDefaultState(): LearningState {
   return { version: STATE_VERSION, dashboard: { activeTab: "overview" }, diagnostic: { completed: false, completedAt: null },
     attempts: [], missionRuns: [], diagnosticSessions: [], mastery: {}, reviewSchedule: {}, portfolio: [], assessmentAttempts: [] };
 }
-function clone<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T; }
+export function clone<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T; }
 function object(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function canonicalFiles(files: Record<string, string>) { return JSON.stringify(Object.entries(files).sort(([a], [b]) => a.localeCompare(b))); }
 /** Stable local fingerprint, not a cryptographic signature. Full snapshots are retained. */
@@ -41,7 +41,7 @@ function hash(value: string) {
   for (let i = 0; i < value.length; i++) n = Math.imul(n ^ value.charCodeAt(i), 16777619);
   return (n >>> 0).toString(16).padStart(8, "0");
 }
-function refresh(state: LearningState): LearningState {
+export function refresh(state: LearningState): LearningState {
   state.mastery = Object.fromEntries(curriculum.skills.map(s => deriveSkillEvidence(state.attempts, s.id)).filter(s => s.status !== "Not started").map(s => [s.skillId, s]));
   state.reviewSchedule = deriveReviewSchedule(state.attempts);
   // Assessment focused repairs: failed tasks schedule repair reviews due the
@@ -73,7 +73,7 @@ function mergeAssistance(a: MissionDraft["assistance"] | undefined, b: MissionDr
   return { hintsUsed: Math.max(a?.hintsUsed ?? 0, b.hintsUsed), aiAssisted: Boolean(a?.aiAssisted || b.aiAssisted), solutionViewed: Boolean(a?.solutionViewed || b.solutionViewed) };
 }
 
-export function startOrResumeMission(state: LearningState, now = new Date(), missionId?: string): LearningState {
+export function startOrResumeMission(state: LearningState, now = new Date(), missionId?: string, forcedReviewTaskIds?: string[]): LearningState {
   const next = clone(state);
   const active = next.missionRuns.find(r => r.status !== "completed");
   if (active) { active.status = "active"; active.updatedAt = now.toISOString(); return next; }
@@ -84,7 +84,10 @@ export function startOrResumeMission(state: LearningState, now = new Date(), mis
   const completed = new Set(next.missionRuns.filter(r => r.status === "completed" && r.mode === "mission").map(r => r.missionId));
   if (mission.prerequisites.some(id => !completed.has(id))) throw new Error("Complete the prerequisite mission first.");
   const time = now.toISOString();
-  const reviewTaskIds = reviewOnly || selection.missionId === mission.id ? selection.reviewTaskIds : [];
+  // The recommendation engine may name an exact review list (e.g. a repair for
+  // a weak prerequisite); when given, that list is seated verbatim so the
+  // stated reason and the created run cannot disagree.
+  const reviewTaskIds = forcedReviewTaskIds ?? (reviewOnly || selection.missionId === mission.id ? selection.reviewTaskIds : []);
   const run: MissionRun = {
     id: crypto.randomUUID(), mode: reviewOnly ? "review" : "mission", missionId: mission.id, missionVersion: mission.version, status: "active", stageIndex: 0,
     stages: mission.stages.map((s, i) => ({ stageId: s.id, status: i === 0 ? "active" : "pending", taskIds: i === 0 ? [...new Set([...reviewTaskIds, ...s.tasks.map(t => t.id)])] : s.tasks.map(t => t.id), attemptIds: [], completedAt: null })),
