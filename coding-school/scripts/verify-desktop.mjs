@@ -57,6 +57,31 @@ async function noOverflow(page, label, width) {
   check(`${label}: no horizontal overflow`, scrollWidth <= width, `scrollWidth=${scrollWidth}`);
 }
 
+/**
+ * Blank the durable SQLite store so the desktop journey starts from a fresh
+ * profile — the pre-SQLite condition it was written for, when every fresh
+ * browser context booted with empty localStorage. Without this, the journey
+ * inherits whatever earlier pipeline stages (e.g. the tutor stage) left on
+ * the server, and the dashboard offers "Resume" instead of "Start N-minute
+ * mission", which the workbench step below requires.
+ */
+async function resetServerState() {
+  const snapshot = await (await fetch(`${BASE_URL}/api/state`)).json();
+  if (typeof snapshot?.revision !== "number") {
+    throw new Error(`resetServerState: unexpected GET /api/state body: ${JSON.stringify(snapshot).slice(0, 200)}`);
+  }
+  const res = await fetch(`${BASE_URL}/api/state`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ revision: snapshot.revision, state: {} }),
+  });
+  if (res.status !== 200) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`resetServerState: PUT /api/state returned ${res.status}: ${body.slice(0, 300)}`);
+  }
+  console.log(`resetServerState: blanked durable server state (was revision ${snapshot.revision})`);
+}
+
 async function main() {
   const { chromium } = await import("playwright");
   const browser = await chromium.launch({ args: ["--no-sandbox"] });
@@ -71,6 +96,7 @@ async function main() {
 
 async function journey(browser) {
   console.log("\n--- desktop 1280x720: full product journey ---");
+  await resetServerState();
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   const errors = [];
   watchErrors(page, errors);
