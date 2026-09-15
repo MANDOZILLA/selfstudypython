@@ -424,3 +424,35 @@ pre { font: 12px/1.75 var(--mono); white-space: pre-wrap; overflow-wrap: anywher
   .diagnostic-meta { gap: 12px; font-size: 13px; }
   .diagnostic-prompt { font-size: 15px; }
 }
+
+/* Multi-file IDE workbench */
+.ide-toolbar { gap: 8px; justify-content: flex-start; flex-wrap: wrap; padding: 8px 16px; }
+.file-tabs { display: flex; gap: 2px; overflow-x: auto; max-width: 100%; }
+.file-tab { border: 1px solid transparent; border-bottom: none; background: transparent; padding: 8px 12px; font: 11px var(--mono); color: var(--secondary); white-space: nowrap; border-radius: 6px 6px 0 0; }
+.file-tab:hover { color: var(--ink); }
+.file-tab.active { background: #fff; border-color: var(--line); color: var(--ink); font-weight: 600; }
+.entrypoint-dot { color: var(--action); }
+.entrypoint-picker { display: flex; align-items: center; gap: 6px; font: 11px var(--sans); color: var(--secondary); margin-left: auto; }
+.entrypoint-picker select { font: 11px var(--mono); padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.ide-file-tree { border-bottom: 1px solid var(--line); background: #fafcfd; padding: 12px 16px; display: flex; gap: 32px; flex-wrap: wrap; }
+.tree-section h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--secondary); margin: 0 0 8px; }
+.tree-section ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.tree-section li { display: flex; align-items: center; gap: 8px; }
+.tree-item { background: transparent; border: none; padding: 6px 8px; font: 12px var(--mono); color: var(--ink); border-radius: 6px; text-align: left; }
+.tree-item:hover { background: #eef3f6; }
+.tree-item.active { background: #e3edf3; font-weight: 600; }
+.badge { display: inline-block; font: 10px var(--sans); text-transform: uppercase; letter-spacing: 0.05em; color: var(--secondary); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; margin-left: 6px; }
+.add-file { display: flex; gap: 8px; margin-top: 10px; }
+.add-file input { font: 12px var(--mono); padding: 8px; border: 1px solid var(--line); border-radius: 6px; width: 160px; }
+.file-error { color: #b3261e; font-size: 12px; margin: 8px 0 0; }
+.inline-confirm { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; }
+.text-button.danger, .secondary.danger { color: #b3261e; }
+.fixture-view pre { background: #eef3f6; font-size: 12px; margin: 0; padding: 16px; max-height: 420px; overflow: auto; }
+.fixture-banner { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--secondary); padding: 8px 16px; border-bottom: 1px solid var(--line); }
+.fixture-banner .badge { margin-left: 0; }
+.ide-danger-zone { display: flex; align-items: center; gap: 16px; padding: 8px 16px 12px; }
+.execution-error { color: #b3261e; font: 12px var(--mono); background: #fdf0ef; border: 1px solid #f3c6c2; border-radius: 6px; padding: 10px 12px; }
+.console-errors { border-top: 1px solid var(--line); }
+.console-errors summary { min-height: 44px; align-content: center; cursor: pointer; font-size: 11px; }
+.console-errors pre { background: #eef3f6; font-size: 11px; margin: 0; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

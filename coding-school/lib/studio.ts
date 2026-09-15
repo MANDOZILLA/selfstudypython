@@ -101,9 +101,14 @@ export function getProjectReview(state: LearningState, runId?: string, now = new
     assistance: project ? getEvidenceRows(state).find(row => row.attempt.id === project.id)?.assistance : undefined };
 }
 
-export type RunStatus = "Ready" | "Loading Python" | "Loading data-science packages…" | "Running checks" | "Passed" | "Needs changes" | "Timed out" | "Couldn't run";
+export type RunStatus = "Ready" | "Loading Python" | "Loading data-science packages…" | "Running checks" | "Running code" | "Passed" | "Needs changes" | "Timed out" | "Couldn't run" | "Ran successfully" | "Run failed";
 export function runStatus(result: GradeResult | null): RunStatus {
   if (!result) return "Ready";
+  // Execute mode runs the entrypoint without grading: report the run itself.
+  if ((result as { mode?: string }).mode === "executed") {
+    if (result.executionOk) return "Ran successfully";
+    return /timed out/i.test(result.stderr) ? "Timed out" : "Run failed";
+  }
   if (result.passed) return "Passed";
   if (!result.executionOk) return /timed out/i.test(result.stderr) ? "Timed out" : "Couldn't run";
   return "Needs changes";

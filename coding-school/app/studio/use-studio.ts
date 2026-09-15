@@ -4,13 +4,29 @@ import { useEffect, useRef, useState } from "react";
 import { advanceMissionStage, createDefaultState, getState, resetState, StateRecoveryError, saveMissionDraft, saveState, startOrResumeMission, replaceDiagnosticSession, type LearningState, type MissionDraft } from "../../lib/state";
 import { getWorkbenchModel, persistAttempt, runStatus, type Destination, type RunStatus } from "../../lib/studio";
 import { startGradingRun, type GradeResult } from "../../lib/runner";
+import { ideRequestExtras, resolveEntrypoint, sanitizeProjectFiles, type IdeVariantExtras } from "../../lib/ide";
 import { answerConcept, classifyGradeResult, completeDiagnosticSession, createDiagnosticSession, recordCodingOutcome, saveDiagnosticDraft, type DiagnosticSession } from "../../lib/diagnostic";
 import { gradeDiagnosticConcept } from "../../lib/diagnostic-grading";
 import { DIAGNOSTIC_ITEMS } from "../../curriculum";
 import { readRoute, routeHash, type Route } from "../../lib/route";
 
-export function useStudio() {
-  const [state, setState] = useState(createDefaultState);
+type IdeVariant = { exerciseId: string; graderId: string; skillChecks?: Record<string, string[]>; timeoutMs?: number } & IdeVariantExtras;
+/** Build an IDE worker request: multi-file sources, a validated entrypoint,
+ *  sanitized fixtures, per-skill check mapping, and the task timeout. */
+function ideRunRequest(variant: IdeVariant, sourceFiles: Record<string, string>, requestId: string, entrypoint: string | undefined, mode: "grade" | "execute") {
+  // Sanitize again at the request boundary: the worker must never see an
+  // unsafe file name, however it entered the draft.
+  const files = sanitizeProjectFiles(sourceFiles);
+  const extras = ideRequestExtras(variant, files);
+  return {
+    type: "run" as const, requestId, exerciseId: variant.exerciseId, graderId: variant.graderId,
+    files, mode,
+    entrypoint: resolveEntrypoint(files, entrypoint ?? extras.entrypoint),
+    fixtures: extras.fixtures, skillChecks: variant.skillChecks, timeoutMs: variant.timeoutMs,
+  };
+}
+
+export function useStudio() {  const [state, setState] = useState(createDefaultState);
   const stateRef = useRef(state);
   const [route, setRoute] = useState<Route>({ destination: "today" });
   const [ready, setReady] = useState(false);
@@ -59,7 +75,7 @@ export function useStudio() {
 
   const workbench = route.runId ? getWorkbenchModel(state, route.runId, route.taskId) : null;
   const draft = workbench?.task ? localDrafts[workbench.task.id] ?? workbench.draft : undefined;
-  const busy = status === "Loading Python" || status === "Loading data-science packages…" || status === "Running checks";
+  const busy = status === "Loading Python" || status === "Loading data-science packages…" || status === "Running checks" || status === "Running code";
   const assistanceUsed = Boolean(draft && (draft.assistance.hintsUsed || draft.assistance.aiAssisted || draft.assistance.solutionViewed));
 
   function commit(next: LearningState) {
@@ -137,7 +153,7 @@ export function useStudio() {
     // Acknowledging instruction opens its guided practice; reflection ends the mission.
     continueStage();
   }
-  function runChecks() {
+  function runChecks(entrypoint?: string) {
     if (runRef.current || !workbench?.task || !draft || !flushDraft()) return;
     const task = workbench.task, variant = task.variants[0], runId = workbench.run.id;
     const submitted = { ...draft, sourceFiles: { ...draft.sourceFiles } };
@@ -147,7 +163,7 @@ export function useStudio() {
     window.history.replaceState({}, "", routeHash(pinned)); setRoute(pinned);
     setResult(null); setAttemptSaved(false); setStatus("Loading Python");
     runRef.current = { requestId, cancel: () => {} };
-    const cancel = startGradingRun({ type: "run", requestId, exerciseId: variant.exerciseId, graderId: variant.graderId, files: submitted.sourceFiles }, data => {
+    const cancel = startGradingRun(ideRunRequest(variant, submitted.sourceFiles, requestId, entrypoint, "grade"), data => {
       if (runRef.current?.requestId !== requestId) return;
       runRef.current = null;
       setResult(data); setStatus(runStatus(data));
@@ -163,6 +179,24 @@ export function useStudio() {
     if (runRef.current?.requestId === requestId) runRef.current.cancel = cancel;
   }
   function stopRun() { cancelRun(); setStatus("Ready"); setResult(null); }
+  /** Execute mode: run the entrypoint and show the output without grading or
+   *  saving an attempt. Late results are ignored by requestId, exactly like
+   *  graded runs. */
+  function runCode(entrypoint?: string) {
+    if (runRef.current || !workbench?.task || !draft || !flushDraft()) return;
+    const variant = workbench.task.variants[0];
+    const requestId = crypto.randomUUID();
+    setResult(null); setAttemptSaved(false); setStatus("Loading Python");
+    runRef.current = { requestId, cancel: () => {} };
+    const cancel = startGradingRun(ideRunRequest(variant, draft.sourceFiles, requestId, entrypoint, "execute"), data => {
+      if (runRef.current?.requestId !== requestId) return;
+      runRef.current = null;
+      setResult(data); setStatus(runStatus(data));
+    }, undefined, variant.timeoutMs ?? 15000, phase => {
+      if (runRef.current?.requestId === requestId) setStatus(phase === "loading" ? "Loading Python" : phase === "packages" ? "Loading data-science packages…" : "Running code");
+    });
+    if (runRef.current?.requestId === requestId) runRef.current.cancel = cancel;
+  }
   function diagnosticSession(): DiagnosticSession | undefined {
     return stateRef.current.diagnosticSessions.find(s => s.id === route.diagnosticSessionId);
   }
@@ -299,7 +333,7 @@ export function useStudio() {
     } catch { setStorageError("Could not create a recovery backup. Export your data before freeing browser storage and retrying."); }
   }
   return { state, ready, route, workbench, draft, result, status, busy, attemptSaved, learningMode, assistanceUsed, storageError, recoveryRaw,
-    navigate, start, updateDraft, continueStage, submitText, runChecks, stopRun, toggleLearningMode, retrySave, exportRecovery, retryRecovery, resetRecovery, downloadPortfolio, applyState,
+    navigate, start, updateDraft, continueStage, submitText, runChecks, runCode, stopRun, toggleLearningMode, retrySave, exportRecovery, retryRecovery, resetRecovery, downloadPortfolio, applyState,
     diagnosticResult, diagnosticStatus, diagnosticBusy, diagnosticStale,
     startDiagnostic, retakeDiagnostic, openDiagnosticSession, updateDiagnosticDraft, revealDiagnosticHint, answerDiagnosticConcept, runDiagnosticCode, stopDiagnosticRun, finishDiagnostic };
 }
