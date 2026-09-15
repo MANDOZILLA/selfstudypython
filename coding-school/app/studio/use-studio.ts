@@ -59,7 +59,7 @@ export function useStudio() {
 
   const workbench = route.runId ? getWorkbenchModel(state, route.runId, route.taskId) : null;
   const draft = workbench?.task ? localDrafts[workbench.task.id] ?? workbench.draft : undefined;
-  const busy = status === "Loading Python" || status === "Running checks";
+  const busy = status === "Loading Python" || status === "Loading data-science packages…" || status === "Running checks";
   const assistanceUsed = Boolean(draft && (draft.assistance.hintsUsed || draft.assistance.aiAssisted || draft.assistance.solutionViewed));
 
   function commit(next: LearningState) {
@@ -153,8 +153,8 @@ export function useStudio() {
       });
       if (saved.saved) { stateRef.current = saved.state; setState(saved.state); setAttemptSaved(true); setStorageError(null); }
       else { setAttemptSaved(false); setStorageError(saved.error); }
-    }, undefined, 15000, phase => {
-      if (runRef.current?.requestId === requestId) setStatus(phase === "loading" ? "Loading Python" : "Running checks");
+    }, undefined, variant.timeoutMs ?? 15000, phase => {
+      if (runRef.current?.requestId === requestId) setStatus(phase === "loading" ? "Loading Python" : phase === "packages" ? "Loading data-science packages…" : "Running checks");
     });
     if (runRef.current?.requestId === requestId) runRef.current.cancel = cancel;
   }

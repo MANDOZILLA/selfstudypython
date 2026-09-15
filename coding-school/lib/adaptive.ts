@@ -100,7 +100,7 @@ export function deriveReviewSchedule(attempts: AttemptRecord[]): Record<string, 
 export type TodaySelection = { kind: "resume" | "mission" | "review" | "complete"; missionId: string | null; runId?: string; reviewTaskIds: string[] };
 export function selectToday(state: LearningState, now: Date): TodaySelection {
   const active = state.missionRuns.find(r => r.status !== "completed");
-  if (active) return { kind: "resume", missionId: active.missionId, runId: active.id, reviewTaskIds: active.stages[0].taskIds };
+  if (active) return { kind: "resume", missionId: active.missionId, runId: active.id, reviewTaskIds: active.stages[0].taskIds.filter(id => curriculum.reviewTasks.some(t => t.id === id)) };
   const completed = new Set(state.missionRuns.filter(r => r.status === "completed" && r.mode === "mission").map(r => r.missionId));
   const mission = curriculum.missions.find(m => !completed.has(m.id) && m.prerequisites.every(id => completed.has(id)));
   const relevant = new Set(mission ? [...mission.revisitedSkillIds, ...mission.introducedSkillIds] : curriculum.skills.map(s => s.id));

@@ -11,6 +11,23 @@ export const graderCatalog = Object.freeze({
   "diagnostic-call-forms-v1": Object.freeze({ exerciseId: "diagnostic-call-forms", version: "1.0.0", requiredTests: ["concept-loads", "concept-map", "sample", "empty", "invalid"] }),
   "diagnostic-http-v1": Object.freeze({ exerciseId: "diagnostic-http", version: "1.0.0", requiredTests: ["boundary-199", "boundary-200", "boundary-299", "boundary-300"] }),
   "diagnostic-files-v1": Object.freeze({ exerciseId: "diagnostic-files", version: "1.0.0", requiredTests: ["reads-lines", "context-manager", "missing-file"] }),
+  "traceback-v1": Object.freeze({ exerciseId: "traceback-challenge", version: "1.0.0", requiredTests: ["sample", "empty", "invalid", "chained", "syntax"] }),
+  "logscan-v1": Object.freeze({ exerciseId: "logscan-challenge", version: "1.0.0", requiredTests: ["concept-open", "concept-with", "sample", "empty", "invalid", "shape"] }),
+  "validators-v1": Object.freeze({ exerciseId: "validators-challenge", version: "1.0.0", requiredTests: ["concept-reuse", "sample", "empty", "invalid", "shape"] }),
+  "transform-v1": Object.freeze({ exerciseId: "transform-challenge", version: "1.0.0", requiredTests: ["concept-comprehension", "sample", "empty", "invalid", "precision", "shape"] }),
+  "pandas-clean-v1": Object.freeze({ exerciseId: "pandas-clean-challenge", version: "1.0.0", packages: ["pandas"], requiredTests: ["concept-pandas", "sample", "empty", "invalid", "missing", "shape"] }),
+  "pandas-project-v1": Object.freeze({ exerciseId: "pandas-quality-project", version: "1.0.0", packages: ["pandas"], requiredTests: ["concept-pandas", "sample", "empty", "invalid", "missing", "shape"] }),
+  "sqlite-agg-v1": Object.freeze({ exerciseId: "sqlite-agg-challenge", version: "1.0.0", requiredTests: ["concept-sqlite", "sample", "empty", "missing", "shape"] }),
+  "sqlite-project-v1": Object.freeze({ exerciseId: "sqlite-project-challenge", version: "1.0.0", requiredTests: ["concept-sqlite", "concept-transaction", "sample", "empty", "committed", "shape"] }),
+  "money-recon-v1": Object.freeze({ exerciseId: "money-recon-challenge", version: "1.0.0", requiredTests: ["sample", "empty", "invalid", "anomaly", "shape"] }),
+  "money-project-v1": Object.freeze({ exerciseId: "money-project-challenge", version: "1.0.0", packages: ["pandas"], requiredTests: ["concept-pandas", "sample", "empty", "invalid", "anomaly", "shape"] }),
+  "http-client-v1": Object.freeze({ exerciseId: "http-client-challenge", version: "1.0.0", requiredTests: ["boundary-199", "boundary-200", "boundary-299", "boundary-300", "retry-after", "retries", "no-retry-client-error", "exhausted"] }),
+  "http-project-v1": Object.freeze({ exerciseId: "http-project-challenge", version: "1.0.0", requiredTests: ["pagination", "retries", "page-limit", "unrecoverable", "shape"] }),
+  "llm-guard-v1": Object.freeze({ exerciseId: "llm-guard-challenge", version: "1.0.0", requiredTests: ["sample", "empty", "invalid", "schema", "deterministic", "shape"] }),
+  "llm-project-v1": Object.freeze({ exerciseId: "llm-project-challenge", version: "1.0.0", requiredTests: ["passthrough", "retry", "invalid-body", "exhausted", "shape"] }),
+  "recovery-project-v1": Object.freeze({ exerciseId: "recovery-project-challenge", version: "1.0.0", requiredTests: ["concept-open", "concept-with", "sample", "no-crash", "empty", "missing", "shape"] }),
+  "validation-project-v1": Object.freeze({ exerciseId: "validation-project-challenge", version: "1.0.0", requiredTests: ["concept-reuse", "sample", "empty", "invalid", "reasons", "shape"] }),
+  "transform-project-v1": Object.freeze({ exerciseId: "transform-project-challenge", version: "1.0.0", requiredTests: ["concept-comprehension", "sample", "empty", "invalid", "precision", "shape"] }),
 });
 export function getGrader(exerciseId, graderId) {
   const grader = Object.hasOwn(graderCatalog, graderId) ? graderCatalog[graderId] : undefined;

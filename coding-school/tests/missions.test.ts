@@ -34,7 +34,7 @@ function toBuild() {
 
 function completeAuthoredMissions() {
   let state = start();
-  for (let mission = 0; mission < 2; mission++) {
+  for (let mission = 0; mission < authored.curriculum.missions.length; mission++) {
     if (mission) state = engine.startOrResumeMission(state, day(11));
     const runId = state.missionRuns.at(-1)!.id;
     for (let stage = state.missionRuns.at(-1)!.stageIndex; stage < 4; stage++) {
@@ -219,9 +219,25 @@ describe("continuous missions and honest evidence", () => {
     broken.attempts = [];
     expect(engine.migrateState(broken).missionRuns[0].status).not.toBe("completed");
   });
+  it("seats the mission's authored review tasks in the review stage of a new run", () => {
+    let state = start();
+    for (const missionId of ["csv-foundations", "json-api-normalization"]) {
+      if (missionId !== "csv-foundations") state = engine.startOrResumeMission(state, day(11), missionId);
+      const runId = state.missionRuns.at(-1)!.id;
+      for (let stage = 0; stage < 4; stage++) {
+        for (const taskId of state.missionRuns.at(-1)!.stages[stage].taskIds) state = submit(state, taskId);
+        state = engine.advanceMissionStage(state, runId, day(11));
+      }
+    }
+    state = engine.startOrResumeMission(state, day(11), "python-recovery");
+    const run = state.missionRuns.at(-1)!;
+    expect(run.stages[0].taskIds).toContain("recovery-review-functions");
+    const migrated = engine.migrateState(JSON.parse(JSON.stringify(state)));
+    expect(migrated.missionRuns.at(-1)!.stages[0].taskIds).toContain("recovery-review-functions");
+  });
   it("offers a resumable short review after the authored missions are complete", () => {
     let state = start();
-    for (let mission = 0; mission < 2; mission++) {
+    for (let mission = 0; mission < authored.curriculum.missions.length; mission++) {
       if (mission) state = engine.startOrResumeMission(state, day(11));
       const runId = state.missionRuns.at(-1)!.id;
       for (let stage = 0; stage < 4; stage++) {
@@ -279,12 +295,15 @@ describe("authored mission contracts", () => {
       expect(authored.curriculum.reviewTasks.some(task => task.skillIds.includes(skill.id))).toBe(true);
     }
   });
-  it("validates references, executable code variants, ordered stages and a 45-minute guide", () => {
+  it("validates references, executable code variants, ordered stages and a 30-60 minute guide", () => {
     expect(authored.curriculum.missions?.length).toBeGreaterThanOrEqual(2);
     expect(authored.validateCurriculum(authored.curriculum).success).toBe(true);
     for (const mission of authored.curriculum.missions) {
       expect(mission.stages.map(stage => stage.kind)).toEqual(["review", "learn", "build", "explain"]);
-      expect(mission.stages.reduce((sum, stage) => sum + stage.estimatedMinutes, 0)).toBe(45);
+      expect(mission.estimatedMinutes).toBeGreaterThanOrEqual(30);
+      expect(mission.estimatedMinutes).toBeLessThanOrEqual(60);
+      expect(mission.stages.reduce((sum, stage) => sum + stage.estimatedMinutes, 0)).toBe(mission.estimatedMinutes);
+      expect(mission.stages[0].estimatedMinutes).toBeLessThanOrEqual(5);
       for (const stage of mission.stages) for (const task of stage.tasks) for (const variant of task.variants) {
         if (task.kind === "code") expect(getGrader(variant.exerciseId, variant.graderId)).toBeTruthy();
       }

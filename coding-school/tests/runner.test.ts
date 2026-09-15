@@ -82,4 +82,11 @@ describe("worker lifecycle", () => {
     startGradingRun(request, completed, () => { throw Error("unavailable"); });
     expect(completed.mock.calls[0]?.[0]?.executionOk).toBe(false);
   });
+  it("forwards the data-science package loading phase as progress", () => {
+    const worker = new WorkerTransport();
+    const progress = vi.fn();
+    startGradingRun(request, vi.fn(), () => worker, 15000, progress);
+    worker.onmessage?.({ data: { ...request, type: "progress", phase: "packages" } });
+    expect(progress).toHaveBeenCalledWith("packages");
+  });
 });

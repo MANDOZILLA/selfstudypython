@@ -5,6 +5,7 @@ export const taskVariantSchema = z.object({
   id: z.string().min(1), contextId: z.string().min(1), exerciseId: z.string(), graderId: z.string(),
   starterFiles: z.record(z.string(), z.string()),
   skillChecks: z.record(z.string(), z.array(z.string()).min(1)),
+  timeoutMs: z.number().int().positive().max(120000).optional(),
 });
 export const missionTaskSchema = z.object({
   id: z.string().min(1), title: z.string().min(1), kind: z.enum(["instruction", "code", "explanation"]),
@@ -13,6 +14,7 @@ export const missionTaskSchema = z.object({
   explanation: z.string().min(20), examples: z.array(z.string()).min(1),
   requirements: z.array(z.string()).min(1), hints: z.array(z.string()),
   variants: z.array(taskVariantSchema).min(1),
+  portfolioProjectId: z.string().min(1).optional(),
 });
 export const missionStageSchema = z.object({
   id: z.string().min(1), kind: z.enum(["review", "learn", "build", "explain"]), title: z.string(),

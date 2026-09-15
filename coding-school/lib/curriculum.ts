@@ -18,7 +18,7 @@ export const curriculumSchema = z.object({ skills: z.array(skillSchema), lessons
     if (mission.prerequisites.some(id => !data.missions.slice(0, index).some(m => m.id === id))) fail(`Invalid prerequisite order for ${mission.id}`);
     if ([...mission.introducedSkillIds, ...mission.revisitedSkillIds].some(id => !skills.has(id))) fail(`Unknown mission skill: ${mission.id}`);
     if (mission.stages.map(s => s.kind).join() !== "review,learn,build,explain") fail(`Invalid stage order: ${mission.id}`);
-    if (mission.estimatedMinutes !== 45 || mission.stages.reduce((n, s) => n + s.estimatedMinutes, 0) !== 45 || mission.stages[0].estimatedMinutes > 5) fail(`Invalid pacing budget: ${mission.id}`);
+    if (mission.estimatedMinutes < 30 || mission.estimatedMinutes > 60 || mission.stages.reduce((n, s) => n + s.estimatedMinutes, 0) !== mission.estimatedMinutes || mission.stages[0].estimatedMinutes > 5) fail(`Invalid pacing budget: ${mission.id}`);
     for (const stage of mission.stages) { ids.push(stage.id); tasks.push(...stage.tasks); }
   });
   for (const task of tasks) {

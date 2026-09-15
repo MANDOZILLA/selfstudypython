@@ -5,7 +5,7 @@ import { DIAGNOSTIC_CORE_SKILLS, DIAGNOSTIC_ITEMS, DIAGNOSTIC_SKILLS } from "../
 describe("seed curriculum", () => {
   it("exposes complete authored missions through the compatibility lesson view", () => {
     expect(validateCurriculum(curriculum).success).toBe(true);
-    expect(curriculum.lessons).toHaveLength(2);
+    expect(curriculum.lessons).toHaveLength(10);
     for (const lesson of curriculum.lessons) {
       expect(lesson.objectives.length).toBeGreaterThan(1);
       expect(lesson.examples.length).toBeGreaterThanOrEqual(2);

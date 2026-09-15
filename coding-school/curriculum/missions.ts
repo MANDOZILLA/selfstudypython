@@ -56,6 +56,7 @@ export const reviewTasks: MissionTask[] = [contactTask, inventoryTask, {
 
 const csvProject: MissionTask = {
   id: "csv-project", title: "Repair a payments export", kind: "code", purpose: "project", skillIds: csvSkills, introducedSkillIds: [],
+  portfolioProjectId: "portfolio-data-pipeline",
   explanation: "A teammate needs a reliable list of payments from an unreliable CSV export. Build the whole transformation yourself. Keep the parsing boundary separate from row validation. Make each accepted row a new dictionary, use exact decimal arithmetic, and preserve the original order. The examples describe the contract; the full implementation is yours.",
   examples: ["id,amount,currency\n pay_101 ,12.00, usd \npay_102,,USD\npay_103,0.10,EUR\npay_101,90.00,USD", "Expected: [{'id':'pay_101','amount':'12.00','currency':'USD'}, {'id':'pay_103','amount':'0.10','currency':'EUR'}]"],
   requirements: [
@@ -71,6 +72,7 @@ const csvProject: MissionTask = {
 };
 const jsonProject: MissionTask = {
   id: "json-project", title: "Normalize a payment API response", kind: "code", purpose: "project", skillIds: jsonSkills, introducedSkillIds: [],
+  portfolioProjectId: "portfolio-api-normalization",
   explanation: "The same payments now arrive from an API as JSON text. Reuse your CSV-era function, list/dictionary, validation-order, deduplication, and Decimal skills. Replace the CSV parser with a JSON boundary. This mission uses saved response fixtures; it does not make live HTTP requests or assess networking/retries.",
   examples: ['Input: \'{"payments":[{"id":" p1 ","money":{"amount":"0.10","currency":"eur"}}, {"id":"p2","money":null}]}\'\nOutput: [{\'id\':\'p1\',\'amount\':\'0.10\',\'currency\':\'EUR\'}]', "Malformed JSON, a list at the root, or a non-list payments field → []. A bad entry inside payments is skipped without losing good entries."],
   requirements: [

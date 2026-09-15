@@ -72,7 +72,7 @@ export function startOrResumeMission(state: LearningState, now = new Date(), mis
   const reviewTaskIds = reviewOnly || selection.missionId === mission.id ? selection.reviewTaskIds : [];
   const run: MissionRun = {
     id: crypto.randomUUID(), mode: reviewOnly ? "review" : "mission", missionId: mission.id, missionVersion: mission.version, status: "active", stageIndex: 0,
-    stages: mission.stages.map((s, i) => ({ stageId: s.id, status: i === 0 ? "active" : "pending", taskIds: i === 0 ? reviewTaskIds : s.tasks.map(t => t.id), attemptIds: [], completedAt: null })),
+    stages: mission.stages.map((s, i) => ({ stageId: s.id, status: i === 0 ? "active" : "pending", taskIds: i === 0 ? [...new Set([...reviewTaskIds, ...s.tasks.map(t => t.id)])] : s.tasks.map(t => t.id), attemptIds: [], completedAt: null })),
     drafts: {}, attemptIds: [], startedAt: time, updatedAt: time, completedAt: null,
   };
   next.missionRuns.push(run);
@@ -171,7 +171,7 @@ export function migrateState(value: unknown): LearningState {
     if (!parsed.success) return [];
     const run = parsed.data; const mission = getMission(run.missionId);
     if (!mission || run.missionVersion !== mission.version || run.stages.some((s, i) => s.stageId !== mission.stages[i].id ||
-      (i === 0 ? s.taskIds.length > 2 || new Set(s.taskIds).size !== s.taskIds.length || s.taskIds.some(id => !curriculum.reviewTasks.some(t => t.id === id)) :
+      (i === 0 ? s.taskIds.length > 2 + mission.stages[0].tasks.length || new Set(s.taskIds).size !== s.taskIds.length || s.taskIds.some(id => !curriculum.reviewTasks.some(t => t.id === id) && !mission.stages[0].tasks.some(t => t.id === id)) :
         s.taskIds.join() !== mission.stages[i].tasks.map(t => t.id).join()))) return [];
     return [run];
   });

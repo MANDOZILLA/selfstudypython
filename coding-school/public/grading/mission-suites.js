@@ -1,5 +1,6 @@
 // Inspectable educational checks. As with the CSV suite, not a hostile-code security boundary.
-const harness = String.raw`
+// Exported so mission-suites-2.js can reuse the proven fixture loop for simple suites.
+export const harness = String.raw`
 import ast
 import copy
 import json

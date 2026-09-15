@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getDashboardModel, getLibraryRows, getEvidenceRows, getWorkbenchModel, persistAttempt, runStatus, nextWorkbenchPanel } from "../lib/studio";
 import { createDefaultState, startOrResumeMission, advanceMissionStage, recordMissionAttempt, saveMissionDraft, migrateState, type LearningState } from "../lib/state";
-import { getTask } from "../lib/curriculum";
+import { getTask, curriculum } from "../lib/curriculum";
 import { getGrader } from "../public/grading/catalog.js";
 import { aggregateResult, failureResult } from "../public/grading/protocol.js";
 
@@ -100,10 +100,11 @@ describe("persisted studio views", () => {
     expect(getWorkbenchModel(state, state.missionRuns[0].id)?.stageComplete).toBe(false);
   });
   it("derives library status and evidence rows from real attempts", () => {
-    expect(getLibraryRows(createDefaultState()).map(r => r.status)).toEqual(["Not started", "Not started"]);
+    const restNotStarted = () => curriculum.missions.slice(1).map(() => "Not started");
+    expect(getLibraryRows(createDefaultState()).map(r => r.status)).toEqual(["Not started", ...restNotStarted()]);
     expect(getEvidenceRows(createDefaultState())).toEqual([]);
     let state = submit(submit(learn(), "csv-instruction"), "csv-guided");
-    expect(getLibraryRows(state).map(r => r.status)).toEqual(["In progress", "Not started"]);
+    expect(getLibraryRows(state).map(r => r.status)).toEqual(["In progress", ...restNotStarted()]);
     const rows = getEvidenceRows(state);
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({ title: "Guided practice: clean a contact list", attempt: { passed: true }, assistance: "Independent", nextReview: "2026-09-12T12:00:00.000Z" });
@@ -112,7 +113,7 @@ describe("persisted studio views", () => {
     state = advanceMissionStage(state, state.missionRuns[0].id, now);
     state = submit(state, "csv-explain");
     state = advanceMissionStage(state, state.missionRuns[0].id, now);
-    expect(getLibraryRows(state).map(r => r.status)).toEqual(["Completed", "Not started"]);
+    expect(getLibraryRows(state).map(r => r.status)).toEqual(["Completed", ...restNotStarted()]);
   });
   it("captures hints and external assistance on persisted attempts", () => {
     const state = submit(learn(), "csv-instruction");

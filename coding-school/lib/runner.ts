@@ -5,7 +5,7 @@ export type IgnoredResult = { ignored: true; reason: string; requestId: string; 
 export type GradeRequest = { type: "run"; requestId: string; exerciseId: string; graderId: string; files: Record<string, string>; sessionId?: string; taskId?: string };
 type WorkerTransport = Pick<Worker, "onmessage" | "onerror" | "onmessageerror" | "postMessage" | "terminate">;
 
-export function startGradingRun(request: GradeRequest, onComplete: (result: GradeResult) => void, createWorker: () => WorkerTransport = () => new Worker("/python-worker.js", { type: "module" }), timeoutMs = 15000, onProgress?: (phase: "loading" | "running") => void, onIgnored?: (ignored: IgnoredResult) => void): () => void {
+export function startGradingRun(request: GradeRequest, onComplete: (result: GradeResult) => void, createWorker: () => WorkerTransport = () => new Worker("/python-worker.js", { type: "module" }), timeoutMs = 15000, onProgress?: (phase: "loading" | "running" | "packages") => void, onIgnored?: (ignored: IgnoredResult) => void): () => void {
   let active = true;
   let worker: WorkerTransport | undefined;
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -25,7 +25,7 @@ export function startGradingRun(request: GradeRequest, onComplete: (result: Grad
     worker.onmessage = ({ data }) => {
       if (!active) return;
       if (data?.type === "progress") {
-        if (data.requestId === request.requestId && data.exerciseId === request.exerciseId && data.graderId === request.graderId && (data.phase === "loading" || data.phase === "running")) onProgress?.(data.phase);
+        if (data.requestId === request.requestId && data.exerciseId === request.exerciseId && data.graderId === request.graderId && (data.phase === "loading" || data.phase === "running" || data.phase === "packages")) onProgress?.(data.phase);
         return;
       }
       const result = verifyWorkerResult(request, data) as GradeResult | IgnoredResult | null;
