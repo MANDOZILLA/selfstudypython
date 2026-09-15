@@ -23,4 +23,12 @@ export const lessons = missions.map(mission => {
   };
 });
 export const projects = missions.map(mission => ({ id: `project-${mission.id}`, title: mission.stages[2].tasks[0].title, skillIds: mission.stages[2].tasks[0].skillIds, objective: mission.summary }));
-export const assessments: { id: string; title: string; skillIds: string[] }[] = [];
+import { ASSESSMENTS } from "./assessments";
+export { ASSESSMENTS } from "./assessments";
+export type { Assessment, AssessmentTask, AssessmentTaskKind } from "./assessments";
+// Backwards-compatible summary view (existing curriculum schema shape).
+export const assessments: { id: string; title: string; skillIds: string[] }[] = ASSESSMENTS.map(a => ({
+  id: a.id,
+  title: a.title,
+  skillIds: [...new Set(a.tasks.map(t => t.skillId))],
+}));

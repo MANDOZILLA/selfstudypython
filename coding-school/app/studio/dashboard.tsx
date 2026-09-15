@@ -3,6 +3,7 @@ import { deriveDiagnosticProfile, latestCompletedDiagnosticSession, type Diagnos
 import { getDashboardModel, getEvidenceRows, getLibraryRows, getPortfolioModel, getProjectReview } from "../../lib/studio";
 import type { Studio } from "./use-studio";
 import { StageRail } from "./stage-rail";
+import { AssessmentWorkbench } from "./assessment-workbench";
 
 const formatDate = (value: string) => new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 function PageHeading({ label, title, children }: { label: string; title: string; children: React.ReactNode }) {
@@ -89,9 +90,7 @@ function ProjectReview({ studio, runId, actions }: { studio: Studio; runId?: str
 }
 
 function Assessment({ studio }: { studio: Studio }) {
-  const model = getDashboardModel(studio.state);
-  const review = getProjectReview(studio.state);
-  return <><PageHeading label="SELF-ASSESSMENT" title="See where your code stands.">Your latest project checks, assistance, and reflection establish a concrete baseline.</PageHeading>{review.project ? <ProjectReview studio={studio} actions={<><button className="primary" onClick={() => studio.navigate("learned")}>Review saved attempts →</button><button className="secondary" onClick={() => studio.navigate("today")}>Back to Today</button></>} /> : <section className="document assessment-document"><span className="eyebrow">PROJECT-BASED BASELINE</span><h2>Your baseline hasn’t been established yet.</h2><p>Read the worked examples, practise on a contact list, then build a payments importer. Its named checks and your explanation become your first project review.</p><ol className="assessment-steps"><li><strong>Refresh the building blocks</strong><span>Inspect a worked example and try a small input.</span></li><li><strong>Build a working artifact</strong><span>Run the required checks and save the result.</span></li><li><strong>Explain your decisions</strong><span>Record what you understand and what still needs practice.</span></li></ol><p className="assessment-note">This baseline uses saved project checks and your reflection. It does not generate an adaptive score.</p><button className="primary" onClick={() => studio.start()}>{model.run ? "Resume baseline mission" : "Start baseline mission"} →</button></section>}</>;
+  return <AssessmentWorkbench studio={studio} />;
 }
 
 function Completion({ studio }: { studio: Studio }) {

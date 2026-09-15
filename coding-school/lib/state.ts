@@ -8,8 +8,13 @@ import {
   legacyPortfolioSnapshotSchema, convertLegacyPortfolioSnapshot, portfolioSnapshotSchema,
   recordRunPortfolioSnapshots, verifyPortfolioSnapshot, type PortfolioSnapshot,
 } from "./portfolio";
+import {
+  deriveTaskRecord, deriveSkillStatus, planFocusedReviews,
+  type AssessmentTaskAttempt, type AssessmentTaskRecord, type SkillStatus,
+} from "./assessment-evidence";
 export type { AttemptRecord, AttemptSubmission, MissionDraft, MissionRun } from "./mission-types";
 export type { PortfolioSnapshot } from "./portfolio";
+export type { AssessmentTaskAttempt, AssessmentTaskRecord, SkillStatus } from "./assessment-evidence";
 
 const STORAGE_KEY = "coding-school:learner-state";
 export const STATE_VERSION = 3 as const;
@@ -21,11 +26,11 @@ export type LearningState = {
   attempts: AttemptRecord[]; missionRuns: MissionRun[];
   diagnosticSessions: DiagnosticSession[];
   mastery: Record<string, SkillEvidence>; reviewSchedule: Record<string, ScheduledReview>;
-  portfolio: PortfolioSnapshot[];
+  portfolio: PortfolioSnapshot[]; assessmentAttempts: AssessmentTaskRecord[];
 };
 export function createDefaultState(): LearningState {
   return { version: STATE_VERSION, dashboard: { activeTab: "overview" }, diagnostic: { completed: false, completedAt: null },
-    attempts: [], missionRuns: [], diagnosticSessions: [], mastery: {}, reviewSchedule: {}, portfolio: [] };
+    attempts: [], missionRuns: [], diagnosticSessions: [], mastery: {}, reviewSchedule: {}, portfolio: [], assessmentAttempts: [] };
 }
 function clone<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T; }
 function object(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
@@ -39,6 +44,18 @@ function hash(value: string) {
 function refresh(state: LearningState): LearningState {
   state.mastery = Object.fromEntries(curriculum.skills.map(s => deriveSkillEvidence(state.attempts, s.id)).filter(s => s.status !== "Not started").map(s => [s.skillId, s]));
   state.reviewSchedule = deriveReviewSchedule(state.attempts);
+  // Assessment focused repairs: failed tasks schedule repair reviews due the
+  // day after the attempt. The earliest due date wins per task.
+  for (const record of state.assessmentAttempts) {
+    for (const review of planFocusedReviews(record)) {
+      const key = `assessment:${review.skillId}:${review.taskId}`;
+      const dueAt = `${review.scheduledFor}T09:00:00.000Z`;
+      const existing = state.reviewSchedule[key];
+      if (!existing || dueAt < existing.dueAt) {
+        state.reviewSchedule[key] = { skillId: review.skillId, dueAt, reason: "repair", intervalDays: 1 };
+      }
+    }
+  }
   return state;
 }
 function locate(state: LearningState, runId: string, taskId?: string) {
@@ -118,6 +135,23 @@ export function recordMissionAttempt(state: LearningState, runId: string, taskId
   run.drafts[taskId] = { sourceFiles: clone(input.sourceFiles), response, assistance, updatedAt: now.toISOString() };
   run.updatedAt = now.toISOString();
   return refresh(next);
+}
+/** Record one checkpoint-assessment task attempt. Idempotent by attemptId: a
+ *  repeated submission returns the state unchanged, never a duplicate. */
+export function recordAssessmentAttempt(state: LearningState, attempt: AssessmentTaskAttempt, now = new Date()): LearningState {
+  if (state.assessmentAttempts.some(a => a.attemptId === attempt.attemptId)) return state;
+  const next = clone(state);
+  const result = deriveTaskRecord({
+    ...clone(attempt),
+    completedAt: attempt.completedAt || now.toISOString(),
+  });
+  next.assessmentAttempts.push(result);
+  return refresh(next);
+}
+
+/** Current cross-checkpoint status for one skill, derived from all attempts. */
+export function getAssessmentSkillStatus(state: LearningState, skillId: string): SkillStatus {
+  return deriveSkillStatus(skillId, state.assessmentAttempts.filter(a => a.skillId === skillId));
 }
 export function advanceMissionStage(state: LearningState, runId: string, now = new Date()): LearningState {
   const next = clone(state); const { run, mission, stage } = locate(next, runId);
@@ -231,6 +265,29 @@ export function migrateState(value: unknown): LearningState {
       run.stages.forEach((s, i) => { if (i >= run.stageIndex) { s.status = i === run.stageIndex ? "active" : "pending"; s.completedAt = null; } });
     }
   }
+  // Assessment attempts are re-derived from their stored results so the
+  // evidence rules stay consistent; malformed records are dropped, never repaired.
+  const seenAttempts = new Set<string>();
+  next.assessmentAttempts = (Array.isArray(value.assessmentAttempts) ? value.assessmentAttempts : []).flatMap(item => {
+    if (!object(item) || typeof item.attemptId !== "string" || seenAttempts.has(item.attemptId)) return [];
+    const result = object(item.result) ? item.result : item;
+    const parsed: AssessmentTaskAttempt = {
+      attemptId: item.attemptId,
+      taskId: typeof item.taskId === "string" ? item.taskId : "",
+      assessmentId: typeof item.assessmentId === "string" ? item.assessmentId : "",
+      skillId: typeof item.skillId === "string" ? item.skillId : "",
+      result: {
+        passed: result.passed === true,
+        hintsUsed: typeof result.hintsUsed === "number" && result.hintsUsed >= 0 ? Math.floor(result.hintsUsed) : 0,
+        aiAssisted: result.aiAssisted === true,
+        solutionViewed: result.solutionViewed === true,
+      },
+      completedAt: typeof item.completedAt === "string" ? item.completedAt : new Date(0).toISOString(),
+    };
+    if (!parsed.taskId || !parsed.assessmentId || !parsed.skillId) return [];
+    seenAttempts.add(parsed.attemptId);
+    return [deriveTaskRecord(parsed)];
+  });
   return refresh(next);
 }
 /** Upsert a diagnostic session into history. Retakes append new sessions; prior sessions are never mutated. */

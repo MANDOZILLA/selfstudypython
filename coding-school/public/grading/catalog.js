@@ -28,6 +28,21 @@ export const graderCatalog = Object.freeze({
   "recovery-project-v1": Object.freeze({ exerciseId: "recovery-project-challenge", version: "1.0.0", requiredTests: ["concept-open", "concept-with", "sample", "no-crash", "empty", "missing", "shape"] }),
   "validation-project-v1": Object.freeze({ exerciseId: "validation-project-challenge", version: "1.0.0", requiredTests: ["concept-reuse", "sample", "empty", "invalid", "reasons", "shape"] }),
   "transform-project-v1": Object.freeze({ exerciseId: "transform-project-challenge", version: "1.0.0", requiredTests: ["concept-comprehension", "sample", "empty", "invalid", "precision", "shape"] }),
+  "foundations-debug-v1": Object.freeze({ exerciseId: "foundations-debug-challenge", version: "1.0.0", requiredTests: ["concept-except", "sample", "empty", "invalid", "types", "shape"] }),
+  "foundations-scratch-v1": Object.freeze({ exerciseId: "foundations-scratch-challenge", version: "1.0.0", requiredTests: ["sample", "empty", "invalid", "shape"] }),
+  "foundations-project-v1": Object.freeze({ exerciseId: "foundations-project-challenge", version: "1.0.0", requiredTests: ["concept-with", "sample", "empty", "malformed", "case", "shape", "missing-file"] }),
+  "foundations-read-v1": Object.freeze({ exerciseId: "foundations-read-challenge", version: "1.0.0", requiredTests: ["read-trace", "read-result", "read-contract"] }),
+  "foundations-explain-v1": Object.freeze({ exerciseId: "foundations-explain-challenge", version: "1.0.0", requiredTests: ["explain-except", "explain-edge"] }),
+  "data-debug-v1": Object.freeze({ exerciseId: "data-debug-challenge", version: "1.0.0", requiredTests: ["concept-csv", "concept-decimal", "sample", "empty", "header", "invalid", "shape"] }),
+  "data-scratch-v1": Object.freeze({ exerciseId: "data-scratch-challenge", version: "1.0.0", requiredTests: ["sample", "empty", "precision", "invalid", "shape"] }),
+  "data-project-v1": Object.freeze({ exerciseId: "data-project-challenge", version: "1.0.0", requiredTests: ["concept-json", "sample", "empty", "envelope", "invalid", "duplicates", "shape"] }),
+  "data-read-v1": Object.freeze({ exerciseId: "data-read-challenge", version: "1.0.0", requiredTests: ["read-value", "read-envelope"] }),
+  "data-explain-v1": Object.freeze({ exerciseId: "data-explain-challenge", version: "1.0.0", requiredTests: ["explain-header", "explain-corruption"] }),
+  "applied-debug-v1": Object.freeze({ exerciseId: "applied-debug-challenge", version: "1.0.0", requiredTests: ["concept-decimal", "sample", "empty", "invalid", "currency", "money", "shape"] }),
+  "applied-scratch-v1": Object.freeze({ exerciseId: "applied-scratch-challenge", version: "1.0.0", requiredTests: ["boundary-199", "boundary-200", "boundary-299", "boundary-300", "retry-429", "retry-500", "client-404", "invalid"] }),
+  "applied-project-v1": Object.freeze({ exerciseId: "applied-project-challenge", version: "1.0.0", requiredTests: ["concept-json", "sample", "empty", "invalid-json", "schema", "money", "shape"] }),
+  "applied-read-v1": Object.freeze({ exerciseId: "applied-read-challenge", version: "1.0.0", requiredTests: ["read-exhaust", "read-client-error"] }),
+  "applied-explain-v1": Object.freeze({ exerciseId: "applied-explain-challenge", version: "1.0.0", requiredTests: ["explain-fallback", "explain-retry"] }),
 });
 export function getGrader(exerciseId, graderId) {
   const grader = Object.hasOwn(graderCatalog, graderId) ? graderCatalog[graderId] : undefined;

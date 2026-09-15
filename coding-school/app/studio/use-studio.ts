@@ -71,6 +71,10 @@ export function useStudio() {
       setStorageError(`${error instanceof Error ? error.message : String(error)} Your draft remains here. Retry saving before leaving.`); return false;
     }
   }
+  /** Apply a state transition (e.g. recording an assessment attempt) and persist it. */
+  function applyState(transition: (state: LearningState) => LearningState) {
+    commit(transition(stateRef.current));
+  }
   function flushDraft() {
     if (!workbench?.task) return true;
     const current = draftRef.current[workbench.task.id] ?? workbench.draft;
@@ -295,7 +299,7 @@ export function useStudio() {
     } catch { setStorageError("Could not create a recovery backup. Export your data before freeing browser storage and retrying."); }
   }
   return { state, ready, route, workbench, draft, result, status, busy, attemptSaved, learningMode, assistanceUsed, storageError, recoveryRaw,
-    navigate, start, updateDraft, continueStage, submitText, runChecks, stopRun, toggleLearningMode, retrySave, exportRecovery, retryRecovery, resetRecovery, downloadPortfolio,
+    navigate, start, updateDraft, continueStage, submitText, runChecks, stopRun, toggleLearningMode, retrySave, exportRecovery, retryRecovery, resetRecovery, downloadPortfolio, applyState,
     diagnosticResult, diagnosticStatus, diagnosticBusy, diagnosticStale,
     startDiagnostic, retakeDiagnostic, openDiagnosticSession, updateDiagnosticDraft, revealDiagnosticHint, answerDiagnosticConcept, runDiagnosticCode, stopDiagnosticRun, finishDiagnostic };
 }
