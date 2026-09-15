@@ -117,6 +117,24 @@ describe("assessment written semantic grading", () => {
       expect(g("read-client-error", "Use exponential backoff on 400s.").passed).toBe(false);
       expect(g("read-client-error", "It retries the 400 three times, then returns None.").passed).toBe(false);
     });
+    test("read-client-error: accepts active-voice 'do not retry' phrasings", () => {
+      // Six must-pass natural correct phrasings (active voice).
+      expect(g("read-client-error", "Don't retry a 400.").passed).toBe(true);
+      expect(g("read-client-error", "You should not retry a 400.").passed).toBe(true);
+      expect(g("read-client-error", "No retrying a 400 — it's a client error.").passed).toBe(true);
+      expect(g("read-client-error", "400s should never be retried.").passed).toBe(true);
+      expect(g("read-client-error", "A 400 isn't worth retrying.").passed).toBe(true);
+      expect(g("read-client-error", "Don't bother retrying a 400.").passed).toBe(true);
+      // Regression: previously accepted phrasings must keep passing.
+      expect(g("read-client-error", "Retrying a 400 is pointless — it's a client error.").passed).toBe(true);
+      expect(g("read-client-error", "The 400 doesn't get retried.").passed).toBe(true);
+      expect(g("read-client-error", "400s are not worth retrying.").passed).toBe(true);
+      // Wrong answers must keep failing.
+      expect(g("read-client-error", "Retry the 400").passed).toBe(false);
+      expect(g("read-client-error", "The 400 is retried with backoff").passed).toBe(false);
+      expect(g("read-client-error", "Retry both").passed).toBe(false);
+      expect(g("read-client-error", "A 400 means the server failed; retry it").passed).toBe(false);
+    });
   });
 
   describe("applied-explain", () => {

@@ -89,7 +89,7 @@ const GRADERS: Record<string, Record<string, WrittenPredicate>> = {
         : fail("say what is returned after the retries are exhausted and how many tries happen"),
     "read-client-error": t =>
       /\b400s?\b/.test(t) &&
-      /\b(immediately|right away|not retried|never retried|never retr(?:y|ies)|aren'?t retried|isn'?t retried|without retry|without retrying|no retry|returns? the response|pointless|no point in retrying|doesn'?t retry|doesn'?t get retried|don'?t get retried|does not retry|won'?t be retried|shouldn'?t be retried|should not be retried|not worth retrying)\b/i.test(t)
+      /\b(immediately|right away|not retried|never retried|never be retried|never retr(?:y|ies)|aren'?t retried|isn'?t retried|without retry|without retrying|no retry|no retrying|returns? the response|pointless|no point in retrying|doesn'?t retry|doesn'?t get retried|don'?t get retried|don'?t retry|don'?t bother retrying|do not retry|does not retry|won'?t be retried|shouldn'?t be retried|should not be retried|should not retry|shouldn'?t retry|not worth retrying|isn'?t worth retrying)\b/i.test(t)
         ? pass("a 400 returns immediately without retry")
         : fail("say whether the 400 is retried and why"),
   },
