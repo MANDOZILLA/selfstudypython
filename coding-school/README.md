@@ -49,24 +49,38 @@ plus the tutor API route (see below).
 
 ## Where your data lives
 
-**Learner state is stored in the browser's localStorage** under the key
-`coding-school:learner-state`. This includes diagnostic sessions, mission
-drafts and attempts, skill evidence, assessment results, and portfolio
-snapshots. Clearing site data erases it.
+**Learner state is durably stored in SQLite** at `.data/coding-school.db`
+(override with `CODING_SCHOOL_DB_PATH`), served through `GET`/`PUT
+/api/state` with revision-based optimistic concurrency. This includes
+diagnostic sessions, mission drafts and attempts, skill evidence,
+assessment results, and portfolio snapshots. The database file is
+gitignored and never committed.
 
-**The SQLite database is not yet the browser's durable store.** A tested
-repository layer exists (`db/`, opened with an explicit path via
-`openDatabase(dbPath)`), but the app still reads and writes localStorage
-at runtime. Until that migration lands, treat localStorage as the source
-of truth — see "Known limitations".
+**The browser keeps a write-through localStorage cache** under the key
+`coding-school:learner-state`, plus an offline fallback: if the server is
+unreachable, the app keeps working locally and retries the sync (the nav
+shows "Offline — saved in this browser, will retry"). On boot the server
+copy normally wins; a differing local copy is stashed under
+`coding-school:learner-state:backup:<timestamp>` instead of being dropped.
+The browser also records the revision it last synced under
+`coding-school:learner-state:synced-revision`, so boot can tell provably
+newer local work apart from a stale server: if the server copy is *older*
+than the last synced revision (e.g. restored from an older backup), your
+newer work stays on screen behind the conflict banner instead of being
+visibly reset; if the server is *unchanged* since the last sync, the local
+difference is newer offline work and is pushed up rather than superseded.
+If another tab or device writes first, you get a conflict banner — your
+copy is preserved and you choose **Keep my work**, **Use the other copy**
+(your tab's work is backed up first), or **Export my work** as JSON.
 
 ### Backup and restore
 
 - If stored data ever becomes unreadable, the app refuses to overwrite it
   and offers **Export recovery copy**, which downloads
   `coding-school-recovery.txt` containing the raw saved payload.
-- To back up manually, copy the value of the `coding-school:learner-state`
-  localStorage key (DevTools → Application → Local Storage).
+- To back up manually, copy `.data/coding-school.db`, or copy the value of
+  the `coding-school:learner-state` localStorage key (DevTools →
+  Application → Local Storage).
 - **There is currently no in-app import for a state backup** — restoring
   means writing the saved value back into localStorage under the same key
   with DevTools. This gap is tracked under "Known limitations".
@@ -79,6 +93,7 @@ of truth — see "Known limitations".
 | `TUTOR_MODEL` | No | `openai/gpt-4o-mini` | Model sent to OpenRouter's chat-completions endpoint. |
 | `TUTOR_TIMEOUT_MS` | No | `20000` | Provider request timeout. |
 | `TUTOR_MAX_RESPONSE_BYTES` | No | `65536` | Maximum provider response body size. |
+| `CODING_SCHOOL_DB_PATH` | No | `<repo>/.data/coding-school.db` | Filesystem path for the durable learner-state SQLite database. The server only; never read from the request. |
 
 ### The tutor and OpenRouter
 
@@ -191,10 +206,6 @@ Individual stages can also run standalone, e.g.
 
 ## Known limitations
 
-- **SQLite is not yet the browser's durable store.** Learner state lives in
-  localStorage; the SQLite repository layer is built and tested but not
-  wired to the runtime UI. Do not treat `.data/coding-school.db` as live
-  learner data.
 - **No in-app state import.** You can export a recovery copy of unreadable
   state, but restoring a backup currently requires DevTools.
 - The built-in tutor is deterministic and hint-rung based — it does not

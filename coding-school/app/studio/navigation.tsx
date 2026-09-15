@@ -2,6 +2,16 @@ import { useState } from "react";
 import { destinations } from "../../lib/studio";
 import type { Studio } from "./use-studio";
 
+function syncLabel(status: Studio["syncStatus"]): string {
+  switch (status) {
+    case "booting": return "Starting…";
+    case "saving": return "Saving…";
+    case "synced": return "Saved in this browser · synced to server";
+    case "offline": return "Offline — saved in this browser, will retry";
+    case "conflict": return "Sync conflict — action needed";
+  }
+}
+
 export function Navigation({ studio }: { studio: Studio }) {
   const [open, setOpen] = useState(false);
   return <aside className={`navigation${open ? " menu-open" : ""}`}>
@@ -14,6 +24,6 @@ export function Navigation({ studio }: { studio: Studio }) {
         <span className="nav-icon" aria-hidden="true">{["◫", "▤", "≡", "◇", "▣"][i]}</span>{destination.label}
       </a>)}
     </nav>
-    <div className="nav-note"><span className="eyebrow">YOUR CODING PRACTICE</span><p>Build something useful.<br />Keep the evidence.</p><span className="local-note">Saved in this browser</span></div>
+    <div className="nav-note"><span className="eyebrow">YOUR CODING PRACTICE</span><p>Build something useful.<br />Keep the evidence.</p><span className="local-note" role="status">{syncLabel(studio.syncStatus)}</span></div>
   </aside>;
 }
