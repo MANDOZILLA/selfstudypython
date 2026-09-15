@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createDefaultState, type LearningState } from "../lib/state";
+import { createDefaultState, recordAssessmentAttempt, type LearningState } from "../lib/state";
+import type { AssessmentTaskAttempt } from "../lib/assessment-evidence";
 import { GET, PUT } from "../app/api/state/route";
 import { getServerDatabase, openDatabase, resetServerDatabaseForTests } from "../db/client";
 
@@ -62,6 +63,28 @@ describe("GET /api/state", () => {
     expect(body.revision).toBe(1);
     expect(body.state.dashboard.activeTab).toBe("learned");
     expect(typeof body.updatedAt).toBe("string");
+  });
+
+  it("round-trips assessment attempts through PUT then GET", async () => {
+    const attempt: AssessmentTaskAttempt = {
+      attemptId: "attempt-api-1",
+      taskId: "foundations-debug-task",
+      assessmentId: "foundations",
+      skillId: "debugging",
+      result: { passed: false, hintsUsed: 2, aiAssisted: false, solutionViewed: false },
+      completedAt: "2026-09-14T12:00:00.000Z",
+    };
+    const state = recordAssessmentAttempt(createDefaultState(), attempt);
+    const put = await PUT(putRequest({ revision: 0, state }));
+    expect(put.status).toBe(200);
+
+    const response = await GET();
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { revision: number; state: LearningState };
+    expect(body.state.assessmentAttempts).toHaveLength(1);
+    expect(body.state.assessmentAttempts[0]!.attemptId).toBe("attempt-api-1");
+    expect(body.state.assessmentAttempts[0]!.passed).toBe(false);
+    expect(body.state.assessmentAttempts[0]!.hintsUsed).toBe(2);
   });
 });
 

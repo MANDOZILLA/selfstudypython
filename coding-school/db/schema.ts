@@ -2,6 +2,7 @@ import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import type { AttemptRecord, MissionRun } from "../lib/mission-types";
 import type { DiagnosticSession } from "../lib/diagnostic";
 import type { ReviewSchedule } from "../lib/adaptive";
+import type { AssessmentTaskRecord } from "../lib/assessment-evidence";
 
 /**
  * Durable learner state. Tables are explicit per entity (preferred over a
@@ -26,6 +27,12 @@ export const diagnosticSessions = sqliteTable("diagnostic_sessions", {
   id: text("id").primaryKey(),
   updatedAt: text("updated_at").notNull(),
   payload: text("payload", { mode: "json" }).$type<DiagnosticSession>().notNull(),
+});
+
+export const assessmentAttempts = sqliteTable("assessment_attempts", {
+  id: text("id").primaryKey(),
+  updatedAt: text("updated_at").notNull(),
+  payload: text("payload", { mode: "json" }).$type<AssessmentTaskRecord>().notNull(),
 });
 
 export const reviewState = sqliteTable("review_state", {

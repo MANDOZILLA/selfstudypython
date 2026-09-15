@@ -5,9 +5,11 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import {
   createDefaultState,
+  recordAssessmentAttempt,
   replaceDiagnosticSession,
   type LearningState,
 } from "../lib/state";
+import type { AssessmentTaskAttempt } from "../lib/assessment-evidence";
 import { convertLegacyPortfolioSnapshot } from "../lib/portfolio";
 import {
   createDiagnosticSession,
@@ -24,6 +26,8 @@ import {
   migrateDatabase,
   saveStateToDatabase,
   loadStateFromDatabase,
+  trySaveStateWithRevision,
+  readServerSnapshot,
   DB_SCHEMA_VERSION,
 } from "../db/client";
 
@@ -163,5 +167,103 @@ describe("sqlite learner-state persistence", () => {
     expect(after.size).toBeGreaterThan(before.size);
     expect(after.sha256).not.toBe(before.sha256);
     expect(after.mtimeMs).toBeGreaterThanOrEqual(before.mtimeMs);
+  });
+});
+
+function assessmentAttempt(overrides: Partial<AssessmentTaskAttempt> = {}): AssessmentTaskAttempt {
+  return {
+    attemptId: "attempt-1",
+    taskId: "foundations-debug-task",
+    assessmentId: "foundations",
+    skillId: "debugging",
+    result: { passed: true, hintsUsed: 0, aiAssisted: false, solutionViewed: false },
+    completedAt: "2026-09-14T12:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function stateWithAssessmentAttempts(...attempts: AssessmentTaskAttempt[]): LearningState {
+  let state = createDefaultState();
+  for (const attempt of attempts) state = recordAssessmentAttempt(state, attempt);
+  return state;
+}
+
+describe("assessment attempts persistence", () => {
+  it("creates the assessment_attempts table", async () => {
+    const dbPath = tempDbPath("assessment-schema.db");
+    const { client } = openDatabase(dbPath);
+    openHandles.push(client);
+    await migrateDatabase(client);
+
+    const tables = await client.execute(`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`);
+    const names = tables.rows.map(row => String(row.name));
+    expect(names).toContain("assessment_attempts");
+  });
+
+  it("round-trips one assessment attempt through the plain save/load path", async () => {
+    const dbPath = tempDbPath("assessment-roundtrip.db");
+    const { client, db } = openDatabase(dbPath);
+    openHandles.push(client);
+    await migrateDatabase(client);
+
+    await saveStateToDatabase(db, stateWithAssessmentAttempts(assessmentAttempt()));
+
+    const loaded = await loadStateFromDatabase(db);
+    expect(loaded.assessmentAttempts).toHaveLength(1);
+    const record = loaded.assessmentAttempts[0]!;
+    expect(record.attemptId).toBe("attempt-1");
+    expect(record.taskId).toBe("foundations-debug-task");
+    expect(record.assessmentId).toBe("foundations");
+    expect(record.skillId).toBe("debugging");
+    expect(record.passed).toBe(true);
+    expect(record.completedAt).toBe("2026-09-14T12:00:00.000Z");
+  });
+
+  it("round-trips assessment attempts through the CAS revision path (raw SQL writer)", async () => {
+    const dbPath = tempDbPath("assessment-cas.db");
+    const { client } = openDatabase(dbPath);
+    openHandles.push(client);
+
+    const written = await trySaveStateWithRevision(client, stateWithAssessmentAttempts(assessmentAttempt()), 0);
+    expect(written.ok).toBe(true);
+
+    const snapshot = await readServerSnapshot(client);
+    expect(snapshot.state).not.toBeNull();
+    expect(snapshot.state!.assessmentAttempts).toHaveLength(1);
+    expect(snapshot.state!.assessmentAttempts[0]!.attemptId).toBe("attempt-1");
+    expect(snapshot.state!.assessmentAttempts[0]!.taskId).toBe("foundations-debug-task");
+  });
+
+  it("round-trips an empty assessment-attempts list", async () => {
+    const dbPath = tempDbPath("assessment-empty.db");
+    const { client, db } = openDatabase(dbPath);
+    openHandles.push(client);
+    await migrateDatabase(client);
+
+    await saveStateToDatabase(db, createDefaultState());
+    const loaded = await loadStateFromDatabase(db);
+    expect(loaded.assessmentAttempts).toEqual([]);
+  });
+
+  it("updates across saves without duplicating attempt rows", async () => {
+    const dbPath = tempDbPath("assessment-history.db");
+    const { client, db } = openDatabase(dbPath);
+    openHandles.push(client);
+    await migrateDatabase(client);
+
+    await saveStateToDatabase(db, stateWithAssessmentAttempts(assessmentAttempt()));
+    const reloaded = await loadStateFromDatabase(db);
+    const withSecond = recordAssessmentAttempt(
+      reloaded,
+      assessmentAttempt({ attemptId: "attempt-2", taskId: "foundations-scratch-task", skillId: "scratch-coding" }),
+    );
+    await saveStateToDatabase(db, withSecond);
+
+    const loaded = await loadStateFromDatabase(db);
+    expect(loaded.assessmentAttempts).toHaveLength(2);
+    expect(new Set(loaded.assessmentAttempts.map(a => a.attemptId)).size).toBe(2);
+
+    const rows = await client.execute(`SELECT id FROM assessment_attempts`);
+    expect(rows.rows).toHaveLength(2);
   });
 });

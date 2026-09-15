@@ -26,6 +26,7 @@ const DDL = [
   `CREATE TABLE IF NOT EXISTS attempts (id TEXT PRIMARY KEY, run_id TEXT NOT NULL, updated_at TEXT NOT NULL, payload TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS mission_runs (id TEXT PRIMARY KEY, updated_at TEXT NOT NULL, payload TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS diagnostic_sessions (id TEXT PRIMARY KEY, updated_at TEXT NOT NULL, payload TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS assessment_attempts (id TEXT PRIMARY KEY, updated_at TEXT NOT NULL, payload TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS review_state (skill_id TEXT PRIMARY KEY, updated_at TEXT NOT NULL, payload TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS state_meta (id TEXT PRIMARY KEY, updated_at TEXT NOT NULL, payload TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS db_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
@@ -72,6 +73,7 @@ async function writeStateTables(store: StateStore, normalized: LearningState, up
   await store.delete(schema.attempts);
   await store.delete(schema.missionRuns);
   await store.delete(schema.diagnosticSessions);
+  await store.delete(schema.assessmentAttempts);
   await store.delete(schema.reviewState);
   for (const attempt of normalized.attempts) {
     await store.insert(schema.attempts).values({ id: attempt.id, runId: attempt.runId, updatedAt, payload: attempt });
@@ -81,6 +83,9 @@ async function writeStateTables(store: StateStore, normalized: LearningState, up
   }
   for (const session of normalized.diagnosticSessions) {
     await store.insert(schema.diagnosticSessions).values({ id: session.id, updatedAt, payload: session });
+  }
+  for (const record of normalized.assessmentAttempts) {
+    await store.insert(schema.assessmentAttempts).values({ id: record.attemptId, updatedAt, payload: record });
   }
   const payload = singletonPayload(normalized);
   await store
@@ -102,10 +107,11 @@ export async function saveStateToDatabase(db: StateStore, state: LearningState):
 /** Load learner state. An empty or un-migrated database yields a fresh default state. */
 export async function loadStateFromDatabase(db: StateStore): Promise<LearningState> {
   try {
-    const [attemptRows, runRows, sessionRows, metaRows] = await Promise.all([
+    const [attemptRows, runRows, sessionRows, assessmentAttemptRows, metaRows] = await Promise.all([
       db.select().from(schema.attempts),
       db.select().from(schema.missionRuns),
       db.select().from(schema.diagnosticSessions),
+      db.select().from(schema.assessmentAttempts),
       db.select().from(schema.stateMeta),
     ]);
     const singleton = metaRows.find(row => row.id === "singleton")?.payload;
@@ -116,6 +122,7 @@ export async function loadStateFromDatabase(db: StateStore): Promise<LearningSta
       attempts: attemptRows.map(row => row.payload),
       missionRuns: runRows.map(row => row.payload),
       diagnosticSessions: sessionRows.map(row => row.payload as DiagnosticSession),
+      assessmentAttempts: assessmentAttemptRows.map(row => row.payload),
       mastery: {},
       reviewSchedule: {},
       portfolio: (singleton?.portfolio as LearningState["portfolio"]) ?? [],
@@ -239,6 +246,7 @@ async function writeStateTablesRaw(
   await run("DELETE FROM attempts");
   await run("DELETE FROM mission_runs");
   await run("DELETE FROM diagnostic_sessions");
+  await run("DELETE FROM assessment_attempts");
   await run("DELETE FROM review_state");
   for (const attempt of normalized.attempts) {
     await run("INSERT INTO attempts (id, run_id, updated_at, payload) VALUES (?, ?, ?, ?)", [
@@ -260,6 +268,13 @@ async function writeStateTablesRaw(
       session.id,
       updatedAt,
       JSON.stringify(session),
+    ]);
+  }
+  for (const record of normalized.assessmentAttempts) {
+    await run("INSERT INTO assessment_attempts (id, updated_at, payload) VALUES (?, ?, ?)", [
+      record.attemptId,
+      updatedAt,
+      JSON.stringify(record),
     ]);
   }
   await run(
