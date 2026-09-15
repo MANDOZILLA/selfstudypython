@@ -9,7 +9,18 @@ import { useStudio } from "./studio/use-studio";
 export default function Home() {
   const studio = useStudio();
   return <div className={`studio-shell${studio.workbench ? " in-workbench" : ""}`}>
-    <a className="skip-link" href="#main-content">Skip to content</a>
+    <a className="skip-link" href="#main-content" onClick={(event) => {
+      // Move focus into the main landmark without setting the location hash:
+      // a "#main-content" hash would be read as a route change and eject the
+      // user from their current view.
+      event.preventDefault();
+      const main = document.getElementById("main-content");
+      if (main) {
+        main.setAttribute("tabindex", "-1");
+        main.focus({ preventScroll: true });
+        main.scrollIntoView();
+      }
+    }}>Skip to content</a>
     <Navigation studio={studio} />
     <div className="studio-content">
       {studio.storageError && <div className="storage-error" role="alert"><div><strong>Changes could not be saved.</strong><p>{studio.storageError}</p></div>{studio.recoveryRaw === null && <button className="secondary" onClick={studio.retrySave}>Retry saving</button>}</div>}

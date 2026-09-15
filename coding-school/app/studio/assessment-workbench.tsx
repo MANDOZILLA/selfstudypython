@@ -87,6 +87,7 @@ function TaskRunner({ studio, assessment, task, draft, setDraft }: {
 }) {
   const runRef = useRef<{ cancel: () => void; requestId: string } | null>(null);
   const isCode = task.kind === "debug" || task.kind === "scratch" || task.kind === "project";
+  const [plainEditor, setPlainEditor] = useState(false);
 
   function runCodeChecks() {
     if (runRef.current) runRef.current.cancel();
@@ -171,15 +172,16 @@ function TaskRunner({ studio, assessment, task, draft, setDraft }: {
     </section>
 
     {isCode ? <>
-      <div className="editor-toolbar"><span>main.py <small>Python</small></span></div>
-      <div className="editor-canvas assessment-editor">
-        <Editor
+      <div className="editor-toolbar"><span>main.py <small>Python</small></span><button className="text-button" onClick={() => setPlainEditor(!plainEditor)}>{plainEditor ? "Use code editor" : "Use plain text"}</button></div>
+      <div className="editor-canvas assessment-editor">{plainEditor
+        ? <textarea className="plain-editor" aria-label="Python code" value={draft.code} spellCheck={false} onChange={event => setDraft(d => ({ ...d, code: event.target.value, saved: false }))} />
+        : <Editor
           path={`assessment/${assessment.id}/${task.id}/main.py`}
           language="python"
           theme="light"
           value={draft.code}
           onChange={value => setDraft(d => ({ ...d, code: value ?? "", saved: false }))}
-          loading={<p className="editor-loading">Loading code editor…</p>}
+          loading={<p className="editor-loading">Loading code editor… You can also choose “Use plain text”.</p>}
           options={{
             minimap: { enabled: false },
             fontSize: 13,
@@ -189,8 +191,7 @@ function TaskRunner({ studio, assessment, task, draft, setDraft }: {
             wordWrap: "on",
             tabSize: 4,
           }}
-        />
-      </div>
+        />}</div>
       <div className="editor-actions">
         <button className="primary" disabled={draft.grading} onClick={runCodeChecks}>
           {draft.grading ? "Running…" : "Run checks"}<span aria-hidden="true"> ▷</span>
