@@ -5,7 +5,6 @@ import { apiSuite, contactsSuite, inventorySuite, csvTagsSuite, invoiceCentsSuit
 import { diagnosticCallFormsSuite, diagnosticHttpSuite, diagnosticFilesSuite } from "./diagnostic-suites.js";
 import { stackTraceSuite, logScanSuite, validatorsSuite, transformSuite, pandasCleanSuite, pandasProjectSuite, sqliteAggSuite, sqliteProjectSuite, moneyReconSuite, moneyProjectSuite, httpClientSuite, httpProjectSuite, llmGuardSuite, llmProjectSuite, recoveryProjectSuite, validationProjectSuite, transformProjectSuite } from "./mission-suites-2.js";
 import { foundationsDebugSuite, foundationsScratchSuite, foundationsProjectSuite, dataDebugSuite, dataScratchSuite, dataProjectSuite, appliedDebugSuite, appliedScratchSuite, appliedProjectSuite } from "./assessment-suites.js";
-import { aggregateResult, failureResult, validRequest } from "./protocol.js";
 import { aggregateResult, executedResult, failureResult, validRequest } from "./protocol.js";
 // Executes the entrypoint inside the worker and reports a structured
 // execution status with the real file and line of any failure. Tracebacks

@@ -212,7 +212,7 @@ function AssessmentDetail({ studio, assessment, onBack }: { studio: Studio; asse
     return Boolean(attempt);
   }).length;
 
-  return <main className="assessment-detail" id="main-content">
+  return <section className="assessment-detail" aria-label="Checkpoint assessment">
     <button className="text-button" onClick={onBack}>← All checkpoints</button>
     <span className="eyebrow">CHECKPOINT ASSESSMENT</span>
     <h1>{assessment.title}</h1>
@@ -255,7 +255,7 @@ function AssessmentDetail({ studio, assessment, onBack }: { studio: Studio; asse
         </>;
       })()}
     </section>
-  </main>;
+  </section>;
 }
 
 export function AssessmentWorkbench({ studio }: { studio: Studio }) {
@@ -266,7 +266,7 @@ export function AssessmentWorkbench({ studio }: { studio: Studio }) {
     return <AssessmentDetail studio={studio} assessment={assessment} onBack={() => setSelectedId(null)} />;
   }
 
-  return <main className="assessment-hub" id="main-content">
+  return <section className="assessment-hub" aria-label="Checkpoint assessments">
     <span className="eyebrow">CHECKPOINT ASSESSMENTS</span>
     <h1>Prove it in a new context.</h1>
     <p>Each checkpoint re-tests the mission skills with fresh scenarios: read code, debug planted bugs, write from scratch, build a small project, and explain your reasoning. No solutions are shown — hints, AI use, and solution views are all recorded.</p>
@@ -290,5 +290,5 @@ export function AssessmentWorkbench({ studio }: { studio: Studio }) {
         })}
       </ul>
     </section>
-  </main>;
+  </section>;
 }

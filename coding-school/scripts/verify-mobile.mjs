@@ -32,7 +32,7 @@ async function noOverflow(page, label) {
 
 /** Below ~1024px the nav links hide behind the "Navigate" menu button. */
 async function goNav(page, name) {
-  const link = page.getByRole("link", { name });
+  const link = page.getByRole("link", { name, exact: true });
   if (!(await link.isVisible().catch(() => false))) {
     await page.getByRole("button", { name: /Navigate|Close menu/ }).click();
   }
@@ -57,9 +57,15 @@ async function journey(browser) {
   const errors = [];
   watchErrors(page, errors);
   await page.goto(BASE_URL, { waitUntil: "networkidle" });
+  await page.waitForSelector('[aria-label="Recommended next step"]', { timeout: 20000 });
 
-  check("skill graph visible on mobile dashboard", await page.getByRole("heading", { name: /skill graph/i }).isVisible());
+  check("today's recommendation offers a mission on mobile",
+    await page.getByRole("button", { name: /Start \d+-minute mission|Resume/ }).first().isVisible());
   await noOverflow(page, "mobile dashboard");
+
+  await goNav(page, "What I Learned");
+  check("skill graph visible on mobile", await page.getByRole("heading", { name: /skill graph/i }).isVisible());
+  await noOverflow(page, "mobile skill graph");
 
   await goNav(page, "Lessons");
   await page.waitForFunction(() => document.querySelector(".lesson-row"), null, { timeout: 15000 });

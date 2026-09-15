@@ -75,12 +75,15 @@ async function journey(browser) {
   const errors = [];
   watchErrors(page, errors);
   await page.goto(BASE_URL, { waitUntil: "networkidle" });
+  await page.waitForSelector('[aria-label="Recommended next step"]', { timeout: 20000 });
 
-  // 1. Dashboard: skill graph and today's recommendation.
-  check("skill graph visible on dashboard", await page.getByRole("heading", { name: /skill graph/i }).isVisible());
+  // 1. Dashboard: today's recommendation, then the skill graph under What I Learned.
   const startButton = page.getByRole("button", { name: /Start \d+-minute mission|Resume/ });
   check("today's recommendation offers a mission", await startButton.first().isVisible());
   await noOverflow(page, "dashboard", 1280);
+  await page.getByRole("link", { name: "What I Learned", exact: true }).click();
+  check("skill graph visible under What I Learned", await page.getByRole("heading", { name: /skill graph/i }).isVisible());
+  await noOverflow(page, "skill graph", 1280);
 
   // 2. Lessons library.
   await page.getByRole("link", { name: "Lessons" }).click();
@@ -89,7 +92,7 @@ async function journey(browser) {
   await noOverflow(page, "lessons library", 1280);
 
   // 3. Mission workbench: IDE + real Python run.
-  await page.getByRole("link", { name: "Today" }).click();
+  await page.getByRole("link", { name: "Today", exact: true }).click();
   await page.getByRole("button", { name: /Start \d+-minute mission/ }).click();
   await page.waitForFunction(() => document.querySelector(".plain-editor, #reflection, .stage-document, .reading-layout, .coding-layout"), null, { timeout: 15000 });
   const continueLearn = page.getByRole("button", { name: /Continue to Learn/ });
@@ -98,13 +101,15 @@ async function journey(browser) {
   if (await ack.isVisible().catch(() => false)) await ack.click();
   await page.waitForFunction(() => document.querySelector(".plain-editor, .coding-layout"), null, { timeout: 15000 });
   check("workbench coding layout renders", await page.locator(".coding-layout").isVisible().catch(() => false));
-  const editorVisible = await page.locator(".plain-editor, .monaco-editor").first().isVisible().catch(() => false);
-  check("IDE editor renders (Monaco or plain text)", editorVisible);
   await noOverflow(page, "workbench", 1280);
 
   // Real Python run through the worker: fill, run checks, expect pass.
+  // The plain-text editor is the reliable automation path; ensure it is on
+  // before asserting the editor renders.
   const toggle = page.getByRole("button", { name: /use plain text/i });
   if (await toggle.isVisible()) await toggle.click();
+  const editorVisible = await page.locator(".plain-editor, .monaco-editor").first().isVisible().catch(() => false);
+  check("IDE editor renders (Monaco or plain text)", editorVisible);
   await page.locator(".plain-editor").fill(CONTACTS_SOLUTION);
   await page.locator("#run-checks").click();
   await page.waitForSelector(".check-results", { timeout: 180000 });
