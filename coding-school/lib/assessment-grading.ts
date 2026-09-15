@@ -31,20 +31,23 @@ const fail = (detail: string) => ({ correct: false, detail });
 const GRADERS: Record<string, Record<string, WrittenPredicate>> = {
   "foundations-read-challenge": {
     "read-trace": t =>
-      /\b(skipped|skips|continue|continues|except|catches)\b/i.test(t) &&
-      /\b(malformed|broken|no colon|without.*colon|valueerror|bad (line|row))\b/i.test(t)
-        ? pass("the malformed line is skipped via the except/continue path")
-        : fail("explain which line is skipped and the except/continue mechanism that skips it"),
+      /\b(skipped|skips|continue|continues)\b/i.test(t) &&
+      (/\bcolon\b/i.test(t) || /":"/.test(t)) &&
+      !/\b(try|except)\b/i.test(t)
+        ? pass("the colon-less line is skipped by the `if \":\" not in line: continue` guard")
+        : fail("say which statement skips the broken line — there is no try/except in this code"),
     "read-result": t =>
-      /disk full/i.test(t) &&
+      /\berror\b/i.test(t) &&
       (/\b2\b/.test(t) || /\btwice\b/i.test(t)) &&
       !/\b(three|3 times|once)\b/i.test(t)
-        ? pass("counts['disk full'] == 2")
-        : fail("state the exact count for 'disk full'"),
+        ? pass("counts['error'] == 2")
+        : fail("state the exact count for the 'error' level"),
     "read-contract": t =>
-      /\b(strip|whitespace)\b/i.test(t) && /\b(count|each|distinct|per message|times)\b/i.test(t)
-        ? pass("whitespace-stripped messages are counted")
-        : fail("say what is stripped and what is counted"),
+      /\blevels?\b/i.test(t) &&
+      /\b(count|counts|counting|tallies|per level)\b/i.test(t) &&
+      !/\bmessages?\b/i.test(t)
+        ? pass("log lines are counted per level")
+        : fail("say what is counted — levels, not messages"),
   },
   "foundations-explain-challenge": {
     "explain-except": t =>

@@ -1,6 +1,17 @@
 import { describe, expect, test } from "vitest";
 import { ASSESSMENTS } from "../curriculum/assessments";
 import { graderCatalog } from "../public/grading/catalog.js";
+import {
+  appliedDebugSuite,
+  appliedProjectSuite,
+  appliedScratchSuite,
+  dataDebugSuite,
+  dataProjectSuite,
+  dataScratchSuite,
+  foundationsDebugSuite,
+  foundationsProjectSuite,
+  foundationsScratchSuite,
+} from "../public/grading/assessment-suites.js";
 
 describe("checkpoint assessment definitions", () => {
   test("three checkpoints, five components each, in read/debug/scratch/project/explain order", () => {
@@ -73,6 +84,47 @@ describe("checkpoint assessment definitions", () => {
       for (const task of assessment.tasks) {
         const ref = task.graderId ?? task.exerciseId ?? "";
         expect(ref.startsWith(group), `${task.id} references ${ref}`).toBe(true);
+      }
+    }
+  });
+});
+
+const CODE_SUITES: Record<string, string> = {
+  "foundations-debug-v1": foundationsDebugSuite,
+  "foundations-scratch-v1": foundationsScratchSuite,
+  "foundations-project-v1": foundationsProjectSuite,
+  "data-debug-v1": dataDebugSuite,
+  "data-scratch-v1": dataScratchSuite,
+  "data-project-v1": dataProjectSuite,
+  "applied-debug-v1": appliedDebugSuite,
+  "applied-scratch-v1": appliedScratchSuite,
+  "applied-project-v1": appliedProjectSuite,
+};
+
+/** The exact `name(params)` signature the grader suite looks up in the submission. */
+function suiteSignature(suite: string): { name: string; params: string } {
+  const match = suite.match(/Define a callable ([a-z_]+)\(([^)]*)\)\./);
+  if (!match) throw new Error("grader suite has no callable signature");
+  return { name: match[1], params: match[2] };
+}
+
+describe("code-task prompts match their graders", () => {
+  test("every code task prompt names the exact function its grader calls, with the graded signature", () => {
+    for (const assessment of ASSESSMENTS) {
+      for (const task of assessment.tasks) {
+        if (!task.graderId) continue;
+        const { name, params } = suiteSignature(CODE_SUITES[task.graderId]);
+        expect(task.prompt, `${task.id} prompt`).toContain(`${name}(${params})`);
+      }
+    }
+  });
+
+  test("every code task rubric matches its grader's requiredTests exactly", () => {
+    for (const assessment of ASSESSMENTS) {
+      for (const task of assessment.tasks) {
+        if (!task.graderId) continue;
+        const entry = graderCatalog[task.graderId as keyof typeof graderCatalog] as { requiredTests: string[] };
+        expect(task.rubric, `${task.id} rubric`).toEqual(entry.requiredTests);
       }
     }
   });

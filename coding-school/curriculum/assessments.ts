@@ -69,82 +69,86 @@ const FOUNDATIONS_TASKS: AssessmentTask[] = [
       "    WARN: retrying\n" +
       "    ERROR: disk full\n\n" +
       '1. What happens to the line "broken line without a colon"? Trace exactly which statements run for it.\n' +
-      '2. What is the exact value of counts["disk full"] after the run?\n' +
+      '2. What is the exact value of counts["error"] after the run?\n' +
       "3. In one sentence, state the function's contract: what does it count?",
     rubric: ["read-trace", "read-result", "read-contract"],
     exerciseId: "foundations-read-challenge",
     hints: [
-      "Trace the loop line by line for the broken line — which `if` catches it?",
-      "Count how many times each distinct message appears.",
-      "The contract is about messages, not lines.",
+      "Trace the loop line by line for the broken line — which `if` skips it?",
+      "Count how many times each level appears.",
+      "The contract is about levels, not messages.",
     ],
   },
   {
     id: "foundations-debug-task",
-    title: "Debug: the age averager",
+    title: "Debug: the user cleaner",
     kind: "debug",
     skillId: "debugging",
     prompt:
-      "This function is supposed to return the average of valid ages, but it crashes on real data. " +
-      "Fix it so that:\n" +
-      "- non-dict rows and rows with missing or non-string names are skipped\n" +
-      "- ages that are not finite numbers are skipped\n" +
-      "- it returns 0.0 when no valid ages remain\n" +
-      "- it never raises\n\n" +
-      "def summarize_ages(rows):\n" +
-      "    total = 0\n" +
-      "    count = 0\n" +
+      "This user-table cleaner is supposed to turn messy import rows into clean name/age dicts, " +
+      "but it crashes on real data. Fix clean_users(rows) so it:\n" +
+      "- skips rows that are not dicts, and rows whose name is missing or not a string\n" +
+      "- strips whitespace from each kept name, and skips names that are empty after stripping\n" +
+      "- parses each age with int() inside a try block whose except clause names ValueError " +
+      "(int() raises ValueError on non-numeric text, not KeyError)\n" +
+      "- skips rows whose age is missing, cannot be parsed, or is negative\n" +
+      '- returns the cleaned [{"name": ..., "age": ...}] list in order, [] for an empty or non-list input — never raises\n\n' +
+      "def clean_users(rows):\n" +
+      "    cleaned = []\n" +
       "    for row in rows:\n" +
-      '        total += row["age"]\n' +
-      "        count += 1\n" +
-      "    return total / count",
+      '        name = row["name"].strip()\n' +
+      '        age = int(row["age"])\n' +
+      '        cleaned.append({"name": name, "age": age})\n' +
+      "    return cleaned",
     rubric: ["concept-except", "sample", "empty", "invalid", "types", "shape"],
     graderId: "foundations-debug-v1",
     hints: [
-      "What happens when row is not a dict?",
-      'row["age"] raises KeyError when the key is missing — how do you skip instead?',
-      "What should happen when count is 0?",
+      "What happens when row is not a dict, or row[\"name\"] is missing?",
+      "int('abc') raises ValueError — which except clause catches it?",
+      "Negative ages and blank names must be skipped, not kept.",
     ],
   },
   {
     id: "foundations-scratch-task",
-    title: "Scratch: normalize names",
+    title: "Scratch: dedupe names",
     kind: "scratch",
     skillId: "scratch-coding",
     prompt:
-      "Write a function normalize_names(names) that:\n" +
-      "- takes a list of raw name strings\n" +
-      "- strips surrounding whitespace from each\n" +
-      '- title-cases each name ("aLIcE" -> "Alice")\n' +
-      "- drops empty results\n" +
-      "- returns the cleaned list in order, with duplicates removed (first occurrence wins)\n" +
-      "- returns [] for an empty input, and never raises on a list input",
+      "Write dedupe_names(names) that:\n" +
+      "- takes a list of raw values\n" +
+      "- keeps only strings; strips surrounding whitespace from each\n" +
+      "- drops empty results and non-string values\n" +
+      '- removes duplicates case-sensitively ("bob" and "BOB" are different names), first occurrence wins\n' +
+      "- returns the cleaned list in order, [] for an empty or non-list input — never raises",
     rubric: ["sample", "empty", "invalid", "shape"],
     graderId: "foundations-scratch-v1",
     hints: [
-      "str.strip() and str.title() do the cleaning.",
+      "Check the type of each value before stripping it.",
       "How do you remember which names you already kept?",
-      "An empty string is falsy — use that to drop empties.",
+      "Case matters: compare names exactly as stripped.",
     ],
   },
   {
     id: "foundations-project-task",
-    title: "Project: summarize a log file",
+    title: "Project: build a log report",
     kind: "project",
     skillId: "project-building",
     prompt:
-      "Write a function summarize_log_file(path) that:\n" +
-      "- opens the file at path with a `with` block (it must close the file itself)\n" +
-      "- counts one entry per non-empty line; the level is the text before the first colon, lowercased and stripped\n" +
-      "- counts lines without a colon as malformed (they still count toward the total)\n" +
-      '- returns {"levels": {level: count}, "malformed": n, "total": m}\n' +
-      '- returns {"levels": {}, "malformed": 0, "total": 0} when the file does not exist — never raises',
+      "Write build_report(path) that:\n" +
+      "- opens the file at path with a `with` block (the file must be opened as a context manager)\n" +
+      "- ignores blank lines; counts a line as malformed when it has no colon or the level part is empty\n" +
+      '- takes the level as the text before the first colon, stripped and uppercased ("error" and "ERROR" are the same level)\n' +
+      '- returns {"levels": {LEVEL: count}, "errors": [...], "malformed": n}\n' +
+      "- collects errors as the stripped message of each ERROR line, in file order, with duplicates removed\n" +
+      '- returns {"levels": {}, "errors": [], "malformed": 0} for an empty file\n' +
+      "- lets FileNotFoundError propagate when the path does not exist — do not swallow it",
     rubric: ["concept-with", "sample", "empty", "malformed", "case", "shape", "missing-file"],
     graderId: "foundations-project-v1",
     hints: [
-      "A `with open(path) as handle:` block closes the file for you.",
+      "A `with open(path) as handle:` block both opens and closes the file.",
       "Split each line on the first colon only.",
-      "Check whether the path exists before opening it.",
+      "Only ERROR lines contribute messages, and each distinct message appears once.",
+      "A missing file is an error for the caller — don't catch it.",
     ],
   },
   {
@@ -200,48 +204,52 @@ const DATA_TASKS: AssessmentTask[] = [
   },
   {
     id: "data-debug-task",
-    title: "Debug: the settlement parser",
+    title: "Debug: the order loader",
     kind: "debug",
     skillId: "debugging",
     prompt:
-      "This CSV settlement parser crashes on real exports. Fix parse_settlements(csv_text) so it:\n" +
-      "- reads the CSV with csv.DictReader (never split(\",\") by hand)\n" +
-      "- parses amounts with Decimal from the raw string (never float)\n" +
-      "- skips rows with missing/invalid ids or unparseable amounts\n" +
-      '- returns a list of {"id": ..., "amount": Decimal(...)} dicts, never raising\n\n' +
+      "This order loader mangles money on real exports. Fix load_orders(text) so it:\n" +
+      "- parses the CSV with csv.DictReader (never split(\",\") by hand)\n" +
+      "- returns None when the text cannot be parsed or the header is not exactly id,amount,currency\n" +
+      "- strips each id and skips blank ids\n" +
+      "- parses each amount with Decimal from the raw string (never float), and skips amounts that are " +
+      "unparseable, non-finite, zero, or negative\n" +
+      "- accepts only USD, EUR, GBP (case-insensitive, stripped)\n" +
+      '- returns [{"id": ..., "amount_cents": <whole cents as int>, "currency": "USD"}] — never raises\n\n' +
       "import csv\n" +
       "from decimal import Decimal\n\n" +
-      "def parse_settlements(csv_text):\n" +
-      "    rows = []\n" +
-      '    for line in csv_text.strip().split("\\n")[1:]:\n' +
-      '        ident, amount = line.split(",")\n' +
-      '        rows.append({"id": ident, "amount": float(amount)})\n' +
-      "    return rows",
+      "def load_orders(text):\n" +
+      "    orders = []\n" +
+      '    for line in text.strip().split("\\n")[1:]:\n' +
+      '        ident, amount, currency = line.split(",")\n' +
+      '        orders.append({"id": ident, "amount_cents": int(float(amount) * 100), "currency": currency})\n' +
+      "    return orders",
     rubric: ["concept-csv", "concept-decimal", "sample", "empty", "header", "invalid", "shape"],
     graderId: "data-debug-v1",
     hints: [
-      "csv.DictReader maps columns by header name.",
+      "csv.DictReader maps columns by header name — check reader.fieldnames first.",
       "Decimal(str_value) keeps cents exact; float does not.",
-      "Wrap the per-row parsing in try/except and skip bad rows.",
+      "Zero and negative amounts are not real orders — skip them.",
     ],
   },
   {
     id: "data-scratch-task",
-    title: "Scratch: totals by currency",
+    title: "Scratch: totals by department",
     kind: "scratch",
     skillId: "scratch-coding",
     prompt:
-      "Write total_by_currency(records) that:\n" +
-      '- takes a list of {"id": str, "amount": str, "currency": str} dicts\n' +
-      "- sums amounts per currency using Decimal (parse from the raw strings)\n" +
-      "- skips rows with missing/invalid ids, unparseable amounts, or blank currencies\n" +
-      '- returns {currency: "12.34"} with amounts formatted to exactly 2 decimals\n' +
-      "- returns {} for empty input and never raises",
+      "Write group_totals(records) that:\n" +
+      '- takes a list of {"dept": str, "amount": ...} dicts\n' +
+      "- sums amounts per department using Decimal (parsed from the raw value)\n" +
+      "- skips rows that are not dicts, rows with blank or non-string depts, and rows whose amount cannot be parsed or is not finite\n" +
+      "- strips department names for the result keys\n" +
+      '- returns {dept: "12.34"} with totals formatted to exactly 2 decimals\n' +
+      "- returns {} for empty or non-list input — never raises",
     rubric: ["sample", "empty", "precision", "invalid", "shape"],
     graderId: "data-scratch-v1",
     hints: [
-      "Decimal('0.1') + Decimal('0.2') is exact; 0.1 + 0.2 is not.",
-      "format(total, '.2f') gives exactly two decimals.",
+      "Decimal(str(value)) parses ints, numeric strings, and text amounts exactly.",
+      "Add Decimals together, then format each total with exactly two decimals.",
       "Skip, don't crash, on bad rows.",
     ],
   },
@@ -251,21 +259,21 @@ const DATA_TASKS: AssessmentTask[] = [
     kind: "project",
     skillId: "project-building",
     prompt:
-      "Write reconcile(manifest, confirmed) that:\n" +
-      "- parses manifest, a CSV string with an id,status header\n" +
-      "- parses confirmed, a JSON string that must be a list of id strings\n" +
-      '- returns {"matched": [...], "missing": [...], "unexpected": [...]} where\n' +
-      "    matched = confirmed ids present in the manifest,\n" +
-      "    missing = confirmed ids absent from the manifest,\n" +
-      "    unexpected = manifest ids not in the confirmed list\n" +
-      "- treats blank ids and unknown statuses as corrupt rows (skipped)\n" +
-      '- returns {"matched": [], "missing": [], "unexpected": []} for bad JSON or a non-list envelope — never raises',
+      "Write reconcile_manifest(manifest_text, confirmed_json) that:\n" +
+      "- parses confirmed_json with json.loads; it must be a JSON list of id strings (stripped, blanks dropped)\n" +
+      "- parses manifest_text as CSV with csv.DictReader; the header must be exactly id,status\n" +
+      '- returns {"matched": [...], "missing": [...], "unexpected": [...]}, each list sorted, where\n' +
+      "    matched = settled manifest ids also present in the confirmed list,\n" +
+      "    missing = settled manifest ids absent from the confirmed list,\n" +
+      "    unexpected = confirmed ids absent from the manifest entirely\n" +
+      '- treats blank ids, unknown statuses (only "settled" and "pending" count), and repeated ids (first row wins) as corrupt rows (skipped)\n' +
+      '- returns {"matched": [], "missing": [], "unexpected": []} for bad JSON, a non-list envelope, or a wrong header — never raises',
     rubric: ["concept-json", "sample", "empty", "envelope", "invalid", "duplicates", "shape"],
     graderId: "data-project-v1",
     hints: [
       "json.loads can raise — catch it and return the empty result.",
-      "Build a set of manifest ids first, then classify each confirmed id.",
-      "A JSON object or string is not a valid envelope; only a list counts.",
+      "Only rows with status 'settled' can match; 'pending' rows are known but unmatched.",
+      "Sort each output list before returning it.",
     ],
   },
   {
@@ -341,45 +349,45 @@ const APPLIED_TASKS: AssessmentTask[] = [
   },
   {
     id: "applied-scratch-task",
-    title: "Scratch: parse product payloads",
+    title: "Scratch: classify HTTP statuses",
     kind: "scratch",
     skillId: "scratch-coding",
     prompt:
-      "Write parse_products(payload) that:\n" +
-      "- parses a JSON string payload\n" +
-      '- expects a list of {"sku": str, "price": str, "stock": int} dicts\n' +
-      "- keeps only rows with non-blank skus, Decimal-parseable prices, and int stocks (bool is not an int)\n" +
-      '- returns [{"sku": ..., "price": "12.34", "stock": n}] with prices formatted to 2 decimals\n' +
-      "- returns [] for bad JSON, a non-list envelope, or empty input — never raises",
-    rubric: ["sample", "empty", "envelope", "price", "stock", "duplicates", "shape", "bad-json"],
+      "Write classify_status(status) that maps an HTTP status code to a client decision:\n" +
+      '- 200–299 → "success"\n' +
+      '- 429 or 500–599 → "retry"\n' +
+      '- anything else → "fail" (1xx, 3xx, other 4xx, and non-integer inputs — note that a bool is not an int here)\n' +
+      '- returns exactly one of "success", "retry", or "fail" — never raises',
+    rubric: ["boundary-199", "boundary-200", "boundary-299", "boundary-300", "retry-429", "retry-500", "client-404", "invalid"],
     graderId: "applied-scratch-v1",
     hints: [
-      "json.loads raises on bad JSON — catch it.",
-      "In Python, isinstance(True, int) is True — exclude bools explicitly.",
-      "Format prices with exactly two decimals.",
+      "200–299 is the success band; 300 is already a redirect, not success.",
+      "429 means 'slow down and retry'; other 4xx responses are client errors.",
+      "Check the type first: True is not a valid status code.",
     ],
   },
   {
     id: "applied-project-task",
-    title: "Project: reconcile a webhook batch",
+    title: "Project: guard a payout feed",
     kind: "project",
     skillId: "project-building",
     prompt:
-      "Write reconcile_batch(manifest_text, webhook_body) that:\n" +
-      "- parses manifest_text as CSV with an id,expected_cents header\n" +
-      '- parses webhook_body as JSON, which must be a list of {"id": str, "cents": int} (bool is not an int)\n' +
-      '- returns {"ok": [...], "mismatch": [...], "missing": [...], "unexpected": [...]} where\n' +
-      "    ok = ids whose cents equal expected_cents,\n" +
-      "    mismatch = ids present in both but with different cents,\n" +
-      "    missing = manifest ids absent from the webhook,\n" +
-      "    unexpected = webhook ids absent from the manifest\n" +
-      "- returns all-empty lists for bad JSON or a non-list envelope — never raises",
+      "Write guard_payouts(lines_text) that:\n" +
+      "- takes lines_text, a string with one JSON payout per line\n" +
+      "- skips blank lines silently (they are not fallbacks)\n" +
+      "- parses each remaining line with json.loads; a line that is not valid JSON, not a JSON object, " +
+      "or fails validation counts as one fallback\n" +
+      "- validates each payout: id must be a non-blank string, currency must be USD/EUR/GBP " +
+      "(case-insensitive, stripped), amount must parse with Decimal, be finite and positive, " +
+      "and have at most 2 decimal places (no silent rounding)\n" +
+      '- returns {"accepted": [{"id": ..., "amount": "12.34", "currency": "USD"}], "fallback": n} with amounts formatted to 2 decimals\n' +
+      '- returns {"accepted": [], "fallback": 0} for empty or non-string input — never raises',
     rubric: ["concept-json", "sample", "empty", "invalid-json", "schema", "money", "shape"],
     graderId: "applied-project-v1",
     hints: [
-      "Parse the CSV with DictReader and the JSON with json.loads, both guarded.",
-      "Index the webhook by id first, then walk the manifest.",
-      "Compare integer cents — never floats.",
+      "Split the input into lines and handle each line on its own.",
+      "A per-line try/except keeps one bad line from failing the batch.",
+      "Reuse the payout rules: Decimal amounts, known currencies, at most two decimals.",
     ],
   },
   {

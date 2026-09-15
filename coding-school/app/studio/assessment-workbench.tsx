@@ -8,6 +8,8 @@ import { getMission } from "../../lib/curriculum";
 import { startGradingRun, type GradeResult } from "../../lib/runner";
 import { gradeAssessmentWritten } from "../../lib/assessment-grading";
 import { getAssessmentSkillStatus, recordAssessmentAttempt, type AssessmentTaskAttempt } from "../../lib/state";
+import { graderCatalog } from "../../public/grading/catalog.js";
+import { failureResult } from "../../public/grading/protocol.js";
 
 loader.config({ paths: { vs: "/monaco/vs" } });
 
@@ -37,6 +39,39 @@ function emptyDraft(): TaskDraft {
   };
 }
 
+/** Grading-run request for an assessment code task. Assignable to GradeRequest. */
+export interface AssessmentRunRequest {
+  type: "run";
+  requestId: string;
+  exerciseId: string;
+  graderId: string;
+  files: Record<string, string>;
+}
+
+/**
+ * Build the grading-run request for an assessment code task. The exerciseId
+ * comes from the registered grader-catalog entry for the task's graderId —
+ * the grading worker rejects any run whose (exerciseId, graderId) pair is not
+ * registered, so this never invents an id. Throws a descriptive error for an
+ * unregistered graderId instead of sending a doomed run.
+ */
+export function buildAssessmentRunRequest(task: AssessmentTask, code: string): AssessmentRunRequest {
+  const graderId = task.graderId ?? "";
+  const registered = Object.entries(graderCatalog).find(([id]) => id === graderId)?.[1];
+  if (!registered) {
+    throw new Error(
+      `Cannot grade assessment task "${task.id}": grader "${task.graderId ?? "missing"}" is not registered in the grader catalog — refusing to send a grading run with a guessed exerciseId.`,
+    );
+  }
+  return {
+    type: "run",
+    requestId: crypto.randomUUID(),
+    exerciseId: registered.exerciseId,
+    graderId,
+    files: { "main.py": code },
+  };
+}
+
 function SkillChip({ studio, skillId }: { studio: Studio; skillId: string }) {
   const status = getAssessmentSkillStatus(studio.state, skillId);
   const label = status.status === "mastered" ? "Mastered" : status.status === "completed" ? "Completed" : "Not started";
@@ -54,17 +89,28 @@ function TaskRunner({ studio, assessment, task, draft, setDraft }: {
   const isCode = task.kind === "debug" || task.kind === "scratch" || task.kind === "project";
 
   function runCodeChecks() {
-    const requestId = crypto.randomUUID();
     if (runRef.current) runRef.current.cancel();
+    let request: AssessmentRunRequest;
+    try {
+      request = buildAssessmentRunRequest(task, draft.code);
+    } catch (error) {
+      // Fail closed: no registered grader, no run. Show the reason through
+      // the existing check-results UI instead of crashing the component.
+      const message = error instanceof Error ? error.message : String(error);
+      setDraft(d => ({
+        ...d,
+        grading: false,
+        gradeResult: failureResult(
+          { requestId: crypto.randomUUID(), exerciseId: task.graderId ?? "", graderId: task.graderId ?? "" },
+          message,
+        ),
+      }));
+      return;
+    }
+    const requestId = request.requestId;
     setDraft(d => ({ ...d, grading: true, gradeResult: null }));
     const cancel = startGradingRun(
-      {
-        type: "run",
-        requestId,
-        exerciseId: `${task.id}-exercise`,
-        graderId: task.graderId!,
-        files: { "main.py": draft.code },
-      },
+      request,
       result => {
         runRef.current = null;
         setDraft(d => ({ ...d, grading: false, gradeResult: result }));

@@ -33,20 +33,22 @@ describe("assessment written semantic grading", () => {
   describe("foundations-read", () => {
     const g = (criterion: string, response: string) =>
       gradeAssessmentWritten("foundations-read-challenge", response).tests.find(t => t.id === criterion)!;
-    test("read-trace: the malformed line is skipped by the except/continue path", () => {
-      expect(g("read-trace", "The broken line has no colon, so the try block raises and the except continues to the next line.").passed).toBe(true);
-      expect(g("read-trace", "The malformed row is skipped because int() raises ValueError and the handler skips it.").passed).toBe(true);
+    test("read-trace: the colon-less line is skipped by the colon guard, not an except clause", () => {
+      expect(g("read-trace", "The broken line is stripped, then the `if \":\" not in line` check skips it with continue — no exception is raised.").passed).toBe(true);
+      expect(g("read-trace", "The line has no colon so the guard continues to the next line.").passed).toBe(true);
+      expect(g("read-trace", "The broken line raises and the except clause skips it.").passed).toBe(false);
       expect(g("read-trace", "It crashes on the bad line.").passed).toBe(false);
-      expect(g("read-trace", "The line is counted as malformed.").passed).toBe(false);
     });
-    test("read-result: disk full is counted twice", () => {
-      expect(g("read-result", "counts is {'disk full': 2}").passed).toBe(true);
-      expect(g("read-result", "disk full appears twice").passed).toBe(true);
-      expect(g("read-result", "disk full appears three times").passed).toBe(false);
+    test("read-result: the error level is counted twice", () => {
+      expect(g("read-result", "counts['error'] == 2").passed).toBe(true);
+      expect(g("read-result", "the error level appears twice").passed).toBe(true);
+      expect(g("read-result", "counts['disk full'] == 2").passed).toBe(false);
+      expect(g("read-result", "error appears three times").passed).toBe(false);
       expect(g("read-result", "it counts each line once").passed).toBe(false);
     });
-    test("read-contract: whitespace-stripped messages are counted", () => {
-      expect(g("read-contract", "Messages are stripped of surrounding whitespace, then each distinct message is counted.").passed).toBe(true);
+    test("read-contract: log lines are counted per level", () => {
+      expect(g("read-contract", "It counts how many log lines belong to each level (info, error, warn).").passed).toBe(true);
+      expect(g("read-contract", "Messages are stripped of surrounding whitespace, then each distinct message is counted.").passed).toBe(false);
       expect(g("read-contract", "it counts lines").passed).toBe(false);
     });
   });
