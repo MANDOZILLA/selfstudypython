@@ -154,6 +154,44 @@ async function waitForServer(url, tries = 60) {
   throw new Error(`Server never came up at ${url}`);
 }
 
+/**
+ * Write a full learner state to the durable SQLite store over HTTP. SQLite on
+ * the server is the durable source of truth, so a localStorage-only seed in a
+ * fresh browser context would be (correctly) superseded by the server copy on
+ * boot via adopt-server-with-local-backup. Writing to /api/state makes the
+ * boot take adopt-server instead.
+ */
+async function putServerState(state, label) {
+  const snapshot = await (await fetch(`${BASE_URL}/api/state`)).json();
+  if (typeof snapshot?.revision !== "number") {
+    throw new Error(`${label}: unexpected GET /api/state body: ${JSON.stringify(snapshot).slice(0, 200)}`);
+  }
+  const res = await fetch(`${BASE_URL}/api/state`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ revision: snapshot.revision, state }),
+  });
+  if (res.status !== 200) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`${label}: PUT /api/state returned ${res.status}: ${body.slice(0, 300)}`);
+  }
+  console.log(`${label}: wrote durable server state (was revision ${snapshot.revision})`);
+}
+
+/** Seed prerequisite completions so the dashboard unlocks pandas-missing-data. */
+async function seedServerState() {
+  await putServerState(SEED_STATE, "seedServerState");
+}
+
+/**
+ * Blank the durable store so the mobile layout flow starts from a fresh
+ * profile — the pre-SQLite condition it was written for, when every fresh
+ * browser context booted with empty localStorage.
+ */
+async function resetServerState() {
+  await putServerState({}, "resetServerState");
+}
+
 /** Attach console-error and pageerror collectors; returns the error list. */
 function watchErrors(page, errors) {
   page.on("pageerror", error => errors.push(`pageerror: ${String(error).split("\n")[0]}`));
@@ -240,6 +278,10 @@ async function desktopSmoke(browser) {
 /** pandas-missing-data guided task with every external request blocked. */
 async function pandasOffline(browser) {
   console.log("\n--- desktop 1280x720: pandas offline ---");
+  // Seed the durable store (not just localStorage): desktopSmoke ran first in
+  // this process and wrote real state to the server's SQLite DB, so a
+  // localStorage-only seed would be superseded on boot.
+  await seedServerState();
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
   await context.addInitScript(SEED_SCRIPT);
   const blocked = [];
@@ -276,6 +318,10 @@ async function pandasOffline(browser) {
 /** Mobile layout: dashboard and an in-progress workbench coding view. */
 async function mobileFlow(browser) {
   console.log("\n--- mobile 375x812 ---");
+  // The pandas stage above leaves an in-progress pandas run on the server;
+  // reset to a blank profile so this layout flow meets the first mission,
+  // exactly as it did when every fresh context booted from empty localStorage.
+  await resetServerState();
   const page = await browser.newPage({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true });
   const errors = [];
   watchErrors(page, errors);
