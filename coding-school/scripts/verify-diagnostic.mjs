@@ -31,6 +31,17 @@ function check(name, condition, detail = "") {
   if (!condition) failures++;
 }
 
+/** Attach console-error and pageerror collectors; returns the error list.
+ *  A verifier must FAIL on these, never just log them. */
+function watchErrors(page) {
+  const errors = [];
+  page.on("pageerror", error => errors.push(`pageerror: ${String(error).split("\n")[0]}`));
+  page.on("console", message => {
+    if (message.type() === "error") errors.push(`console: ${message.text().slice(0, 200)}`);
+  });
+  return errors;
+}
+
 async function waitForServer(url, tries = 60) {
   for (let i = 0; i < tries; i++) {
     try {
@@ -67,7 +78,7 @@ async function main() {
 async function desktopFlow(browser) {
   console.log("\n--- desktop 1280x720 ---");
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
-  page.on("pageerror", error => console.log(`  [pageerror] ${String(error).split("\n")[0]}`));
+  const pageErrors = watchErrors(page);
   await page.goto(BASE_URL, { waitUntil: "networkidle" });
 
   const startButton = page.getByRole("button", { name: /take the placement diagnostic/i });
@@ -146,12 +157,14 @@ async function desktopFlow(browser) {
   check("back button restores exact progress", before === afterBack, afterBack.replace(/\n/g, " "));
 
   await page.screenshot({ path: "/tmp/diagnostic-desktop.png" });
+  check("zero console/page errors on desktop", pageErrors.length === 0, pageErrors.join(" | ").slice(0, 300));
   await page.close();
 }
 
 async function mobileFlow(browser) {
   console.log("\n--- mobile 375x812 ---");
   const page = await browser.newPage({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true });
+  const pageErrors = watchErrors(page);
   await page.goto(BASE_URL, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: /take the placement diagnostic|resume diagnostic/i }).click();
   await page.waitForURL(/diagnostic\?session=/);
@@ -170,6 +183,7 @@ async function mobileFlow(browser) {
   const editorOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= 375);
   check("no horizontal overflow at 375px (coding view)", editorOverflow);
   await page.screenshot({ path: "/tmp/diagnostic-mobile.png", fullPage: true });
+  check("zero console/page errors on mobile", pageErrors.length === 0, pageErrors.join(" | ").slice(0, 300));
   await page.close();
 }
 

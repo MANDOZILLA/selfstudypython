@@ -10,7 +10,11 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "verify:diagnostic": "node scripts/verify-diagnostic.mjs --serve"
+    "verify:diagnostic": "node scripts/verify-diagnostic.mjs --serve",
+    "verify:product": "node scripts/verify-product.mjs",
+    "verify:tutor": "node scripts/verify-tutor.mjs",
+    "verify:desktop": "node scripts/verify-desktop.mjs",
+    "verify:mobile": "node scripts/verify-mobile.mjs"
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.3.0",
