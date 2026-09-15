@@ -205,7 +205,7 @@ export const DIAGNOSTIC_ITEMS: DiagnosticItem[] = [
     "Correct iff the answer is '2xx'."),
   concept("diag-http-429", "http-reliability", 2,
     "Your client receives 429 Too Many Requests. Is retrying immediately the right move?",
-    ["What does 429 ask you to do?", " hammering the server makes it worse.", "Name the correct strategy in a few words."],
+    ["What does 429 ask you to do?", "Hammering the server makes it worse.", "Name the correct strategy in a few words."],
     "Correct iff the answer is no with waiting/backing off (accept 'no, wait', 'back off', 'no, respect Retry-After'). Bare 'yes' fails."),
   concept("diag-http-timeout", "http-reliability", 2,
     "A request can hang forever. What client setting bounds how long you wait?",

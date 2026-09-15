@@ -36,6 +36,7 @@ describe("assessment written semantic grading", () => {
     test("read-trace: the colon-less line is skipped by the colon guard, not an except clause", () => {
       expect(g("read-trace", "The broken line is stripped, then the `if \":\" not in line` check skips it with continue — no exception is raised.").passed).toBe(true);
       expect(g("read-trace", "The line has no colon so the guard continues to the next line.").passed).toBe(true);
+      expect(g("read-trace", "the `if ':' not in line` guard skips it — no try/except is involved").passed).toBe(true);
       expect(g("read-trace", "The broken line raises and the except clause skips it.").passed).toBe(false);
       expect(g("read-trace", "It crashes on the bad line.").passed).toBe(false);
     });
@@ -73,7 +74,9 @@ describe("assessment written semantic grading", () => {
       gradeAssessmentWritten("data-read-challenge", response).tests.find(t => t.id === criterion)!;
     test("read-value: the bad row is skipped, the good rows load", () => {
       expect(g("read-value", "[('7', 7.0), ('9', 9.0)] — the 'eight' row is skipped.").passed).toBe(true);
+      expect(g("read-value", "[('7', 7.0), ('9', 9.0)]").passed).toBe(true);
       expect(g("read-value", "It returns all three rows.").passed).toBe(false);
+      expect(g("read-value", "It returns 7, 8 and 9.").passed).toBe(false);
     });
     test("read-envelope: None has no split/strip, so it raises AttributeError", () => {
       expect(g("read-envelope", "load(None) raises AttributeError because None has no .strip() method.").passed).toBe(true);
@@ -116,6 +119,7 @@ describe("assessment written semantic grading", () => {
     });
     test("explain-retry: retry the 429 rate limit, not the 400 client error", () => {
       expect(g("explain-retry", "Retry the 429 because it is a rate limit that may clear; retrying the 400 is pointless since the request itself is invalid.").passed).toBe(true);
+      expect(g("explain-retry", "Retry the 429 — it is transient. Never retry the 400.").passed).toBe(true);
       expect(g("explain-retry", "Retry both statuses.").passed).toBe(false);
     });
   });

@@ -328,6 +328,7 @@ const APPLIED_TASKS: AssessmentTask[] = [
       "This payout validator lets bad money through. Fix validate_payouts(records) so it:\n" +
       "- validates amounts with Decimal parsed from the raw string (never float)\n" +
       "- accepts only USD, EUR, GBP (case-insensitive, stripped)\n" +
+      "- strips ids and drops records with blank ids\n" +
       "- rejects amounts with more than 2 decimal places (no silent rounding)\n" +
       "- rejects zero, negative, and non-finite amounts\n" +
       '- returns [{"id": ..., "amount": "12.34", "currency": "USD"}] with amounts formatted to 2 decimals\n' +
@@ -381,7 +382,7 @@ const APPLIED_TASKS: AssessmentTask[] = [
       "(case-insensitive, stripped), amount must parse with Decimal, be finite and positive, " +
       "and have at most 2 decimal places (no silent rounding)\n" +
       '- returns {"accepted": [{"id": ..., "amount": "12.34", "currency": "USD"}], "fallback": n} with amounts formatted to 2 decimals\n' +
-      '- returns {"accepted": [], "fallback": 0} for empty or non-string input — never raises',
+      '- returns {"accepted": [], "fallback": 0} for empty input — never raises',
     rubric: ["concept-json", "sample", "empty", "invalid-json", "schema", "money", "shape"],
     graderId: "applied-project-v1",
     hints: [

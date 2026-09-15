@@ -32,10 +32,9 @@ const GRADERS: Record<string, Record<string, WrittenPredicate>> = {
   "foundations-read-challenge": {
     "read-trace": t =>
       /\b(skipped|skips|continue|continues)\b/i.test(t) &&
-      (/\bcolon\b/i.test(t) || /":"/.test(t)) &&
-      !/\b(try|except)\b/i.test(t)
+      (/\bcolon\b/i.test(t) || /['"]:\s*['"]/.test(t))
         ? pass("the colon-less line is skipped by the `if \":\" not in line: continue` guard")
-        : fail("say which statement skips the broken line — there is no try/except in this code"),
+        : fail("say which statement skips the broken line"),
     "read-result": t =>
       /\berror\b/i.test(t) &&
       (/\b2\b/.test(t) || /\btwice\b/i.test(t)) &&
@@ -62,9 +61,10 @@ const GRADERS: Record<string, Record<string, WrittenPredicate>> = {
   },
   "data-read-challenge": {
     "read-value": t =>
-      /\b7\b/.test(t) && /\b9\b/.test(t) && /\b(skip|skipped|eight)\b/i.test(t)
-        ? pass("the bad row is skipped; the 7 and 9 rows load")
-        : fail("say which rows load and which row is skipped"),
+      /\b7\b/.test(t) && /\b9\b/.test(t) &&
+      (!/\b8\b/.test(t) || /\b(skip|skipped)\b/i.test(t) || /\beight\b/i.test(t))
+        ? pass("load returns [('7', 7.0), ('9', 9.0)] — the 'eight' row is skipped")
+        : fail("say exactly which rows load — the 7 and 9 rows, not the 'eight' row"),
     "read-envelope": t =>
       /attributeerror/i.test(t) ||
       (/\bnone\b/i.test(t) && /\b(strip|split|crash|raises?|error)\b/i.test(t))
@@ -100,7 +100,7 @@ const GRADERS: Record<string, Record<string, WrittenPredicate>> = {
         : fail("explain what breaks without the fallback counter"),
     "explain-retry": t =>
       /\b429\b/.test(t) && /\b400\b/.test(t) &&
-      /\b(rate limit|client error|pointless|won'?t succeed|invalid|temporary)\b/i.test(t)
+      /\b(rate limit|client error|pointless|won'?t succeed|invalid|temporary|transient)\b/i.test(t)
         ? pass("retry the 429 rate limit, not the 400 client error")
         : fail("say which status is retried and why the other is not"),
   },
