@@ -407,3 +407,20 @@ pre { font: 12px/1.75 var(--mono); white-space: pre-wrap; overflow-wrap: anywher
   .editor-shortcut { padding-top: 6px; padding-bottom: 8px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; } }
+
+/* Diagnostic (Task 1): placement flow styles */
+.diagnostic-meta { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 12px; font-size: 14px; color: var(--secondary); }
+.diagnostic-meta strong { color: var(--ink); }
+.diagnostic-progress { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.diagnostic-progress span { display: block; height: 100%; background: var(--action); border-radius: 4px; transition: width 0.3s ease; }
+.diagnostic-prompt { font-size: 16px; margin: 16px 0; white-space: pre-wrap; }
+.diagnostic-hints { margin: 16px 0; padding: 12px 16px; border-left: 3px solid var(--line); }
+.diagnostic-hints p { margin: 8px 0; }
+.diagnostic-answer-label { display: block; font-weight: 600; margin: 16px 0 8px; }
+.diagnostic-answer { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; font: 15px/1.6 var(--sans, inherit); resize: vertical; background: white; color: var(--ink); }
+.diagnostic-infra { margin: 16px 0; padding: 16px; border: 1px solid #c98a2d; border-left: 4px solid #c98a2d; border-radius: 8px; background: #fdf6e8; }
+.diagnostic-infra p { margin: 8px 0; }
+@media (max-width: 600px) {
+  .diagnostic-meta { gap: 12px; font-size: 13px; }
+  .diagnostic-prompt { font-size: 15px; }
+}

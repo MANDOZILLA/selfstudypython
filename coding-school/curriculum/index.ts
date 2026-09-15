@@ -1,5 +1,7 @@
 import { missions, reviewTasks } from "./missions";
 export { missions, reviewTasks };
+export { DIAGNOSTIC_CORE_SKILLS, DIAGNOSTIC_ITEMS, DIAGNOSTIC_SKILLS } from "./diagnostic-items";
+export type { DiagnosticItem, DiagnosticSkillId } from "./diagnostic-items";
 
 export const skills = [
   { id: "python-functions", title: "Functions and return contracts", prerequisites: [] },

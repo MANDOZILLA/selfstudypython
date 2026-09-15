@@ -1,6 +1,7 @@
 import { getGrader } from "./catalog.js";
 export function failureResult(request, message) {
   return { requestId: request?.requestId ?? "", exerciseId: request?.exerciseId ?? "", graderId: request?.graderId ?? "",
+    sessionId: request?.sessionId ?? null, taskId: request?.taskId ?? null,
     executionOk: false, passed: false, score: 0, stdout: "", stderr: message,
     graderVersion: getGrader(request?.exerciseId, request?.graderId)?.version ?? "unavailable",
     tests: [{ id: "execution", name: "Execution and grader available", required: true, passed: false, detail: message }] };
@@ -21,13 +22,21 @@ export function aggregateResult(request, raw, stdout = "", stderr = "") {
   if (!wellFormed) return { ...failureResult(request, raw.error || "Incomplete or malformed required checks."), stdout, stderr: stderr || raw.error || "Incomplete or malformed required checks." };
   const score = raw.executionOk ? tests.filter(test => test.passed).length / tests.length : 0;
   return { requestId: request.requestId, exerciseId: request.exerciseId, graderId: request.graderId,
+    sessionId: request.sessionId ?? null, taskId: request.taskId ?? null,
     executionOk: raw.executionOk, passed: raw.executionOk && tests.length > 0 && tests.every(test => test.passed),
     score, stdout, stderr: [stderr, raw.error].filter(Boolean).join("\n"), graderVersion: grader.version, tests };
 }
 export function verifyWorkerResult(request, value) {
   if (!value || value.requestId !== request.requestId || value.exerciseId !== request.exerciseId || value.graderId !== request.graderId) return null;
+  if (request.sessionId != null && value.sessionId !== request.sessionId) return null;
+  if (request.taskId != null && value.taskId !== request.taskId) return null;
   const grader = getGrader(request.exerciseId, request.graderId);
-  if (typeof value.stdout !== "string" || typeof value.stderr !== "string" || value.graderVersion !== grader?.version) return failureResult(request, "Malformed worker response.");
+  if (typeof value.stdout !== "string" || typeof value.stderr !== "string") return failureResult(request, "Malformed worker response.");
+  // A stale or mismatched grader version is ignored, never relabeled to the
+  // current version and never converted into a failed learner attempt.
+  if (value.graderVersion !== grader?.version) {
+    return { ignored: true, reason: "grader-version-mismatch", requestId: request.requestId, exerciseId: request.exerciseId, graderId: request.graderId };
+  }
   const verified = aggregateResult(request, value, value.stdout, value.stderr);
   if (value.passed !== verified.passed || value.score !== verified.score) return failureResult(request, "Worker result did not match its required checks.");
   return verified;

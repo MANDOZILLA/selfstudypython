@@ -4,10 +4,11 @@ import { curriculum, getMission, getTask } from "./curriculum";
 import { assistanceSchema, attemptSchema, missionRunSchema, type AttemptRecord, type AttemptSubmission, type MissionDraft, type MissionRun } from "./mission-types";
 import { aggregateResult } from "../public/grading/protocol.js";
 import { getGrader } from "../public/grading/catalog.js";
+import { diagnosticSessionSchema, markLegacyDiagnosticSession, type DiagnosticSession } from "./diagnostic";
 export type { AttemptRecord, AttemptSubmission, MissionDraft, MissionRun } from "./mission-types";
 
 const STORAGE_KEY = "coding-school:learner-state";
-const STATE_VERSION = 2 as const;
+export const STATE_VERSION = 3 as const;
 export type DashboardTab = "overview" | "lessons" | "learned" | "assessment" | "portfolio";
 export type ScheduledReview = ReviewSchedule;
 const portfolioSchema = z.object({
@@ -20,12 +21,13 @@ export type LearningState = {
   version: typeof STATE_VERSION; dashboard: { activeTab: DashboardTab };
   diagnostic: { completed: boolean; completedAt: string | null };
   attempts: AttemptRecord[]; missionRuns: MissionRun[];
+  diagnosticSessions: DiagnosticSession[];
   mastery: Record<string, SkillEvidence>; reviewSchedule: Record<string, ScheduledReview>;
   portfolio: PortfolioSnapshot[];
 };
 export function createDefaultState(): LearningState {
   return { version: STATE_VERSION, dashboard: { activeTab: "overview" }, diagnostic: { completed: false, completedAt: null },
-    attempts: [], missionRuns: [], mastery: {}, reviewSchedule: {}, portfolio: [] };
+    attempts: [], missionRuns: [], diagnosticSessions: [], mastery: {}, reviewSchedule: {}, portfolio: [] };
 }
 function clone<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T; }
 function object(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
@@ -146,7 +148,24 @@ export function migrateState(value: unknown): LearningState {
   next.diagnostic = { completed: diagnostic.completed === true || value.diagnosticCompleted === true, completedAt: typeof diagnostic.completedAt === "string" ? diagnostic.completedAt : null };
   const portfolio = Array.isArray(value.portfolio) ? value.portfolio : Array.isArray(value.completedProjects) ? value.completedProjects : [];
   next.portfolio = portfolio.flatMap(item => { const parsed = portfolioSchema.safeParse(item); return parsed.success ? [parsed.data] : []; });
-  if (value.version !== STATE_VERSION) return next;
+  // Version 2 payloads predate session history but remain readable; anything
+  // older is untrusted and dropped. Valid sessions are preserved verbatim;
+  // malformed sessions are dropped, never repaired into fabricated evidence.
+  if (value.version !== 2 && value.version !== STATE_VERSION) return next;
+  next.diagnosticSessions = (Array.isArray(value.diagnosticSessions) ? value.diagnosticSessions : []).flatMap(item => {
+    const parsed = diagnosticSessionSchema.safeParse(item);
+    if (!parsed.success) return [];
+    // Old-format sessions are preserved, but their responses become
+    // Legacy / unverified so they cannot shape placement or quotas.
+    return [markLegacyDiagnosticSession(parsed.data)];
+  });
+  const latestCompleted = next.diagnosticSessions
+    .filter(session => session.status === "completed")
+    .sort((a, b) => String(a.completedAt).localeCompare(String(b.completedAt)))
+    .at(-1);
+  if (latestCompleted && (!next.diagnostic.completed || String(latestCompleted.completedAt) > String(next.diagnostic.completedAt ?? ""))) {
+    next.diagnostic = { completed: true, completedAt: latestCompleted.completedAt };
+  }
   next.missionRuns = (Array.isArray(value.missionRuns) ? value.missionRuns : []).flatMap(item => {
     const parsed = missionRunSchema.safeParse(item);
     if (!parsed.success) return [];
@@ -202,6 +221,18 @@ export function migrateState(value: unknown): LearningState {
     }
   }
   return refresh(next);
+}
+/** Upsert a diagnostic session into history. Retakes append new sessions; prior sessions are never mutated. */
+export function replaceDiagnosticSession(state: LearningState, session: DiagnosticSession): LearningState {
+  diagnosticSessionSchema.parse(session);
+  const next = clone(state);
+  const index = next.diagnosticSessions.findIndex(existing => existing.id === session.id);
+  if (index >= 0) next.diagnosticSessions[index] = clone(session);
+  else next.diagnosticSessions.push(clone(session));
+  if (session.status === "completed" && (!next.diagnostic.completed || String(session.completedAt) > String(next.diagnostic.completedAt ?? ""))) {
+    next.diagnostic = { completed: true, completedAt: session.completedAt };
+  }
+  return next;
 }
 function storage(): Storage | undefined {
   if (typeof window === "undefined") return undefined;

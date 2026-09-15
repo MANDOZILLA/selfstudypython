@@ -8,6 +8,9 @@ export const graderCatalog = Object.freeze({
   "invoice-cents-v1": Object.freeze({ exerciseId: "invoice-cents-challenge", version: "1.0.0", requiredTests: ["sample", "precision", "invalid"] }),
   "webhook-events-v1": Object.freeze({ exerciseId: "webhook-events-challenge", version: "1.0.0", requiredTests: ["sample", "empty", "envelope", "invalid", "duplicates"] }),
   "settlement-reconciliation-v1": Object.freeze({ exerciseId: "settlement-reconciliation-challenge", version: "1.0.0", requiredTests: ["sample", "empty", "envelope", "malformed", "types", "header", "invalid", "duplicates", "join"] }),
+  "diagnostic-call-forms-v1": Object.freeze({ exerciseId: "diagnostic-call-forms", version: "1.0.0", requiredTests: ["concept-loads", "concept-map", "sample", "empty", "invalid"] }),
+  "diagnostic-http-v1": Object.freeze({ exerciseId: "diagnostic-http", version: "1.0.0", requiredTests: ["boundary-199", "boundary-200", "boundary-299", "boundary-300"] }),
+  "diagnostic-files-v1": Object.freeze({ exerciseId: "diagnostic-files", version: "1.0.0", requiredTests: ["reads-lines", "context-manager", "missing-file"] }),
 });
 export function getGrader(exerciseId, graderId) {
   const grader = Object.hasOwn(graderCatalog, graderId) ? graderCatalog[graderId] : undefined;

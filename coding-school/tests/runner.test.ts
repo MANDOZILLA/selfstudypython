@@ -36,6 +36,19 @@ describe("worker lifecycle", () => {
     expect(completed.mock.calls[0]?.[0]?.passed).toBe(true);
     expect(worker.terminated).toBe(true);
   });
+  it("drops ignored grader versions without completing and accepts a later valid result", () => {
+    const worker = new WorkerTransport();
+    const completed = vi.fn();
+    const ignored = vi.fn();
+    startGradingRun(request, completed, () => worker, 15000, undefined, ignored);
+    const passed = aggregateResult(request, { executionOk: true, tests: required });
+    worker.onmessage?.({ data: { ...passed, graderVersion: "0.0.0" } });
+    expect(completed).not.toHaveBeenCalled();
+    expect(ignored).toHaveBeenCalledWith(expect.objectContaining({ ignored: true, reason: "grader-version-mismatch" }));
+    expect(worker.terminated).toBe(false);
+    worker.onmessage?.({ data: passed });
+    expect(completed.mock.calls[0]?.[0]?.passed).toBe(true);
+  });
   it.each(["onerror", "onmessageerror"] as const)("reports %s as failed without changing files", event => {
     const worker = new WorkerTransport();
     const completed = vi.fn();

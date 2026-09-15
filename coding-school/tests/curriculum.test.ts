@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { curriculum, validateCurriculum } from "../lib/curriculum";
+import { DIAGNOSTIC_CORE_SKILLS, DIAGNOSTIC_ITEMS, DIAGNOSTIC_SKILLS } from "../curriculum";
 
 describe("seed curriculum", () => {
   it("exposes complete authored missions through the compatibility lesson view", () => {
@@ -22,5 +23,17 @@ describe("seed curriculum", () => {
       ...curriculum.projects.map((project) => project.id),
     ];
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("registers the diagnostic item bank and its skills through the curriculum index", () => {
+    expect(DIAGNOSTIC_ITEMS.length).toBeGreaterThanOrEqual(40);
+    expect(DIAGNOSTIC_SKILLS.map(s => s.id).sort()).toEqual([...DIAGNOSTIC_CORE_SKILLS].sort());
+    for (const skill of DIAGNOSTIC_SKILLS) {
+      expect(skill.title.length).toBeGreaterThan(0);
+    }
+    const known = new Set<string>(DIAGNOSTIC_SKILLS.map(s => s.id));
+    for (const item of DIAGNOSTIC_ITEMS) {
+      expect(known.has(item.skillId)).toBe(true);
+    }
   });
 });

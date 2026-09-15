@@ -182,7 +182,7 @@ describe("continuous missions and honest evidence", () => {
   });
   it("drops unsupported legacy mastery while preserving actual artifacts and preferences", () => {
     const state = engine.migrateState({ version: 1, activeDashboardTab: "learned", mastery: [{ skillId: "csv-cleaning", score: 99 }], reviews: [{ skillId: "csv-cleaning", dueAt: day(11).toISOString() }], attempts: [{ id: "legacy", kind: "project", score: 1 }] });
-    expect(state.version).toBe(2);
+    expect(state.version).toBe(3);
     expect(state.dashboard.activeTab).toBe("learned");
     expect(state.attempts).toEqual([]);
     expect(state.mastery).toEqual({});

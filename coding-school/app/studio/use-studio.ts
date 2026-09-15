@@ -1,25 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { advanceMissionStage, createDefaultState, getState, resetState, StateRecoveryError, saveMissionDraft, saveState, startOrResumeMission, type LearningState, type MissionDraft } from "../../lib/state";
-import { destinations, getWorkbenchModel, persistAttempt, runStatus, type Destination, type RunStatus } from "../../lib/studio";
+import { advanceMissionStage, createDefaultState, getState, resetState, StateRecoveryError, saveMissionDraft, saveState, startOrResumeMission, replaceDiagnosticSession, type LearningState, type MissionDraft } from "../../lib/state";
+import { getWorkbenchModel, persistAttempt, runStatus, type Destination, type RunStatus } from "../../lib/studio";
 import { startGradingRun, type GradeResult } from "../../lib/runner";
-
-type Route = { destination: Destination; runId?: string; taskId?: string; completedRunId?: string };
-function readRoute(): Route {
-  const [name, search] = window.location.hash.slice(1).split("?");
-  const params = new URLSearchParams(search);
-  if (name === "summary" && params.get("run")) return { destination: "today", completedRunId: params.get("run")! };
-  if (name === "workbench" && params.get("run")) return { destination: "today", runId: params.get("run")!, taskId: params.get("task") ?? undefined };
-  return { destination: destinations.some(d => d.id === name) ? name as Destination : "today" };
-}
-function routeHash(route: Route) {
-  if (route.completedRunId) return `#summary?run=${encodeURIComponent(route.completedRunId)}`;
-  if (!route.runId) return `#${route.destination}`;
-  const params = new URLSearchParams({ run: route.runId });
-  if (route.taskId) params.set("task", route.taskId);
-  return `#workbench?${params}`;
-}
+import { answerConcept, classifyGradeResult, completeDiagnosticSession, createDiagnosticSession, recordCodingOutcome, saveDiagnosticDraft, type DiagnosticSession } from "../../lib/diagnostic";
+import { gradeDiagnosticConcept } from "../../lib/diagnostic-grading";
+import { DIAGNOSTIC_ITEMS } from "../../curriculum";
+import { readRoute, routeHash, type Route } from "../../lib/route";
 
 export function useStudio() {
   const [state, setState] = useState(createDefaultState);
@@ -36,16 +24,26 @@ export function useStudio() {
   const [status, setStatus] = useState<RunStatus>("Ready");
   const [attemptSaved, setAttemptSaved] = useState(false);
   const runRef = useRef<{ cancel: () => void; requestId: string } | null>(null);
+  const [diagnosticResult, setDiagnosticResult] = useState<GradeResult | null>(null);
+  const [diagnosticStatus, setDiagnosticStatus] = useState<RunStatus>("Ready");
+  const [diagnosticStale, setDiagnosticStale] = useState(false);
+  const diagnosticRunRef = useRef<{ cancel: () => void; requestId: string } | null>(null);
+  const diagnosticBusy = diagnosticStatus === "Loading Python" || diagnosticStatus === "Running checks";
 
   function cancelRun() {
     runRef.current?.cancel();
     runRef.current = null;
   }
+  function cancelDiagnosticRun() {
+    diagnosticRunRef.current?.cancel();
+    diagnosticRunRef.current = null;
+  }
   useEffect(() => {
     const restore = () => {
       runRef.current?.cancel(); runRef.current = null;
+      cancelDiagnosticRun(); setDiagnosticResult(null); setDiagnosticStatus("Ready"); setDiagnosticStale(false);
       setResult(null); setStatus("Ready"); setAttemptSaved(false);
-      setRoute(readRoute());
+      setRoute(readRoute(window.location.hash));
     };
     const frame = requestAnimationFrame(() => {
       try { const saved = getState(); stateRef.current = saved; setState(saved); }
@@ -82,6 +80,7 @@ export function useStudio() {
   }
   function go(next: Route, replace = false) {
     cancelRun(); setResult(null); setStatus("Ready"); setAttemptSaved(false);
+    cancelDiagnosticRun(); setDiagnosticResult(null); setDiagnosticStatus("Ready"); setDiagnosticStale(false);
     window.history[replace ? "replaceState" : "pushState"]({}, "", routeHash(next));
     setRoute(next);
     window.scrollTo(0, 0);
@@ -160,6 +159,95 @@ export function useStudio() {
     if (runRef.current?.requestId === requestId) runRef.current.cancel = cancel;
   }
   function stopRun() { cancelRun(); setStatus("Ready"); setResult(null); }
+  function diagnosticSession(): DiagnosticSession | undefined {
+    return stateRef.current.diagnosticSessions.find(s => s.id === route.diagnosticSessionId);
+  }
+  function commitDiagnosticSession(session: DiagnosticSession) {
+    return commit(replaceDiagnosticSession(stateRef.current, session));
+  }
+  function startDiagnostic() {
+    const inProgress = [...stateRef.current.diagnosticSessions].reverse().find(s => s.status === "in-progress");
+    const session = inProgress ?? createDiagnosticSession();
+    if (!inProgress) commitDiagnosticSession(session);
+    setDiagnosticResult(null); setDiagnosticStatus("Ready"); setDiagnosticStale(false);
+    go({ destination: "today", diagnosticSessionId: session.id });
+  }
+  function retakeDiagnostic() {
+    const session = createDiagnosticSession();
+    if (!commitDiagnosticSession(session)) return;
+    setDiagnosticResult(null); setDiagnosticStatus("Ready"); setDiagnosticStale(false);
+    go({ destination: "today", diagnosticSessionId: session.id });
+  }
+  function openDiagnosticSession(sessionId: string) {
+    setDiagnosticResult(null); setDiagnosticStatus("Ready"); setDiagnosticStale(false);
+    go({ destination: "today", diagnosticSessionId: sessionId });
+  }
+  function updateDiagnosticDraft(patch: { answer?: string; code?: string; hints?: number }) {
+    const session = diagnosticSession();
+    if (!session || session.status !== "in-progress") return;
+    commitDiagnosticSession(saveDiagnosticDraft(session, patch));
+  }
+  function revealDiagnosticHint() {
+    const session = diagnosticSession();
+    if (!session || session.status !== "in-progress") return;
+    updateDiagnosticDraft({ hints: session.draftHints + 1 });
+  }
+  function answerDiagnosticConcept() {
+    const session = diagnosticSession();
+    if (!session || session.status !== "in-progress") return;
+    const item = DIAGNOSTIC_ITEMS.find(i => i.id === session.currentItemId);
+    if (!item || item.kind !== "concept") return;
+    try {
+      if (commitDiagnosticSession(answerConcept(session, item, session.draftAnswer, gradeDiagnosticConcept))) {
+        setDiagnosticResult(null); setDiagnosticStale(false);
+      }
+    } catch (error) { setStorageError(error instanceof Error ? error.message : String(error)); }
+  }
+  function runDiagnosticCode() {
+    const session = diagnosticSession();
+    if (!session || session.status !== "in-progress" || diagnosticRunRef.current) return;
+    const item = DIAGNOSTIC_ITEMS.find(i => i.id === session.currentItemId);
+    if (!item || item.kind !== "coding" || !item.coding) return;
+    const code = session.draftCode.trim() ? session.draftCode : item.coding.starterCode;
+    const requestId = crypto.randomUUID();
+    setDiagnosticResult(null); setDiagnosticStale(false); setDiagnosticStatus("Loading Python");
+    diagnosticRunRef.current = { requestId, cancel: () => {} };
+    const cancel = startGradingRun(
+      { type: "run", requestId, exerciseId: item.coding.exerciseId, graderId: item.coding.graderId, files: { "main.py": code }, sessionId: session.id, taskId: item.id },
+      data => {
+        if (diagnosticRunRef.current?.requestId !== requestId) return;
+        diagnosticRunRef.current = null;
+        setDiagnosticResult(data); setDiagnosticStatus(runStatus(data));
+        // Infrastructure failures record no evidence; the code is preserved and the item stays current.
+        const outcome = classifyGradeResult(data) === "infra"
+          ? { kind: "infra" as const, message: data.stderr || "The Python run could not complete." }
+          : { kind: "graded" as const, passed: data.passed, executionOk: data.executionOk, graderVersion: data.graderVersion };
+        const recorded = recordCodingOutcome(session, item, outcome, code);
+        commitDiagnosticSession(recorded);
+        // When the run advanced the session, its checks belong to the old item.
+        if (recorded.currentItemId !== item.id) {
+          setDiagnosticResult(null); setDiagnosticStatus("Ready"); setDiagnosticStale(false);
+        }
+      },
+      undefined,
+      15000,
+      phase => { if (diagnosticRunRef.current?.requestId === requestId) setDiagnosticStatus(phase === "loading" ? "Loading Python" : "Running checks"); },
+      () => {
+        // Stale grader version: nothing was recorded. Stop the run so the
+        // learner can run again instead of waiting for the timeout.
+        if (diagnosticRunRef.current?.requestId !== requestId) return;
+        cancelDiagnosticRun(); setDiagnosticStatus("Ready"); setDiagnosticStale(true);
+      },
+    );
+    if (diagnosticRunRef.current?.requestId === requestId) diagnosticRunRef.current.cancel = cancel;
+  }
+  function stopDiagnosticRun() { cancelDiagnosticRun(); setDiagnosticStatus("Ready"); setDiagnosticResult(null); }
+  function finishDiagnostic() {
+    const session = diagnosticSession();
+    if (!session || session.status !== "in-progress") return;
+    try { commitDiagnosticSession(completeDiagnosticSession(session)); }
+    catch (error) { setStorageError(error instanceof Error ? error.message : String(error)); }
+  }
   function toggleLearningMode() {
     try { window.localStorage.setItem("coding-school:learning-mode", learningMode ? "off" : "on"); setLearningMode(!learningMode); }
     catch { setStorageError("Could not save Learning Mode. Your current setting remains active."); }
@@ -187,6 +275,8 @@ export function useStudio() {
     } catch { setStorageError("Could not create a recovery backup. Export your data before freeing browser storage and retrying."); }
   }
   return { state, ready, route, workbench, draft, result, status, busy, attemptSaved, learningMode, assistanceUsed, storageError, recoveryRaw,
-    navigate, start, updateDraft, continueStage, submitText, runChecks, stopRun, toggleLearningMode, retrySave, exportRecovery, retryRecovery, resetRecovery };
+    navigate, start, updateDraft, continueStage, submitText, runChecks, stopRun, toggleLearningMode, retrySave, exportRecovery, retryRecovery, resetRecovery,
+    diagnosticResult, diagnosticStatus, diagnosticBusy, diagnosticStale,
+    startDiagnostic, retakeDiagnostic, openDiagnosticSession, updateDiagnosticDraft, revealDiagnosticHint, answerDiagnosticConcept, runDiagnosticCode, stopDiagnosticRun, finishDiagnostic };
 }
 export type Studio = ReturnType<typeof useStudio>;

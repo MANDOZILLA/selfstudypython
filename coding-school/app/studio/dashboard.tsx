@@ -1,4 +1,5 @@
 import { curriculum } from "../../lib/curriculum";
+import { deriveDiagnosticProfile, latestCompletedDiagnosticSession, type DiagnosticSession } from "../../lib/diagnostic";
 import { getDashboardModel, getEvidenceRows, getLibraryRows, getProjectReview } from "../../lib/studio";
 import type { Studio } from "./use-studio";
 import { StageRail } from "./stage-rail";
@@ -6,6 +7,34 @@ import { StageRail } from "./stage-rail";
 const formatDate = (value: string) => new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 function PageHeading({ label, title, children }: { label: string; title: string; children: React.ReactNode }) {
   return <header className="page-heading"><span className="eyebrow">{label}</span><h1 id="page-title" tabIndex={-1}>{title}</h1><p>{children}</p></header>;
+}
+
+function PlacementCard({ studio }: { studio: Studio }) {
+  const sessions = studio.state.diagnosticSessions;
+  const inProgress: DiagnosticSession | undefined = [...sessions].reverse().find(s => s.status === "in-progress");
+  const latest = latestCompletedDiagnosticSession(sessions);
+  if (inProgress) return <section className="document" aria-label="Placement diagnostic">
+    <div className="section-heading"><h2>Placement diagnostic</h2><span className="eyebrow">IN PROGRESS</span></div>
+    <p>You’ve answered {inProgress.responses.length} question{inProgress.responses.length === 1 ? "" : "s"} — your current question and drafts are exactly where you left them.</p>
+    <div className="button-row"><button className="primary" onClick={() => studio.openDiagnosticSession(inProgress.id)}>Resume diagnostic →</button></div>
+  </section>;
+  if (latest) {
+    const { recommendation, legacyCount } = deriveDiagnosticProfile(latest);
+    return <section className="document" aria-label="Placement diagnostic">
+      <div className="section-heading"><h2>Placement diagnostic</h2><span className="eyebrow">COMPLETED {formatDate(latest.completedAt ?? latest.startedAt).toUpperCase()}</span></div>
+      <p>{recommendation}</p>
+      {legacyCount > 0 && <p className="muted"><strong>Legacy / unverified:</strong> {legacyCount} response{legacyCount === 1 ? "" : "s"} used an older grader and didn’t affect placement.</p>}
+      <div className="button-row">
+        <button className="primary" onClick={() => studio.openDiagnosticSession(latest.id)}>View placement →</button>
+        <button className="secondary" onClick={studio.retakeDiagnostic}>Retake</button>
+      </div>
+    </section>;
+  }
+  return <section className="document" aria-label="Placement diagnostic">
+    <div className="section-heading"><h2>Placement diagnostic</h2><span className="eyebrow">RECOMMENDED FIRST</span></div>
+    <p>Twelve to twenty-five adaptive questions across nine Python skills find your starting point. Wrong answers only move you to easier material — they never block you.</p>
+    <div className="button-row"><button className="primary" onClick={studio.startDiagnostic}>Take the placement diagnostic →</button></div>
+  </section>;
 }
 
 function Today({ studio }: { studio: Studio }) {
@@ -20,6 +49,7 @@ function Today({ studio }: { studio: Studio }) {
       <StageRail mission={model.mission} run={model.run} reviewOnly={reviewOnly} />
       <div className="mission-action"><div><strong>{model.run ? `Pick up at ${model.mission.stages[model.run.stageIndex].title}` : "Begin with a clear plan"}</strong><p>{model.run ? "Your saved code, hints, and place are ready." : model.selection.reviewTaskIds.length ? "Your scheduled retrieval comes first." : "No review is due yet. Start with the mission overview."}</p></div><button className="primary" onClick={() => studio.start()}>{model.run ? reviewOnly ? "Resume review" : "Resume mission" : reviewOnly ? "Start review" : "Start 45-minute mission"}<span aria-hidden="true"> →</span></button></div>
     </section> : <section className="document empty-state"><span className="eyebrow">UP TO DATE</span><h2>You’ve completed the available missions.</h2><p>Your next retrieval appears when a saved skill review is due. Revisit your work in the evidence log.</p><button className="secondary" onClick={() => studio.navigate("learned")}>View your evidence</button></section>}
+    <PlacementCard studio={studio} />
     <div className="dashboard-columns"><section className="document"><div className="section-heading"><h2>Your learning record</h2><button className="text-button" onClick={() => studio.navigate("learned")}>View log →</button></div>{model.evidence.length ? <ul className="skill-list">{model.evidence.map(skill => <li key={skill.skillId}><span>{skill.title}</span><span className="status-label">{skill.status}</span></li>)}</ul> : <div className="empty-copy"><span className="empty-mark" aria-hidden="true">[ ]</span><h3>Your first evidence starts here.</h3><p>No attempts saved yet. A completed lesson records exposure; independent project checks show what you can do.</p></div>}</section>
       <section className="document"><div className="section-heading"><h2>Coming back to it</h2><span className="eyebrow">REVIEW</span></div>{model.reviews.length ? <ul className="review-list">{model.reviews.map(review => <li key={review.skillId}><strong>{curriculum.skills.find(s => s.id === review.skillId)?.title}</strong><span>{formatDate(review.dueAt)} · {review.reason}</span></li>)}</ul> : <div className="empty-copy"><h3>No reviews scheduled yet.</h3><p>Reviews are scheduled from your actual learning and attempts. They’ll appear here as you work.</p></div>}</section></div>
     <p className="page-footnote">Your work stays in this browser. Reading, practice, and independent evidence are recorded separately.</p>
