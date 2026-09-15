@@ -3,7 +3,7 @@ import { curriculum, getMission, getTask } from "./curriculum";
 import { assistanceSchema, attemptSchema, missionRunSchema, type AttemptRecord, type AttemptSubmission, type MissionDraft, type MissionRun } from "./mission-types";
 import { aggregateResult } from "../public/grading/protocol.js";
 import { getGrader } from "../public/grading/catalog.js";
-import { diagnosticSessionSchema, markLegacyDiagnosticSession, type DiagnosticSession } from "./diagnostic";
+import { classifyGradeResult, diagnosticSessionSchema, markLegacyDiagnosticSession, type DiagnosticSession } from "./diagnostic";
 import {
   legacyPortfolioSnapshotSchema, convertLegacyPortfolioSnapshot, portfolioSnapshotSchema,
   recordRunPortfolioSnapshots, verifyPortfolioSnapshot, type PortfolioSnapshot,
@@ -114,7 +114,10 @@ export function recordMissionAttempt(state: LearningState, runId: string, taskId
   const request = { type: "run", requestId: "evidence", exerciseId: variant.exerciseId, graderId: variant.graderId, files: input.sourceFiles };
   const grader = getGrader(variant.exerciseId, variant.graderId);
   const result = aggregateResult(request, input.result);
-  if (task!.kind === "code" && !result.executionOk) return state;
+  // Infrastructure noise (the lone "execution" check) is never evidence and
+  // is not recorded; genuine graded failures stay in history with an honest
+  // failed status.
+  if (task!.kind === "code" && (!input.result || classifyGradeResult(input.result) === "infra")) return state;
   if (task!.kind === "code" && input.result?.graderVersion !== grader?.version) throw new Error("Grader version does not match this task.");
   const passed = task!.kind === "code" ? result.passed : task!.kind === "instruction" ? true : response.trim().length >= 20;
   const checks: AttemptRecord["checks"] = task!.kind === "code" ? result.tests : [];
@@ -238,7 +241,9 @@ export function migrateState(value: unknown): LearningState {
       if (a.graderVersion !== grader?.version) return [];
       const result = aggregateResult({ requestId: "hydrate", exerciseId: variant.exerciseId, graderId: variant.graderId }, { executionOk: a.executionOk, tests: a.checks });
       a.passed = result.passed; a.executionOk = result.executionOk; a.checks = result.tests;
-      if (!a.executionOk) return [];
+      // Runner failures (the lone "execution" check) are infrastructure
+      // noise, never evidence; genuine graded failures survive the roundtrip.
+      if (classifyGradeResult({ executionOk: a.executionOk, tests: a.checks }) === "infra") return [];
       a.skillOutcomes = task.skillIds.map(skillId => {
         const checkIds = variant.skillChecks[skillId] ?? [];
         return { skillId, checkIds, passed: a.executionOk && checkIds.length > 0 && checkIds.every(id => a.checks.some(c => c.id === id && c.passed)) };

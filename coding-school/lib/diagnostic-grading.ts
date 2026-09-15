@@ -56,7 +56,7 @@ const GRADERS: Record<string, ConceptPredicate> = {
     t === "x" ? pass("loop variable is 'x'") : fail("expected exactly 'x', the loop variable name"),
 
   "diag-fn-return": t =>
-    /\btotal\b/i.test(t) && !/\b(print|printed|printing)\b/i.test(t)
+    (/\btotal\b/i.test(t) || /\bvalue\b/i.test(t)) && !/\b(print|printed|printing)\b/i.test(t)
       ? pass("caller receives the value of total")
       : fail("expected the value of total, not printed text"),
 
@@ -85,12 +85,18 @@ const GRADERS: Record<string, ConceptPredicate> = {
       ? pass("finally always runs")
       : fail("expected 'finally'"),
 
-  "diag-exc-raise": t =>
-    NEGATED.test(t)
+  "diag-exc-raise": t => {
+    // A negation that rejects the sentinel ("don't return -1") while the
+    // answer affirms raising is correct; a negation that rejects raising
+    // ("don't raise") is not.
+    const raises = /\brais(e|ing)\b/i.test(t);
+    const disclaimsReturn = /\b(don'?t|do not|never|not|no)\s+return(ing)?\s*-1\b/i.test(t);
+    if (raises && !/\breturn(ing)?\s*-1\b/i.test(t)) return pass("raising makes the failure impossible to ignore");
+    if (raises && disclaimsReturn) return pass("raising makes the failure impossible to ignore");
+    return NEGATED.test(t)
       ? fail("negated answers are wrong")
-      : /\braise\b/i.test(t)
-        ? pass("raising makes the failure impossible to ignore")
-        : fail("expected 'raise ValueError', not 'return -1'"),
+      : fail("expected 'raise ValueError', not 'return -1'");
+  },
 
   "diag-exc-chain": t =>
     /\boriginal\s+(exception|error)\b/i.test(t) ||
@@ -128,7 +134,7 @@ const GRADERS: Record<string, ConceptPredicate> = {
       : fail("expected '[1, 2, 3]' (shared reference)"),
 
   "diag-ds-sort-key": t =>
-    /(sorted|sort)\s*\(/i.test(t) && /\bkey\b/i.test(t) && /\bamount\b/i.test(t) && /\breverse\s*=\s*true/i.test(t)
+    /\b(sorted|sort)\b/i.test(t) && /\bkey\b/i.test(t) && /\bamount\b/i.test(t) && /\breverse\s*=\s*true/i.test(t)
       ? pass("sorted with a key on 'amount' and reverse=True")
       : fail("expected sorted()/sort with a key on 'amount' and reverse=True"),
 
@@ -173,7 +179,7 @@ const GRADERS: Record<string, ConceptPredicate> = {
 
   "diag-json-types": t =>
     (/\bstrict\b/i.test(t) && /\btype\b/i.test(t)) ||
-    (/\btruthiness\b/i.test(t) && /(\baccept\b|\breject\b|\btrue\b|\b1\b)/i.test(t))
+    (/\btruth(y|iness)\b/i.test(t) && /(\baccept\b|\breject\b|\btrue\b|\b1\b)/i.test(t))
       ? pass("strict type checks reject non-strings that truthiness accepts")
       : fail("expected strict type checking vs truthiness"),
 
@@ -251,7 +257,7 @@ const GRADERS: Record<string, ConceptPredicate> = {
       : fail("expected parse and validate"),
 
   "diag-llm-deterministic": t =>
-    /\bnon-?deterministic\b/i.test(t) || /\bdifferent\s+shapes?\b/i.test(t)
+    /\bnon-?deterministic\b/i.test(t) || /\bdifferent\s+(shapes?|results?|outputs?)\b/i.test(t) || /\bvar(y|ies|iable)\b/i.test(t)
       ? pass("output shape is nondeterministic across calls")
       : fail("expected nondeterminism across calls"),
 

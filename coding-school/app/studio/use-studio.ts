@@ -417,6 +417,12 @@ export function useStudio() {  const [state, setState] = useState(createDefaultS
       else { setAttemptSaved(false); setStorageError(saved.error); }
     }, undefined, variant.timeoutMs ?? 15000, phase => {
       if (runRef.current?.requestId === requestId) setStatus(phase === "loading" ? "Loading Python" : phase === "packages" ? "Loading data-science packages…" : "Running checks");
+    }, () => {
+      // Stale grader version: nothing was recorded. Stop the run so the
+      // learner can run the checks again immediately instead of hanging
+      // until the timeout with a misleading "Timed out".
+      if (runRef.current?.requestId !== requestId) return;
+      cancelRun(); setStatus("Stale grader");
     });
     if (runRef.current?.requestId === requestId) runRef.current.cancel = cancel;
   }

@@ -124,10 +124,10 @@ export function TutorPanel(props: TutorPanelProps) {
           Ask tutor
         </button>
       )}
-      {panel.status === "loading" && <p className="muted">The tutor is thinking…</p>}
+      {panel.status === "loading" && <p className="muted" role="status">The tutor is thinking…</p>}
       {panel.status === "error" && (
         <div>
-          <p className="error">{panel.message}</p>
+          <p className="error" role="alert">{panel.message}</p>
           <button className="secondary" onClick={ask}>
             Try again
           </button>

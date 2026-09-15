@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import Editor, { loader } from "@monaco-editor/react";
 import type { Studio } from "./use-studio";
 import { ASSESSMENTS, type Assessment, type AssessmentTask } from "../../curriculum/assessments";
@@ -78,7 +78,17 @@ function SkillChip({ studio, skillId }: { studio: Studio; skillId: string }) {
   return <span className={`skill-chip status-${status.status}`}>{skillId}: {label}</span>;
 }
 
-function TaskRunner({ studio, assessment, task, draft, setDraft }: {
+/** Index-based arrow-key navigation for the assessment task tabs, mirroring
+ *  nextWorkbenchPanel in lib/studio. Exported for unit tests. */
+export function nextAssessmentTaskIndex(current: number, total: number, key: string): number {
+  if (key === "Home") return 0;
+  if (key === "End") return total - 1;
+  const direction = key === "ArrowRight" ? 1 : key === "ArrowLeft" ? -1 : 0;
+  if (direction === 0) return current;
+  return (current + direction + total) % total;
+}
+
+export function TaskRunner({ studio, assessment, task, draft, setDraft }: {
   studio: Studio;
   assessment: Assessment;
   task: AssessmentTask;
@@ -200,7 +210,7 @@ function TaskRunner({ studio, assessment, task, draft, setDraft }: {
       {draft.gradeResult && <ul className="check-results">
         {draft.gradeResult.tests.map(check => <li key={check.id} className={check.passed ? "check-pass" : "check-fail"}>
           <span aria-hidden="true">{check.passed ? "✓" : "×"}</span>
-          <div><strong>{check.name}</strong>{check.detail && <p>{check.detail}</p>}</div>
+          <div><strong><span className="visually-hidden">{check.passed ? "Passed" : "Failed"}: </span>{check.name}</strong>{check.detail && <p>{check.detail}</p>}</div>
         </li>)}
       </ul>}
     </> : <>
@@ -219,7 +229,7 @@ function TaskRunner({ studio, assessment, task, draft, setDraft }: {
       {draft.writtenChecks && <ul className="check-results">
         {draft.writtenChecks.map(check => <li key={check.id} className={check.passed ? "check-pass" : "check-fail"}>
           <span aria-hidden="true">{check.passed ? "✓" : "×"}</span>
-          <div><strong>{check.id}</strong><p>{check.detail}</p></div>
+          <div><strong><span className="visually-hidden">{check.passed ? "Passed" : "Failed"}: </span>{check.id}</strong><p>{check.detail}</p></div>
         </li>)}
       </ul>}
     </>}
@@ -247,9 +257,14 @@ function TaskRunner({ studio, assessment, task, draft, setDraft }: {
   </div>;
 }
 
-function AssessmentDetail({ studio, assessment, onBack }: { studio: Studio; assessment: Assessment; onBack: () => void }) {
+export function AssessmentDetail({ studio, assessment, onBack }: { studio: Studio; assessment: Assessment; onBack: () => void }) {
   const [taskIndex, setTaskIndex] = useState(0);
   const [drafts, setDrafts] = useState<Record<string, TaskDraft>>({});
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  // The "Start checkpoint" button unmounts with the hub: move focus to the
+  // detail heading so keyboard and screen-reader users land on the new view
+  // instead of having focus dropped to <body>.
+  useEffect(() => { headingRef.current?.focus(); }, []);
   const task = assessment.tasks[taskIndex];
   const draft = drafts[task.id] ?? emptyDraft();
   const setDraft = (update: (d: TaskDraft) => TaskDraft) =>
@@ -263,26 +278,41 @@ function AssessmentDetail({ studio, assessment, onBack }: { studio: Studio; asse
   return <section className="assessment-detail" aria-label="Checkpoint assessment">
     <button className="text-button" onClick={onBack}>← All checkpoints</button>
     <span className="eyebrow">CHECKPOINT ASSESSMENT</span>
-    <h1>{assessment.title}</h1>
+    <h1 ref={headingRef} tabIndex={-1}>{assessment.title}</h1>
     <p>{assessment.description}</p>
     <p className="muted">{savedCount} of {assessment.tasks.length} tasks saved.</p>
 
     <div className="assessment-tabs" role="tablist" aria-label="Assessment tasks">
       {assessment.tasks.map((t, i) => {
         const attempt = studio.state.assessmentAttempts.filter(a => a.taskId === t.id).at(-1);
+        const selected = i === taskIndex;
+        const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+          if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+            event.preventDefault();
+            const next = nextAssessmentTaskIndex(taskIndex, assessment.tasks.length, event.key);
+            setTaskIndex(next);
+            document.getElementById(`assessment-tab-${assessment.tasks[next].id}`)?.focus();
+          }
+        };
         return <button
           key={t.id}
           role="tab"
-          aria-selected={i === taskIndex}
-          className={i === taskIndex ? "active" : ""}
+          id={`assessment-tab-${t.id}`}
+          aria-controls={`assessment-panel-${t.id}`}
+          aria-selected={selected}
+          tabIndex={selected ? 0 : -1}
+          className={selected ? "active" : ""}
           onClick={() => setTaskIndex(i)}
+          onKeyDown={onKeyDown}
         >
           {t.kind}{attempt ? (attempt.mastered ? " ✓" : " ·") : ""}
         </button>;
       })}
     </div>
 
-    <TaskRunner studio={studio} assessment={assessment} task={task} draft={draft} setDraft={setDraft} />
+    <div role="tabpanel" id={`assessment-panel-${task.id}`} aria-labelledby={`assessment-tab-${task.id}`}>
+      <TaskRunner studio={studio} assessment={assessment} task={task} draft={draft} setDraft={setDraft} />
+    </div>
 
     <section className="assessment-evidence">
       <h3>Evidence for {task.skillId}</h3>
@@ -369,6 +399,14 @@ function MissionSelfReview({ studio }: { studio: Studio }) {
 export function AssessmentWorkbench({ studio }: { studio: Studio }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const assessment = ASSESSMENTS.find(a => a.id === selectedId);
+  const hubHeadingRef = useRef<HTMLHeadingElement>(null);
+  const wasDetailOpen = useRef(false);
+  // The detail view unmounts on "← All checkpoints": move focus back to the
+  // hub heading so it isn't dropped to <body>.
+  useEffect(() => {
+    if (wasDetailOpen.current && !assessment) hubHeadingRef.current?.focus();
+    wasDetailOpen.current = Boolean(assessment);
+  }, [assessment]);
 
   if (assessment) {
     return <AssessmentDetail studio={studio} assessment={assessment} onBack={() => setSelectedId(null)} />;
@@ -376,7 +414,7 @@ export function AssessmentWorkbench({ studio }: { studio: Studio }) {
 
   return <section className="assessment-hub" aria-label="Checkpoint assessments">
     <span className="eyebrow">CHECKPOINT ASSESSMENTS</span>
-    <h1>Prove it in a new context.</h1>
+    <h1 ref={hubHeadingRef} tabIndex={-1}>Prove it in a new context.</h1>
     <p>Each checkpoint re-tests the mission skills with fresh scenarios: read code, debug planted bugs, write from scratch, build a small project, and explain your reasoning. No solutions are shown — hints, AI use, and solution views are all recorded.</p>
     <div className="assessment-cards">
       {ASSESSMENTS.map(a => <article key={a.id} className="assessment-card">

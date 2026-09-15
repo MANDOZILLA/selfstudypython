@@ -460,3 +460,70 @@ pre { font: 12px/1.75 var(--mono); white-space: pre-wrap; overflow-wrap: anywher
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .skill-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
 .skill-chip { display: inline-block; padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px; font: 11px var(--sans); color: var(--secondary); background: #f4f7f9; }
+.status-mastered { border-color: var(--success); color: var(--success); background: #eef7f1; }
+.status-completed { border-color: #6f8bb1; color: var(--action); background: #f1f5fb; }
+.status-not-started { }
+
+/* Checkpoint assessments (Task 4): assessment hub, task runner, self-review */
+.assessment-hub > h1 { margin: 10px 0 12px; }
+.assessment-hub > p { color: var(--secondary); font-size: 15px; max-width: 700px; }
+.assessment-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin: 24px 0; }
+.assessment-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 8px; }
+.assessment-card h2 { font-size: 19px; margin: 0; }
+.assessment-card p { color: var(--secondary); font-size: 13px; margin: 0; flex: 1; }
+.assessment-card .skill-chips { margin: 8px 0 4px; }
+.assessment-card button { align-self: flex-start; margin-top: 8px; }
+.assessment-detail > .text-button { margin-bottom: 8px; }
+.assessment-detail .eyebrow { display: block; margin: 12px 0 4px; }
+.assessment-detail h1 { margin: 0 0 8px; }
+.assessment-detail > p { color: var(--secondary); max-width: 700px; }
+.assessment-tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 2px solid var(--line); margin: 20px 0 0; max-width: 900px; }
+.assessment-tabs button { border-radius: 8px 8px 0 0; background: transparent; font-size: 12px; color: var(--secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; }
+.assessment-tabs button:hover { color: var(--ink); }
+.assessment-tabs button.active { color: var(--action); border-bottom-color: var(--action); font-weight: 600; }
+.assessment-task { background: var(--surface); border: 1px solid var(--line); border-top: 0; border-radius: 0 0 12px 12px; padding: 28px; max-width: 900px; }
+.assessment-task .eyebrow { display: block; margin-bottom: 6px; }
+.assessment-task h2 { margin: 0 0 12px; font-size: 23px; }
+.assessment-prompt { font: 13px/1.75 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--document); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+.assessment-rubric { margin: 24px 0; }
+.assessment-rubric h3 { font-size: 14px; margin-bottom: 8px; }
+.assessment-rubric ul { margin: 0; padding-left: 20px; font-size: 13px; color: var(--secondary); }
+.assessment-rubric li { margin-bottom: 6px; }
+.assessment-task > label { display: block; font-weight: 500; margin: 20px 0 8px; }
+.assessment-response { width: 100%; border: 1px solid #a8bbc9; border-radius: 8px; padding: 14px 16px; resize: vertical; font: 14px/1.6 var(--sans); background: #fff; color: var(--ink); }
+.assessment-save { display: flex; align-items: center; gap: 16px; margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--line); }
+.assessment-evidence { margin-top: 28px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 24px; max-width: 900px; }
+.assessment-evidence h3 { font-size: 14px; margin-bottom: 8px; }
+.assessment-evidence > p { font-size: 13px; color: var(--secondary); }
+.assessment-evidence ul { margin: 8px 0 0; padding-left: 20px; font-size: 13px; }
+.assessment-evidence li { margin-bottom: 4px; }
+.success-note { color: var(--success); font-weight: 500; }
+.assessment-self-review { margin: 32px 0; }
+.assessment-self-review h2 { margin-bottom: 8px; }
+.assessment-self-review > p { color: var(--secondary); max-width: 700px; }
+.self-review-runs { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 16px; }
+.self-review-run { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 24px; }
+.self-review-run h3 { margin-bottom: 4px; }
+.self-review-run h4 { font-size: 13px; margin: 20px 0 8px; }
+.self-review-run details summary { cursor: pointer; color: var(--action); font-size: 13px; min-height: 44px; display: flex; align-items: center; }
+.assessment-mastery { margin: 32px 0 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 24px; }
+.assessment-mastery h2 { margin-bottom: 8px; }
+.assessment-mastery > p { color: var(--secondary); font-size: 13px; }
+.assessment-mastery ul { margin: 12px 0 0; padding-left: 20px; font-size: 13px; }
+.assessment-mastery li { margin-bottom: 6px; }
+@media (max-width: 600px) {
+  .assessment-task { padding: 20px; }
+  .assessment-evidence, .self-review-run, .assessment-mastery { padding: 20px; }
+  .assessment-tabs { overflow-x: auto; flex-wrap: nowrap; }
+}
+
+/* Tutor panel (Task 6) */
+.tutor-section { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 20px; }
+.tutor-section .secondary { margin-top: 8px; }
+.tutor-response { background: #f1f5fb; border-left: 3px solid var(--action); border-radius: 0 8px 8px 0; padding: 16px 18px; margin: 16px 0; }
+.tutor-response h4 { font-size: 13px; margin: 14px 0 6px; }
+.tutor-response ul, .tutor-response ol { margin: 0; padding-left: 20px; font-size: 13px; }
+.tutor-response li { margin-bottom: 6px; }
+.tutor-response > p { font-size: 13px; }
+.tutor-label { font-size: 12px; margin-bottom: 8px; }
+.tutor-section .error { color: var(--error); font-size: 13px; }

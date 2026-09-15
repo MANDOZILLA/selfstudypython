@@ -294,6 +294,49 @@ describe("gradeDiagnosticConcept — other concept items", () => {
     expect(gradeDiagnosticConcept("diag-llm-fallback", "guess the fields").correct).toBe(false);
   });
 
+describe("gradeDiagnosticConcept — wording false negatives (regression)", () => {
+  it("diag-fn-return: 'the returned value' is a correct answer", () => {
+    expect(gradeDiagnosticConcept("diag-fn-return", "result holds the returned value").correct).toBe(true);
+    expect(gradeDiagnosticConcept("diag-fn-return", "it returns the value to the caller").correct).toBe(true);
+    expect(gradeDiagnosticConcept("diag-fn-return", "the value of total").correct).toBe(true);
+    expect(gradeDiagnosticConcept("diag-fn-return", "printed text").correct).toBe(false);
+    expect(gradeDiagnosticConcept("diag-fn-return", "the print output").correct).toBe(false);
+  });
+
+  it("diag-exc-raise: negating 'return -1' while affirming 'raise' is correct", () => {
+    expect(gradeDiagnosticConcept("diag-exc-raise", "Don't return -1, raise ValueError instead").correct).toBe(true);
+    expect(gradeDiagnosticConcept("diag-exc-raise", "do not return -1; raise instead").correct).toBe(true);
+    expect(gradeDiagnosticConcept("diag-exc-raise", "raise ValueError").correct).toBe(true);
+    expect(gradeDiagnosticConcept("diag-exc-raise", "return -1").correct).toBe(false);
+    expect(gradeDiagnosticConcept("diag-exc-raise", "don't raise, return -1").correct).toBe(false);
+    expect(gradeDiagnosticConcept("diag-exc-raise", "returning -1 is fine").correct).toBe(false);
+  });
+
+  it("diag-ds-sort-key: sort with key and reverse=True, no parens needed", () => {
+    expect(gradeDiagnosticConcept("diag-ds-sort-key", "sort the records with a key on 'amount' and reverse=True").correct).toBe(true);
+    expect(gradeDiagnosticConcept("diag-ds-sort-key", "use list.sort with key=lambda r: r['amount'], reverse=True").correct).toBe(true);
+    expect(gradeDiagnosticConcept("diag-ds-sort-key", "sorted(records, key=lambda r: r['amount'], reverse=True)").correct).toBe(true);
+    expect(gradeDiagnosticConcept("diag-ds-sort-key", "sort by amount").correct).toBe(false);
+    expect(gradeDiagnosticConcept("diag-ds-sort-key", "sorted(records)").correct).toBe(false);
+    expect(gradeDiagnosticConcept("diag-ds-sort-key", "max of amount").correct).toBe(false);
+  });
+
+  it("diag-json-types: 'truthy' counts like 'truthiness'", () => {
+    expect(gradeDiagnosticConcept("diag-json-types", "Because True is truthy but isn't a string, so a truthy check would accept it").correct).toBe(true);
+    expect(gradeDiagnosticConcept("diag-json-types", "strict type checking rejects True which truthiness accepts").correct).toBe(true);
+    expect(gradeDiagnosticConcept("diag-json-types", "truthiness is fine").correct).toBe(false);
+    expect(gradeDiagnosticConcept("diag-json-types", "just check truthiness").correct).toBe(false);
+  });
+
+  it("diag-llm-deterministic: 'different results' and 'vary' convey nondeterminism", () => {
+    expect(gradeDiagnosticConcept("diag-llm-deterministic", "the same prompt can give different results on different calls").correct).toBe(true);
+    expect(gradeDiagnosticConcept("diag-llm-deterministic", "the output can vary from call to call").correct).toBe(true);
+    expect(gradeDiagnosticConcept("diag-llm-deterministic", "model output is nondeterministic, shapes differ between calls").correct).toBe(true);
+    expect(gradeDiagnosticConcept("diag-llm-deterministic", "because JSON is slow").correct).toBe(false);
+    expect(gradeDiagnosticConcept("diag-llm-deterministic", "because it is deterministic").correct).toBe(false);
+  });
+});
+
   it("returns a detail string for every grade", () => {
     for (const id of conceptIds) {
       const r = gradeDiagnosticConcept(id, "some answer");

@@ -1,5 +1,5 @@
 import { loader } from "@monaco-editor/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Studio } from "./use-studio";
 import { IdePane } from "./ide-pane";
 import { StageRail } from "./stage-rail";
@@ -7,6 +7,23 @@ import { TutorPanel } from "./tutor-panel";
 import { nextWorkbenchPanel, workbenchPanels, type WorkbenchPanel } from "../../lib/studio";
 
 loader.config({ paths: { vs: "/monaco/vs" } });
+
+/** Short sync labels for the workbench header. The nav's sync note is hidden
+ *  on mobile, so the header carries the only mobile-visible sync/offline
+ *  indication. */
+function syncLabel(status: Studio["syncStatus"]): string {
+  switch (status) {
+    case "booting": return "Starting…";
+    case "saving": return "Saving…";
+    case "synced": return "All changes saved";
+    case "offline": return "Offline — changes saved in this browser";
+    case "conflict": return "Sync conflict — action needed";
+  }
+}
+
+function focusWorkbenchTab(panel: WorkbenchPanel) {
+  document.getElementById(`tab-${panel}`)?.focus();
+}
 
 function TaskInstructions({ studio }: { studio: Studio }) {
   const { workbench, draft, result } = studio;
@@ -36,7 +53,7 @@ function Checks({ studio }: { studio: Studio }) {
     {busy ? <p className="checks-message">{status === "Loading Python" ? "Starting Python in your browser. Your code stays here." : status === "Running code" ? "Running your entrypoint." : "Testing your returned values and required Python concepts."}</p> : result ? <>
       {executed ? <p className="checks-message">{result.executionOk ? "This run is not graded and is not saved as an attempt." : `${executionSummary} This run is not saved as an attempt.`}</p>
       : <p className="checks-message">{result.passed ? attemptSaved ? workbench?.task?.purpose === "project" ? "Required checks passed. Your project attempt is saved." : "Required checks passed. Your practice attempt is saved." : "Checks passed, but this attempt has not been saved. Retry saving or run again." : attemptSaved ? "Attempt saved. Use the checks below to decide what to change." : "This attempt has not been saved. Your code is preserved."}</p>}
-      {!executed && <ul className="check-results">{result.tests.map(check => <li key={check.id} className={check.passed ? "check-pass" : "check-fail"}><span aria-hidden="true">{check.passed ? "✓" : "×"}</span><div><strong>{check.name}</strong> <span className="badge">{check.required ? "required" : "optional"}</span>{check.detail && <p>{check.detail}</p>}{!check.passed && <p className="next-action">Next: {check.id === "execution" ? "Check the message below, then try Run checks again." : "Update the code for this requirement, then run the checks again."}</p>}</div></li>)}</ul>}
+      {!executed && <ul className="check-results">{result.tests.map(check => <li key={check.id} className={check.passed ? "check-pass" : "check-fail"}><span aria-hidden="true">{check.passed ? "✓" : "×"}</span><div><strong><span className="visually-hidden">{check.passed ? "Passed" : "Needs changes"}: </span>{check.name}</strong> <span className="badge">{check.required ? "required" : "optional"}</span>{check.detail && <p>{check.detail}</p>}{!check.passed && <p className="next-action">Next: {check.id === "execution" ? "Check the message below, then try Run checks again." : "Update the code for this requirement, then run the checks again."}</p>}</div></li>)}</ul>}
       {executed && !result.executionOk && <p className="execution-error" role="alert">{executionSummary}</p>}
     </> : restored ? <p className="checks-message">{restored.passed ? "This draft matches your saved passed attempt. Continue when you’re ready." : "Your review attempt is saved. You can continue or try again."}</p> : <p className="checks-message">Run your code to see its output, or run it against the requirements. Printing an answer alone does not pass the checks.</p>}
     <details className="console-output"><summary>Standard output</summary><pre>{result?.stdout || "No standard output."}</pre></details>
@@ -54,15 +71,27 @@ export function Workbench({ studio }: { studio: Studio }) {
     return () => query.removeEventListener("change", sync);
   }, []);
   const { workbench, draft } = studio;
+  // The Continue / save buttons unmount when the task advances: move focus to
+  // the page heading so keyboard and screen-reader users aren't dropped to <body>.
+  // (Declared before the early return below to keep hook order stable. Only
+  // fires on task-to-task transitions, never on initial mount.)
+  const taskId = workbench?.task?.id;
+  const prevTaskId = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (prevTaskId.current !== undefined && prevTaskId.current !== taskId) {
+      document.getElementById("page-title")?.focus({ preventScroll: true });
+    }
+    prevTaskId.current = taskId;
+  }, [taskId]);
   if (!workbench) return null;
   const { mission, run, stage, task } = workbench;
   const nextStage = mission.stages[run.stageIndex + 1];
   const continueLabel = workbench.stageComplete ? run.mode === "review" ? "Finish review" : nextStage ? `Continue to ${nextStage.title}` : "Finish mission" : "Continue to next task";
   return <main className="workbench" id="main-content">
-    <header className="workbench-heading"><div className="workbench-topline"><button className="text-button" onClick={() => studio.navigate("today")}>← Today</button><label className="learning-toggle"><input type="checkbox" checked={studio.learningMode} onChange={studio.toggleLearningMode} /><span>Learning Mode</span></label></div><div className="workbench-title"><h1 id="page-title" tabIndex={-1}>{run.mode === "review" ? "Scheduled skill review" : mission.title}</h1><span>{run.mode === "review" ? stage.estimatedMinutes : mission.estimatedMinutes} min {run.mode === "review" ? "review" : "mission"}</span></div><p className="mode-description">{studio.learningMode && studio.assistanceUsed ? "This task stays recorded as assisted. Independent Mode applies when you start the next task; prior help cannot be erased." : studio.learningMode ? "Independent work: hints and solutions are hidden; no assistance is recorded." : studio.assistanceUsed ? "Help is recorded for this task; past assistance stays in your record." : "Practice with authored hints, revealed one at a time. Any help you use is recorded."}</p><StageRail mission={mission} run={run} /></header>
+    <header className="workbench-heading"><div className="workbench-topline"><button className="text-button" onClick={() => studio.navigate("today")}>← Today</button><label className="learning-toggle"><input type="checkbox" checked={studio.learningMode} onChange={studio.toggleLearningMode} /><span>Learning Mode</span></label><span className="muted" role="status">{syncLabel(studio.syncStatus)}</span></div><div className="workbench-title"><h1 id="page-title" tabIndex={-1}>{run.mode === "review" ? "Scheduled skill review" : mission.title}</h1><span>{run.mode === "review" ? stage.estimatedMinutes : mission.estimatedMinutes} min {run.mode === "review" ? "review" : "mission"}</span></div><p className="mode-description">{studio.learningMode && studio.assistanceUsed ? "This task stays recorded as assisted. Independent Mode applies when you start the next task; prior help cannot be erased." : studio.learningMode ? "Independent work: hints and solutions are hidden; no assistance is recorded." : studio.assistanceUsed ? "Help is recorded for this task; past assistance stays in your record." : "Practice with authored hints, revealed one at a time. Any help you use is recorded."}</p><StageRail mission={mission} run={run} /></header>
     {!task ? <section className="stage-document document"><span className="eyebrow">REVIEW · {stage.estimatedMinutes} MIN PLANNED</span><h2>No retrieval is due for this mission.</h2><p>Your review schedule begins after you learn and practise. Use this moment to read the mission outcome, then begin the lesson.</p><div className="review-outcome"><span className="eyebrow">BY THE END</span><h3>{mission.stages[2].tasks[0]?.title}</h3><p>{mission.summary}</p></div><p className="muted">The stage times are a suggested {mission.estimatedMinutes}-minute guide, not a countdown.</p><button className="primary" onClick={studio.continueStage}>Continue to Learn →</button></section> : task.kind !== "code" ? <section className="reading-layout"><article className="document reading-document"><TaskInstructions studio={studio} />{task.kind === "explanation" && draft && <div className="reflection-input"><label htmlFor="reflection">Your explanation</label><textarea id="reflection" value={draft.response} onChange={event => studio.updateDraft({ response: event.target.value })} placeholder="Describe one decision, a concrete example, and what you’re still unsure about." rows={7} /><span className="muted">At least 20 characters. Your reflection is saved, not automatically graded.</span></div>}<footer className="reading-action"><p>{task.kind === "instruction" ? "Reading records exposure. Guided practice comes next." : "Save this reflection to complete your mission."}</p><button className="primary" disabled={task.kind === "explanation" && (draft?.response.trim().length ?? 0) < 20} onClick={studio.submitText}>{task.kind === "instruction" ? "I’ve read the examples · Start practice" : "Save reflection & finish"} →</button></footer></article><aside className="reading-aside"><span className="eyebrow">{stage.title.toUpperCase()}</span><h2>{task.kind === "instruction" ? "Understand it before you build it." : "Make your thinking visible."}</h2><p>{task.kind === "instruction" ? "Trace the examples in order. Notice what each function accepts, what it rejects, and what it returns." : "A passed check shows behavior. Your explanation captures why the behavior is correct."}</p><span className="reading-file">main.py<span>Next: {task.kind === "instruction" ? "guided practice" : "saved evidence"}</span></span></aside></section> : <>
       <div className="workbench-tabs" role="tablist" aria-label="Workbench panels">{workbenchPanels.map(item => <button key={item} role="tab" id={`tab-${item}`} aria-controls={`panel-${item}`} aria-selected={panel === item} tabIndex={panel === item ? 0 : -1} onClick={() => setPanel(item)} onKeyDown={event => { if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) { event.preventDefault(); const next = nextWorkbenchPanel(item, event.key); setPanel(next); document.getElementById(`tab-${next}`)?.focus(); } }}>{item === "instructions" ? "Instructions" : item === "code" ? "Code" : "Checks"}</button>)}</div>
-      <div className={`coding-layout active-${panel}`}><section className="instruction-pane" id="panel-instructions" role={mobile ? "tabpanel" : "region"} aria-labelledby={mobile ? "tab-instructions" : undefined} aria-label={mobile ? undefined : "instructions"} hidden={mobile && panel !== "instructions"}><TaskInstructions studio={studio} /><button className="primary mobile-code-action" onClick={() => setPanel("code")}>Open code →</button></section><div className="coding-right"><section className="code-pane" id="panel-code" role={mobile ? "tabpanel" : "region"} aria-labelledby={mobile ? "tab-code" : undefined} aria-label={mobile ? undefined : "code"} hidden={mobile && panel !== "code"}><IdePane key={task.id} studio={studio} onAfterRun={() => setPanel("checks")} /></section><div className="checks-wrap" id="panel-checks" role={mobile ? "tabpanel" : "region"} aria-labelledby={mobile ? "tab-checks" : undefined} aria-label={mobile ? undefined : "checks"} hidden={mobile && panel !== "checks"}><Checks studio={studio} /><div className="mobile-check-actions">{studio.busy && <button className="primary" onClick={studio.stopRun}>Stop run</button>}<button className="secondary" onClick={() => setPanel("code")}>← Edit code</button>{workbench.taskComplete && !studio.storageError && <button className="primary" onClick={studio.continueStage}>{continueLabel} →</button>}</div></div></div></div>
+      <div className={`coding-layout active-${panel}`}><section className="instruction-pane" id="panel-instructions" role={mobile ? "tabpanel" : "region"} aria-labelledby={mobile ? "tab-instructions" : undefined} aria-label={mobile ? undefined : "instructions"} hidden={mobile && panel !== "instructions"}><TaskInstructions studio={studio} /><button className="primary mobile-code-action" onClick={() => { setPanel("code"); focusWorkbenchTab("code"); }}>Open code →</button></section><div className="coding-right"><section className="code-pane" id="panel-code" role={mobile ? "tabpanel" : "region"} aria-labelledby={mobile ? "tab-code" : undefined} aria-label={mobile ? undefined : "code"} hidden={mobile && panel !== "code"}><IdePane key={task.id} studio={studio} onAfterRun={() => { setPanel("checks"); if (mobile) document.getElementById("checks-panel")?.focus(); }} /></section><div className="checks-wrap" id="panel-checks" role={mobile ? "tabpanel" : "region"} aria-labelledby={mobile ? "tab-checks" : undefined} aria-label={mobile ? undefined : "checks"} hidden={mobile && panel !== "checks"}><Checks studio={studio} /><div className="mobile-check-actions">{studio.busy && <button className="primary" onClick={studio.stopRun}>Stop run</button>}<button className="secondary" onClick={() => { setPanel("code"); focusWorkbenchTab("code"); }}>← Edit code</button>{workbench.taskComplete && !studio.storageError && <button className="primary" onClick={studio.continueStage}>{continueLabel} →</button>}</div></div></div></div>
     </>}
   </main>;
 }
