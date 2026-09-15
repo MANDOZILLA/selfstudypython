@@ -50,7 +50,8 @@ async function main() {
     await waitForServer(BASE_URL);
   }
 
-  const browser = await chromium.launch();
+  // --no-sandbox: this verification runs as root in CI-like environments.
+  const browser = await chromium.launch({ args: ["--no-sandbox"] });
   try {
     await desktopFlow(browser);
     await mobileFlow(browser);
@@ -64,8 +65,8 @@ async function main() {
 
 /** Answer questions until two coding runs succeed or we run out of patience. */
 async function desktopFlow(browser) {
-  console.log("\n--- desktop 1280x800 ---");
-  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  console.log("\n--- desktop 1280x720 ---");
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   page.on("pageerror", error => console.log(`  [pageerror] ${String(error).split("\n")[0]}`));
   await page.goto(BASE_URL, { waitUntil: "networkidle" });
 
@@ -89,24 +90,33 @@ async function desktopFlow(browser) {
       if (await toggle.isVisible()) await toggle.click();
       await page.locator(".plain-editor").fill(SOLUTIONS[itemId]);
       // Draft survives a reload before running (exact in-progress restoration).
+      // The editor mode toggle is intentionally not persisted, so switch back
+      // to plain text after the reload before reading the draft.
       await page.reload({ waitUntil: "networkidle" });
+      const toggleAfter = page.getByRole("button", { name: /use plain text/i });
+      if (await toggleAfter.isVisible()) await toggleAfter.click();
       const restored = await page.locator(".plain-editor").inputValue().catch(() => "");
       check("code draft restored after reload", restored.includes("def "), `item ${itemId}`);
-      const metaBefore = await page.locator(".diagnostic-meta").innerText();
+      const metaBeforeRun = await page.locator(".diagnostic-meta").innerText();
+      const answeredBefore = Number(/(\d+) of up to 25/.exec(metaBeforeRun)?.[1] ?? -1);
+      const promptBefore = await page.locator(".diagnostic-prompt").textContent();
       await page.getByRole("button", { name: /run checks/i }).click();
       // A graded run records its response and advances the session in the same
       // React render that sets the result, so the checks panel only ever mounts
-      // for infra/stale outcomes. Wait for the run to settle instead: progress
-      // advances (response recorded) or the infra banner appears.
+      // for infra/stale outcomes. Wait for the run to settle instead: either the
+      // question advances (a response was recorded) or the infra/stale banner
+      // appears (nothing recorded, item stays current).
       await page.waitForFunction((before) => {
         if (document.querySelector(".diagnostic-infra")) return true;
-        const meta = document.querySelector(".diagnostic-meta");
-        return !!meta && meta.textContent !== before;
-      }, metaBefore, { timeout: 120000 });
+        if (document.querySelector('[aria-label="Finish diagnostic"]')) return true;
+        const prompt = document.querySelector(".diagnostic-prompt");
+        return !!prompt && prompt.textContent !== before;
+      }, promptBefore, { timeout: 180000 });
       const infra = await page.locator(".diagnostic-infra").isVisible().catch(() => false);
       check("coding run completes without infra failure", !infra);
       const metaAfter = await page.locator(".diagnostic-meta").innerText();
-      check("response recorded in progress", /[1-9]\d* of up to 25/.test(metaAfter), metaAfter.replace(/\n/g, " "));
+      const answeredAfter = Number(/(\d+) of up to 25/.exec(metaAfter)?.[1] ?? -1);
+      check("response recorded in progress", answeredAfter === answeredBefore + 1, `${answeredBefore} -> ${answeredAfter}`);
       const successes = Number(/(\d+) of \d+ successful Python runs/.exec(metaAfter)?.[1] ?? -1);
       check("successful runs counted", successes >= 0, metaAfter.replace(/\n/g, " "));
       codingSuccesses = Math.max(codingSuccesses, successes);
@@ -126,6 +136,14 @@ async function desktopFlow(browser) {
   check("reload keeps the session route", page.url() === sessionUrl);
   const after = await page.locator(".diagnostic-meta").innerText();
   check("reload restores exact progress", before === after, after.replace(/\n/g, " "));
+
+  // Back-button restoration: leave for the dashboard, then go back — the same
+  // session and progress must come back.
+  await page.goto(BASE_URL, { waitUntil: "networkidle" });
+  await page.goBack({ waitUntil: "networkidle" });
+  check("back button returns to the session route", page.url() === sessionUrl, page.url());
+  const afterBack = await page.locator(".diagnostic-meta").innerText();
+  check("back button restores exact progress", before === afterBack, afterBack.replace(/\n/g, " "));
 
   await page.screenshot({ path: "/tmp/diagnostic-desktop.png" });
   await page.close();
