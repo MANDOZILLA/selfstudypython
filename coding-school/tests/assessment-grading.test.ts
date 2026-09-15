@@ -108,6 +108,15 @@ describe("assessment written semantic grading", () => {
       expect(g("read-client-error", "fetch(400) returns the response right away; a 400 client error is not retried.").passed).toBe(true);
       expect(g("read-client-error", "It retries the 400 three times.").passed).toBe(false);
     });
+    test("read-client-error: accepts semantically correct 'pointless to retry' phrasings", () => {
+      expect(g("read-client-error", "Retrying a 400 is pointless — it's a client error.").passed).toBe(true);
+      expect(g("read-client-error", "A 400 is returned without retrying; there is no point in retrying a client error.").passed).toBe(true);
+      expect(g("read-client-error", "The 400 doesn't get retried — 400 < 500 so it returns immediately.").passed).toBe(true);
+      expect(g("read-client-error", "400s dont get retried; the client error is returned as-is.").passed).toBe(true);
+      expect(g("read-client-error", "Retry the 400 until it succeeds.").passed).toBe(false);
+      expect(g("read-client-error", "Use exponential backoff on 400s.").passed).toBe(false);
+      expect(g("read-client-error", "It retries the 400 three times, then returns None.").passed).toBe(false);
+    });
   });
 
   describe("applied-explain", () => {
