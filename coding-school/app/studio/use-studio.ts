@@ -266,6 +266,10 @@ export function useStudio() {  const [state, setState] = useState(createDefaultS
       }
       serverRevisionRef.current = conflict.serverRevision;
       writeSyncedRevision(conflict.serverRevision);
+      // Adopted the server copy wholesale: drop any stale local draft overrides
+      // so the editor reflects the adopted copy. The tab's own work was already
+      // backed up to localStorage above.
+      draftRef.current = {}; setLocalDrafts({});
       conflictRef.current = null; dirtyRef.current = false;
       setSyncStatus("synced");
       return;

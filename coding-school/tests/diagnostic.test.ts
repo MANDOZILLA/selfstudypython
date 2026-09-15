@@ -10,6 +10,7 @@ import {
   completeDiagnosticSession,
   createDiagnosticSession,
   deriveDiagnosticProfile,
+  diagnosticSkillState,
   markLegacyDiagnosticSession,
   nextDiagnosticItem,
   recordCodingOutcome,
@@ -30,6 +31,46 @@ function answerCurrentCorrectly(session: DiagnosticSession, grade: ConceptGrader
     { kind: "graded", passed: true, executionOk: true, graderVersion: "1.0.0" }, "stub code");
 }
 
+type SyntheticResponse = {
+  skillId: string;
+  kind: "concept" | "coding";
+  correct: boolean;
+};
+
+/** Build an in-progress session from hand-authored responses, so completion
+ *  gates can be tested in isolation from the item-selection engine. */
+function syntheticSession(parts: SyntheticResponse[]): DiagnosticSession {
+  const responses = parts.map((part, i) => ({
+    itemId: `synthetic-${i}`,
+    skillId: part.skillId,
+    kind: part.kind,
+    correct: part.correct,
+    answer: "",
+    code: "",
+    hintsUsed: 0,
+    graderId: null,
+    graderVersion: null,
+    legacy: false,
+    respondedAt: "2026-09-13T12:00:00.000Z",
+  }));
+  return {
+    id: "synthetic",
+    formatVersion: DIAGNOSTIC_SESSION_VERSION,
+    status: "in-progress",
+    startedAt: "2026-09-13T12:00:00.000Z",
+    completedAt: null,
+    responses,
+    currentItemId: null,
+    draftAnswer: "",
+    draftCode: "",
+    draftHints: 0,
+    codingSuccessCount: responses.filter(r => r.kind === "coding" && r.correct && !r.legacy).length,
+    infraError: null,
+    profile: null,
+    recommendation: null,
+  };
+}
+
 function runConfidentPath(): DiagnosticSession {
   let session = createDiagnosticSession(new Date("2026-09-13T12:00:00.000Z"));
   let guard = 0;
@@ -46,19 +87,22 @@ describe("diagnostic session lifecycle", () => {
     expect(session.currentItemId).toBeTruthy();
   });
 
-  it("probes each core skill before repeating any skill", () => {
+  it("stays focused on the first skill until it is observed before moving on", () => {
     let session = createDiagnosticSession();
-    const seen = new Set<string>();
-    for (let i = 0; i < DIAGNOSTIC_CORE_SKILLS.length; i++) {
-      const current = nextDiagnosticItem(session)!;
-      expect(seen.has(current.skillId), `skill ${current.skillId} repeated before breadth complete`).toBe(false);
-      seen.add(current.skillId);
-      session = answerCurrentCorrectly(session);
-    }
-    expect(seen.size).toBe(DIAGNOSTIC_CORE_SKILLS.length);
+    const firstSkill = nextDiagnosticItem(session)!.skillId;
+    // One correct answer is not decisive yet, so the engine keeps probing the same skill.
+    session = answerCurrentCorrectly(session);
+    expect(diagnosticSkillState(session, firstSkill)).not.toBe("observed");
+    const second = nextDiagnosticItem(session)!;
+    expect(second.skillId).toBe(firstSkill);
+    session = answerCurrentCorrectly(session);
+    expect(diagnosticSkillState(session, firstSkill)).toBe("observed");
+    // Only now may the engine move on to the next skill.
+    const third = nextDiagnosticItem(session)!;
+    expect(third.skillId).not.toBe(firstSkill);
   });
 
-  it("confident path stops at 12 or later and completes with an observed profile", () => {
+  it("confident path stops in 12-18 items with observed, uncertain, and untested skills", () => {
     const session = runConfidentPath();
     expect(session.responses.length).toBeGreaterThanOrEqual(DIAGNOSTIC_MIN_ITEMS);
     expect(session.responses.length).toBeLessThanOrEqual(18);
@@ -69,7 +113,16 @@ describe("diagnostic session lifecycle", () => {
     expect(completed.status).toBe("completed");
     expect(completed.completedAt).toBeTruthy();
     const profile = deriveDiagnosticProfile(completed);
-    for (const skillId of DIAGNOSTIC_CORE_SKILLS) expect(profile.profile[skillId]).toBe("observed");
+    const states = Object.values(profile.profile);
+    expect(states).toContain("observed");
+    expect(states).toContain("uncertain");
+    expect(states).toContain("untested");
+    // Confident path probes each skill in order until observed, stopping as
+    // soon as a skill is still genuinely uncertain after the quota is met.
+    expect(session.responses.length).toBe(15);
+    expect(states.filter(s => s === "observed")).toHaveLength(7);
+    expect(states.filter(s => s === "uncertain")).toHaveLength(1);
+    expect(states.filter(s => s === "untested")).toHaveLength(1);
     expect(profile.recommendation.length).toBeGreaterThan(20);
   });
 
@@ -100,6 +153,43 @@ describe("diagnostic session lifecycle", () => {
     }
     // Uncertain evidence keeps the engine probing instead of stopping early.
     expect(session.responses.length).toBeGreaterThan(DIAGNOSTIC_MIN_ITEMS);
+  });
+
+  it("a 12-response session covering only two skills cannot complete", () => {
+    const parts: SyntheticResponse[] = [];
+    for (let i = 0; i < 4; i++) parts.push({ skillId: "python-functions", kind: "concept", correct: true });
+    for (let i = 0; i < 2; i++) parts.push({ skillId: "python-functions", kind: "coding", correct: true });
+    for (let i = 0; i < 6; i++) parts.push({ skillId: "python-exceptions", kind: "concept", correct: true });
+    const session = syntheticSession(parts);
+    expect(session.responses.length).toBe(12);
+    expect(session.codingSuccessCount).toBe(DIAGNOSTIC_CODING_QUOTA);
+    const check = canCompleteDiagnostic(session);
+    expect(check.ok).toBe(false);
+    expect(check.reasons.join(" ")).toMatch(/skill/i);
+    expect(() => completeDiagnosticSession(session)).toThrow(/skill/i);
+  });
+
+  it("needs a genuinely uncertain skill and completes once one appears", () => {
+    const parts: SyntheticResponse[] = [];
+    DIAGNOSTIC_CORE_SKILLS.slice(0, 6).forEach((skillId, index) => {
+      parts.push({ skillId, kind: "concept", correct: true });
+      // Two successful Python executions for the quota, on two different skills.
+      parts.push({ skillId, kind: index < 2 ? "coding" : "concept", correct: true });
+    });
+    const allDecided = syntheticSession(parts);
+    expect(allDecided.responses.length).toBe(12);
+    expect(allDecided.codingSuccessCount).toBe(DIAGNOSTIC_CODING_QUOTA);
+    const blocked = canCompleteDiagnostic(allDecided);
+    expect(blocked.ok).toBe(false);
+    expect(blocked.reasons.join(" ")).toMatch(/uncertain/i);
+    // One more response that leaves a seventh skill genuinely uncertain.
+    const withUncertain = syntheticSession([
+      ...parts,
+      { skillId: DIAGNOSTIC_CORE_SKILLS[6], kind: "concept", correct: true },
+    ]);
+    expect(canCompleteDiagnostic(withUncertain).ok).toBe(true);
+    const completed = completeDiagnosticSession(withUncertain);
+    expect(deriveDiagnosticProfile(completed).profile[DIAGNOSTIC_CORE_SKILLS[6]]).toBe("uncertain");
   });
 
   it("requires the coding quota and refuses completion with zero successful executions", () => {

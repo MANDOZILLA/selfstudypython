@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import Editor, { loader } from "@monaco-editor/react";
 import type { Studio } from "./use-studio";
 import { ASSESSMENTS, type Assessment, type AssessmentTask } from "../../curriculum/assessments";
+import { getMission } from "../../lib/curriculum";
 import { startGradingRun, type GradeResult } from "../../lib/runner";
 import { gradeAssessmentWritten } from "../../lib/assessment-grading";
 import { getAssessmentSkillStatus, recordAssessmentAttempt, type AssessmentTaskAttempt } from "../../lib/state";
@@ -258,6 +259,66 @@ function AssessmentDetail({ studio, assessment, onBack }: { studio: Studio; asse
   </section>;
 }
 
+/** "Sep 13, 2026" — local, display-only formatting for a saved ISO timestamp. */
+function formatShortDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+/**
+ * Self-review of the learner's actual saved mission work: the build project's
+ * named check outcomes and the written reflection, exactly as recorded. This
+ * is a review of saved records — never a new assessment or a mastery claim.
+ */
+function MissionSelfReview({ studio }: { studio: Studio }) {
+  const completedRuns = studio.state.missionRuns
+    .filter(run => run.status === "completed" && run.mode === "mission")
+    .sort((a, b) => String(b.completedAt ?? "").localeCompare(String(a.completedAt ?? "")));
+
+  return <section className="assessment-self-review" aria-label="Mission self-review">
+    <h2>Mission self-review</h2>
+    <p className="muted">Your saved mission work, exactly as you left it: the build project&apos;s check results and your written reflection. This is a self-review of your own records — not a new assessment and not a mastery claim.</p>
+    {completedRuns.length === 0 ? (
+      <p>Complete a mission and its project checks and reflection will appear here for self-review.</p>
+    ) : (
+      <ul className="self-review-runs">
+        {completedRuns.map(run => {
+          const runAttempts = studio.state.attempts.filter(a => a.runId === run.id);
+          const project = runAttempts.filter(a => a.purpose === "project").at(-1);
+          const reflection = runAttempts.filter(a => a.purpose === "reflection").at(-1);
+          const reflectionText = reflection?.response.trim() ?? "";
+          return <li key={run.id} className="self-review-run">
+            <h3>{getMission(run.missionId)?.title ?? run.missionId}</h3>
+            <p className="muted">Completed {run.completedAt ? formatShortDate(run.completedAt) : "date unknown"}.</p>
+            <h4>Project checks</h4>
+            {project && project.checks.length > 0 ? (
+              <ul className="check-results">
+                {project.checks.map(check => <li key={check.id} className={check.passed ? "check-pass" : "check-fail"}>
+                  <span aria-hidden="true">{check.passed ? "✓" : "×"}</span>
+                  <div><strong>{check.name}</strong>: {check.passed ? "passed" : "failed"}</div>
+                </li>)}
+              </ul>
+            ) : (
+              <p className="muted">No project checks recorded for this mission.</p>
+            )}
+            <h4>Reflection</h4>
+            {reflectionText ? (
+              reflectionText.length > 600 ? <>
+                <p>{reflectionText.slice(0, 600)}…</p>
+                <details>
+                  <summary>Read the full reflection</summary>
+                  <p>{reflectionText}</p>
+                </details>
+              </> : <p>{reflectionText}</p>
+            ) : (
+              <p className="muted">No reflection saved.</p>
+            )}
+          </li>;
+        })}
+      </ul>
+    )}
+  </section>;
+}
+
 export function AssessmentWorkbench({ studio }: { studio: Studio }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const assessment = ASSESSMENTS.find(a => a.id === selectedId);
@@ -280,6 +341,7 @@ export function AssessmentWorkbench({ studio }: { studio: Studio }) {
         <button className="primary" onClick={() => setSelectedId(a.id)}>Start checkpoint →</button>
       </article>)}
     </div>
+    <MissionSelfReview studio={studio} />
     <section className="assessment-mastery">
       <h2>Cross-checkpoint mastery</h2>
       <p className="muted">A skill is <strong>completed</strong> with one task attempt and <strong>mastered</strong> with independent work in more than one context and date. Assisted success is practice, never mastery.</p>

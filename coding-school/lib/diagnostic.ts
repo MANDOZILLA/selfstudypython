@@ -105,23 +105,21 @@ export function nextDiagnosticItem(session: DiagnosticSession, items: Diagnostic
   const answered = new Set(session.responses.map(r => r.itemId));
   const pool = items.filter(i => !answered.has(i.id));
   if (!pool.length) return null;
-  // Breadth first: every core skill gets probed before any skill is repeated.
+  // Focus: stay on one skill until it is observed before moving on. While a
+  // skill is still being probed, prefer its coding item when the coding quota
+  // is unmet and the skill has no coding evidence yet, so successful Python
+  // executions arrive naturally instead of being bolted on afterwards.
   for (const skillId of DIAGNOSTIC_CORE_SKILLS) {
-    if (!session.responses.some(r => r.skillId === skillId)) {
-      return pool.find(i => i.skillId === skillId && i.kind === "concept") ?? pool.find(i => i.skillId === skillId) ?? null;
-    }
-  }
-  // Depth: keep probing uncertain skills. Prefer a coding item when the skill
-  // has one and no coding evidence exists yet, so the coding quota stays reachable.
-  for (const skillId of DIAGNOSTIC_CORE_SKILLS) {
-    if (diagnosticSkillState(session, skillId) !== "uncertain") continue;
+    if (diagnosticSkillState(session, skillId) === "observed") continue;
     const skillPool = pool.filter(i => i.skillId === skillId);
     if (!skillPool.length) continue;
-    if (!session.responses.some(r => r.skillId === skillId && r.kind === "coding")) {
+    const touched = session.responses.some(r => r.skillId === skillId);
+    if (touched && session.codingSuccessCount < DIAGNOSTIC_CODING_QUOTA &&
+        !session.responses.some(r => r.skillId === skillId && r.kind === "coding")) {
       const codingItem = skillPool.find(i => i.kind === "coding");
       if (codingItem) return codingItem;
     }
-    return skillPool[0];
+    return skillPool.find(i => i.kind === "concept") ?? skillPool[0];
   }
   // Coding-quota repair: the bank holds only a few coding items against the
   // quota, and a graded failure consumes its item. When the quota is still
@@ -219,10 +217,18 @@ export function canCompleteDiagnostic(session: DiagnosticSession): { ok: boolean
   const count = session.responses.length;
   if (count < DIAGNOSTIC_MIN_ITEMS) reasons.push(`answer at least ${DIAGNOSTIC_MIN_ITEMS} items (answered ${count})`);
   if (count < DIAGNOSTIC_MAX_ITEMS) {
-    for (const skillId of DIAGNOSTIC_CORE_SKILLS) {
-      const state = diagnosticSkillState(session, skillId);
-      if (state !== "observed") reasons.push(`skill ${skillId} is ${state}`);
-    }
+    // Early stopping: the diagnostic ends while the evidence is fresh, not by
+    // grinding every skill to certainty. A probed skill is one with
+    // current-format responses; a skill with a single correct answer is still
+    // genuinely uncertain, and the profile should say so honestly instead of
+    // over-testing it into observed or leaving it untouched.
+    const probed = DIAGNOSTIC_CORE_SKILLS.filter(skillId =>
+      session.responses.some(r => r.skillId === skillId && !r.legacy));
+    const observed = probed.filter(skillId => diagnosticSkillState(session, skillId) === "observed");
+    const uncertain = probed.filter(skillId => diagnosticSkillState(session, skillId) === "uncertain");
+    if (probed.length < 6) reasons.push(`probe at least 6 different skills (probed ${probed.length} so far)`);
+    if (observed.length < 5) reasons.push(`show clear evidence on at least 5 skills (observed ${observed.length} so far)`);
+    if (uncertain.length < 1) reasons.push(`leave at least one probed skill still uncertain — the diagnostic stops while some areas are honestly unresolved (observed ${observed.length}, uncertain 0)`);
   }
   // The coding quota is absolute: a diagnostic may never complete with zero
   // successful Python executions, even at the item cap.

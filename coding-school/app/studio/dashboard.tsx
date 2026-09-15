@@ -164,6 +164,7 @@ function Portfolio({ studio }: { studio: Studio }) {
   const completedCount = projects.reduce((n, p) => n + p.snapshots.length, 0);
   return <><PageHeading label="PORTFOLIO" title="Ship it. Prove it.">Finished portfolio projects are sealed into immutable snapshots — your source, the fixtures, the named tests, and your reflection. Download any project as a GitHub-ready zip.</PageHeading>{completedCount ? <div>{projects.map(({ project, snapshots, complete }) => {
     const byComponent = new Map(snapshots.map(s => [s.componentId, s]));
+    const missingTitles = project.components.filter(c => !byComponent.has(c.taskId)).map(c => c.title).join(", ");
     return <section className="document" aria-label={project.title} key={project.id}>
       <span className="eyebrow">PORTFOLIO PROJECT</span>
       <h2>{project.title}</h2>
@@ -173,7 +174,9 @@ function Portfolio({ studio }: { studio: Studio }) {
         const snapshot = byComponent.get(component.taskId);
         return <li key={component.taskId}><strong>{snapshot ? "Completed" : "Not completed yet"}: {component.title}</strong>{snapshot && <p>Sealed {formatDate(snapshot.completedAt)} · {snapshot.tests.filter(t => t.passed).length}/{snapshot.tests.length} checks passed · {snapshot.assistance.hintsUsed} hints used</p>}</li>;
       })}</ul>
-      {snapshots.length > 0 && <div className="button-row"><button className="primary" onClick={() => studio.downloadPortfolio(project.id)}>Download ZIP<span aria-hidden="true"> ↓</span></button></div>}
+      {complete
+        ? <div className="button-row"><button className="primary" onClick={() => studio.downloadPortfolio(project.id)}>Download ZIP<span aria-hidden="true"> ↓</span></button></div>
+        : snapshots.length > 0 && <p className="muted">Complete {missingTitles} to unlock the GitHub-ready ZIP export.</p>}
     </section>;
   })}</div> : <section className="document large-empty"><span className="empty-mark" aria-hidden="true">[ ]</span><h2>No portfolio snapshots yet.</h2><p>Complete a mission whose build project feeds a portfolio project — for example, the payments CSV mission. Its snapshot appears here the moment the mission completes.</p><button className="primary" onClick={() => studio.navigate("lessons")}>Browse missions →</button></section>}</>;
 }
