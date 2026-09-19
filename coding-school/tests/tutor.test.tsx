@@ -199,6 +199,62 @@ describe("tutor route", () => {
     expect(JSON.parse(init.body as string).model).toBe("openai/gpt-4o-mini");
   });
 
+  it.each(["https://phishing.example/lesson", "//phishing.example/lesson"])(
+    "rejects provider references outside the app: %s",
+    async url => {
+      process.env.OPENROUTER_API_KEY = "sk-or-v1-testkey";
+      fetchMock.mockResolvedValue(providerResponse(JSON.stringify({
+        ...validTutorJson,
+        references: [{ label: "Lesson", url }],
+      })));
+
+      const data = await (await POST(tutorRequest(baseBody()))).json();
+      expect(data.source).toBe("deterministic");
+      expect(data.fallbackReason).toBe("malformed");
+    },
+  );
+
+  it("rejects provider output when the task URL itself is outside the app", async () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-v1-testkey";
+    fetchMock.mockResolvedValue(providerResponse(JSON.stringify(validTutorJson)));
+
+    const data = await (await POST(tutorRequest(baseBody({ taskUrl: "https://phishing.example/task" })))).json();
+    expect(data.source).toBe("deterministic");
+    expect(data.fallbackReason).toBe("malformed");
+    // The fallback must not re-emit the hostile URL as a clickable reference.
+    expect(data.tutor.references[0].url).toBe("#");
+  });
+
+  it.each([
+    "javascript:alert(1)",
+    "data:text/html,<h1>x</h1>",
+    "/\n/evil.example",
+    "/\r/evil.example",
+    "/\t/evil.example",
+    "/\\evil.example",
+    "/\\/evil.example",
+  ])("sanitizes hostile task URLs in the deterministic fallback: %s", async url => {
+    process.env.OPENROUTER_API_KEY = "sk-or-v1-testkey";
+    fetchMock.mockResolvedValue(providerResponse(JSON.stringify(validTutorJson)));
+    const data = await (await POST(tutorRequest(baseBody({ taskUrl: url })))).json();
+    expect(data.source).toBe("deterministic");
+    for (const ref of data.tutor.references) {
+      expect(ref.url.startsWith("#") || ref.url.startsWith("/")).toBe(true);
+      expect(ref.url).not.toContain("evil.example");
+      expect(ref.url).not.toMatch(/^javascript:|^data:/i);
+    }
+  });
+
+  it("deterministic tutor never emits an external reference for hostile task URLs", () => {
+    for (const url of ["https://phishing.example/task", "//evil.example/x", "javascript:alert(1)", "/\n/evil.example"]) {
+      const tutor = deterministicTutor(baseContext({ taskUrl: url }));
+      expect(tutor.references[0].url).toBe("#");
+    }
+    // Safe URLs still pass through.
+    expect(deterministicTutor(baseContext({ taskUrl: "#task/x" })).references[0].url).toBe("#task/x");
+    expect(deterministicTutor(baseContext({ taskUrl: "/lessons/x" })).references[0].url).toBe("/lessons/x");
+  });
+
   it("falls back when the provider returns malformed JSON", async () => {
     process.env.OPENROUTER_API_KEY = "sk-or-v1-testkey";
     fetchMock.mockResolvedValue(providerResponse("this is not json"));
@@ -251,6 +307,19 @@ describe("tutor route", () => {
     process.env.OPENROUTER_API_KEY = "sk-or-v1-testkey";
     process.env.TUTOR_MAX_RESPONSE_BYTES = "100";
     fetchMock.mockResolvedValue(providerResponse(JSON.stringify(validTutorJson).padEnd(10000, "x")));
+    const data = await (await POST(tutorRequest(baseBody()))).json();
+    expect(data.source).toBe("deterministic");
+    expect(data.fallbackReason).toBe("oversized");
+  });
+
+  it("enforces the response limit in UTF-8 bytes", async () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-v1-testkey";
+    const unicodeTutor = { ...validTutorJson, summary: "é".repeat(80) };
+    const response = providerResponse(JSON.stringify(unicodeTutor));
+    const encodedBody = await response.clone().text();
+    process.env.TUTOR_MAX_RESPONSE_BYTES = String(encodedBody.length);
+    fetchMock.mockResolvedValue(response);
+
     const data = await (await POST(tutorRequest(baseBody()))).json();
     expect(data.source).toBe("deterministic");
     expect(data.fallbackReason).toBe("oversized");

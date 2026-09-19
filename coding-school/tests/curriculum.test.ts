@@ -25,6 +25,19 @@ describe("seed curriculum", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
+  it("rejects duplicate skill IDs", () => {
+    const invalid = structuredClone(curriculum);
+    invalid.skills.push({ ...invalid.skills[0] });
+    expect(validateCurriculum(invalid).success).toBe(false);
+  });
+
+  it("rejects cycles in the skill prerequisite graph", () => {
+    const invalid = structuredClone(curriculum);
+    invalid.skills[0].prerequisites = [invalid.skills[1].id];
+    invalid.skills[1].prerequisites = [invalid.skills[0].id];
+    expect(validateCurriculum(invalid).success).toBe(false);
+  });
+
   it("registers the diagnostic item bank and its skills through the curriculum index", () => {
     expect(DIAGNOSTIC_ITEMS.length).toBeGreaterThanOrEqual(40);
     expect(DIAGNOSTIC_SKILLS.map(s => s.id).sort()).toEqual([...DIAGNOSTIC_CORE_SKILLS].sort());

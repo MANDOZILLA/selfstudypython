@@ -4,21 +4,44 @@ A self-study Python school that runs entirely in the browser: an adaptive
 placement diagnostic, ten guided missions (30–60 minutes each), three
 checkpoint assessments, four portfolio projects, a multi-file browser IDE
 with a real Python runtime, an offline-first AI tutor, and an adaptive skill
-graph. No account, no server-side learner tracking — your work stays in
+graph. No account; learner progress is stored in local SQLite and cached in
 your browser.
 
 ## Requirements
 
-- **Node.js 18+** (developed and verified on Node 24)
+- **Node.js 20.9+** (developed and verified on Node 24)
 - **npm** (ships with Node)
 - A modern browser with WebAssembly (Chrome, Edge, Firefox, Safari)
 - No Python installation needed: Python runs in the browser via Pyodide
 
 ## Installation
 
+**Easiest (Windows):** double-click `Start-Coding-School.bat` in the
+downloaded folder. It uses your Node.js 20.9+ if you have one, otherwise
+downloads a portable Node automatically (no admin rights, nothing to install
+by hand), installs the app's dependencies, starts the school, and opens it
+in your browser. Run it again any time to launch.
+
+**Terminal (any OS):** install Node.js 20.9+ once from
+[https://nodejs.org](https://nodejs.org), then:
+
 ```bash
 git clone <repo-url> selfstudypython
-cd selfstudypython/app/coding-school
+cd selfstudypython/coding-school
+npm run setup
+npm run dev
+```
+
+`npm run setup` installs dependencies (skipped when up to date) and prepares
+the editor. Add `-- --with-browsers` (`npm run setup -- --with-browsers`)
+to also download Playwright Chromium — only needed for the `verify:*`
+browser runs, not for normal use.
+
+**Manual fallback:**
+
+```bash
+git clone <repo-url> selfstudypython
+cd selfstudypython/coding-school
 npm install
 ```
 
@@ -45,7 +68,7 @@ npm run start
 never committed). `npm run start` serves it on port 3000
 (`next start --port <n>` for another port). All Python execution still
 happens client-side in the browser; the server only serves static assets
-plus the tutor API route (see below).
+plus local state, fixtures, scenarios, and tutor API routes (see below).
 
 ## Where your data lives
 

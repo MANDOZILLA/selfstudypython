@@ -136,4 +136,27 @@ describe("assessment skill status", () => {
   test("no tasks means not started", () => {
     expect(deriveSkillStatus("debugging", []).status).toBe("not-started");
   });
+
+  test("records for another skill cannot promote or complete this skill", () => {
+    const first = deriveTaskRecord(attempt({
+      attemptId: "att-reading-1",
+      taskId: "foundations-read-task",
+      assessmentId: "foundations-checkpoint",
+      skillId: "code-reading",
+    }));
+    const second = deriveTaskRecord(attempt({
+      attemptId: "att-reading-2",
+      taskId: "data-read-task",
+      assessmentId: "data-checkpoint",
+      skillId: "code-reading",
+      completedAt: "2026-09-21T10:00:00.000Z",
+    }));
+
+    expect(deriveSkillStatus("debugging", [first, second])).toEqual({
+      skillId: "debugging",
+      status: "not-started",
+      completedTasks: 0,
+      independentTasks: 0,
+    });
+  });
 });

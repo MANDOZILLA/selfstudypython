@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Client } from "@libsql/client";
+import type { Client, Transaction } from "@libsql/client";
 import { createDefaultState, type LearningState } from "../lib/state";
 import {
   getServerDatabase,
@@ -49,6 +49,88 @@ function stateWithTab(tab: LearningState["dashboard"]["activeTab"]): LearningSta
 }
 
 describe("sqlite revision protocol", () => {
+  it("keeps snapshot content paired with its revision when a writer commits during the read", async () => {
+    const path = tempDbPath("snapshot-race.db");
+    const reader = trackedOpen(path);
+    const writer = trackedOpen(path);
+    await trySaveStateWithRevision(reader.client, stateWithTab("learned"), 0);
+    let advanced = false;
+    const advance = async () => {
+      if (advanced) return;
+      advanced = true;
+      await writer.client.batch([
+        { sql: "UPDATE db_meta SET value = '2' WHERE key = 'state_revision'", args: [] },
+        { sql: "UPDATE state_meta SET payload = ? WHERE id = 'singleton'", args: [JSON.stringify({ dashboard: { activeTab: "portfolio" }, portfolio: [] })] },
+      ], "write");
+    };
+    const intercepted = new Proxy(reader.client, {
+      get(target, property) {
+        if (property === "execute") return async (...args: Parameters<Client["execute"]>) => {
+          const result = await target.execute(...args);
+          const statement: unknown = args[0];
+          const sql = typeof statement === "string" ? statement : (statement as { sql: string }).sql;
+          if (/SELECT value FROM db_meta/i.test(sql)) await advance();
+          return result;
+        };
+        if (property === "batch") return async (...args: Parameters<Client["batch"]>) => {
+          const result = await target.batch(...args);
+          await advance();
+          return result;
+        };
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const snapshot = await readServerSnapshot(intercepted);
+    expect(advanced).toBe(true);
+    expect(snapshot.revision).toBe(1);
+    expect(snapshot.state?.dashboard.activeTab).toBe("learned");
+    expect(await getStateRevision(writer.client)).toBe(2);
+  });
+
+  it("does not report corrupted durable payloads as successful empty snapshots", async () => {
+    const { client } = trackedOpen(tempDbPath("corrupt.db"));
+    await trySaveStateWithRevision(client, stateWithTab("learned"), 0);
+    await client.execute("INSERT INTO attempts (id, run_id, updated_at, payload) VALUES ('broken', 'run', '2026-09-15', '{broken')");
+    await expect(readServerSnapshot(client)).rejects.toThrow();
+  });
+
+  it("keeps conflict content paired with the revision checked before releasing the lock", async () => {
+    const path = tempDbPath("conflict-race.db");
+    const reader = trackedOpen(path);
+    const writer = trackedOpen(path);
+    await trySaveStateWithRevision(reader.client, stateWithTab("learned"), 0);
+    const intercepted = new Proxy(reader.client, {
+      get(target, property) {
+        if (property === "transaction") return async (...args: Parameters<Client["transaction"]>) => {
+          const tx = await target.transaction(...args);
+          return new Proxy(tx, {
+            get(transaction, key) {
+              if (key === "rollback") return async () => {
+                await transaction.rollback();
+                await writer.client.batch([
+                  "UPDATE db_meta SET value = '2' WHERE key = 'state_revision'",
+                  { sql: "UPDATE state_meta SET payload = ? WHERE id = 'singleton'", args: [JSON.stringify({ dashboard: { activeTab: "portfolio" }, portfolio: [] })] },
+                ], "write");
+              };
+              const value = Reflect.get(transaction, key);
+              return typeof value === "function" ? value.bind(transaction) : value;
+            },
+          }) as Transaction;
+        };
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const result = await trySaveStateWithRevision(intercepted, createDefaultState(), 0);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.revision).toBe(1);
+      expect(result.state.dashboard.activeTab).toBe("learned");
+    }
+    expect(await getStateRevision(writer.client)).toBe(2);
+  });
+
   it("importing the client module never creates the real .data directory (lazy singleton)", () => {
     // The durable DB must only ever be created by an explicit server open,
     // never by importing the module or resolving the default path.

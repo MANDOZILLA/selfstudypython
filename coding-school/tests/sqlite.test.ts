@@ -140,6 +140,30 @@ describe("sqlite learner-state persistence", () => {
     expect(new Set(loaded.diagnosticSessions.map(s => s.id)).size).toBe(2);
   });
 
+  it("derives diagnostic completion from session history in durable snapshots and conflicts", async () => {
+    const { client, db } = openDatabase(tempDbPath("diagnostic-snapshot.db"));
+    openHandles.push(client);
+    const older = { ...completeConfidentSession(), completedAt: "2026-09-14T12:00:00.000Z" };
+    const latest = { ...completeConfidentSession(), completedAt: "2026-09-15T12:00:00.000Z" };
+    let state = replaceDiagnosticSession(createDefaultState(), latest);
+    state = replaceDiagnosticSession(state, older);
+    state = replaceDiagnosticSession(state, createDiagnosticSession());
+    expect(await trySaveStateWithRevision(client, state, 0)).toEqual({ ok: true, revision: 1 });
+
+    const expected = { completed: true, completedAt: latest.completedAt };
+    const snapshot = await readServerSnapshot(client);
+    expect(snapshot.state?.diagnostic).toEqual(expected);
+    expect(snapshot.state?.diagnostic).toEqual((await loadStateFromDatabase(db)).diagnostic);
+    expect(snapshot.state?.diagnosticSessions).toHaveLength(3);
+    const conflict = await trySaveStateWithRevision(client, createDefaultState(), 0);
+    expect(conflict.ok).toBe(false);
+    if (!conflict.ok) expect(conflict.state.diagnostic).toEqual(expected);
+
+    const activeOnly = replaceDiagnosticSession(createDefaultState(), createDiagnosticSession());
+    await trySaveStateWithRevision(client, activeOnly, 1);
+    expect((await readServerSnapshot(client)).state?.diagnostic).toEqual({ completed: false, completedAt: null });
+  });
+
   it("isolates test databases from each other", async () => {
     const pathA = tempDbPath("a.db");
     const pathB = tempDbPath("b.db");

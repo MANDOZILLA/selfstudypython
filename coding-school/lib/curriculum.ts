@@ -11,7 +11,21 @@ export const curriculumSchema = z.object({ skills: z.array(skillSchema), lessons
   const fail = (message: string) => ctx.addIssue({ code: "custom", message });
   const skills = new Set(data.skills.map(s => s.id));
   const ids: string[] = [];
+  if (skills.size !== data.skills.length) fail("Duplicate skill ID");
   for (const skill of data.skills) if (skill.prerequisites.some(id => !skills.has(id))) fail(`Unknown prerequisite for ${skill.id}`);
+  const skillById = new Map(data.skills.map(skill => [skill.id, skill]));
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visitSkill = (id: string): boolean => {
+    if (visiting.has(id)) return true;
+    if (visited.has(id)) return false;
+    visiting.add(id);
+    const cyclic = skillById.get(id)?.prerequisites.some(prerequisite => skillById.has(prerequisite) && visitSkill(prerequisite)) ?? false;
+    visiting.delete(id);
+    visited.add(id);
+    return cyclic;
+  };
+  if (data.skills.some(skill => visitSkill(skill.id))) fail("Cyclic skill prerequisites");
   const tasks = [...data.reviewTasks];
   data.missions.forEach((mission, index) => {
     ids.push(mission.id);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildAssessmentRunRequest } from "../app/studio/assessment-workbench";
+import { buildAssessmentRunRequest, updateAssessmentCodeDraft, type TaskDraft } from "../app/studio/assessment-workbench";
 import { ASSESSMENTS, type AssessmentTask } from "../curriculum/assessments";
 import { getGrader } from "../public/grading/catalog.js";
 
@@ -50,5 +50,40 @@ describe("assessment code-task run requests", () => {
     const base = codeTasks().find(t => t.kind === "debug")!;
     const task: AssessmentTask = { ...base, graderId: undefined };
     expect(() => buildAssessmentRunRequest(task, "x")).toThrow(/not registered in the grader catalog/);
+  });
+});
+
+describe("assessment code draft evidence", () => {
+  test("editing code clears checks from the previously graded source", () => {
+    const draft: TaskDraft = {
+      code: "print('old')",
+      response: "",
+      hintsUsed: 0,
+      aiAssisted: false,
+      solutionViewed: false,
+      gradeResult: {
+        requestId: "old-run",
+        exerciseId: "old-exercise",
+        graderId: "old-grader",
+        sessionId: null,
+        taskId: null,
+        executionOk: true,
+        passed: true,
+        score: 1,
+        stdout: "",
+        stderr: "",
+        graderVersion: "1.0.0",
+        tests: [],
+      },
+      writtenChecks: null,
+      grading: false,
+      saved: true,
+    };
+
+    expect(updateAssessmentCodeDraft(draft, "print('changed')")).toMatchObject({
+      code: "print('changed')",
+      gradeResult: null,
+      saved: false,
+    });
   });
 });

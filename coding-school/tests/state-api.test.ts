@@ -6,6 +6,7 @@ import { createDefaultState, recordAssessmentAttempt, type LearningState } from 
 import type { AssessmentTaskAttempt } from "../lib/assessment-evidence";
 import { GET, PUT } from "../app/api/state/route";
 import { getServerDatabase, openDatabase, resetServerDatabaseForTests } from "../db/client";
+import { createEmptyVerificationState } from "../scripts/verification-state.mjs";
 
 const ENV_KEY = "CODING_SCHOOL_DB_PATH";
 let savedEnv: string | undefined;
@@ -89,6 +90,27 @@ describe("GET /api/state", () => {
 });
 
 describe("PUT /api/state", () => {
+  it("accepts the browser verifier's explicit empty state fixture", async () => {
+    const state = createEmptyVerificationState();
+    expect(state).toEqual(createDefaultState());
+    await PUT(putRequest({ revision: 0, state: learnedState() }));
+    const response = await PUT(putRequest({ revision: 1, state }));
+    expect(response.status).toBe(200);
+    const snapshot = await (await GET()).json();
+    expect(snapshot.revision).toBe(2);
+    expect(snapshot.state).toEqual(state);
+  });
+
+  it("rejects incomplete or unsupported state objects without resetting saved work", async () => {
+    await PUT(putRequest({ revision: 0, state: learnedState() }));
+    for (const state of [{}, { unrelated: true }, { ...learnedState(), version: 999 }, { ...learnedState(), attempts: null }, { ...learnedState(), attempts: [{}] }]) {
+      expect((await PUT(putRequest({ revision: 1, state }))).status).toBe(400);
+    }
+    const after = await (await GET()).json();
+    expect(after.revision).toBe(1);
+    expect(after.state.dashboard.activeTab).toBe("learned");
+  });
+
   it("creates state at revision 0 and bumps to 1", async () => {
     const response = await PUT(putRequest({ revision: 0, state: createDefaultState() }));
     expect(response.status).toBe(200);

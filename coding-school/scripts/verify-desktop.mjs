@@ -12,6 +12,7 @@
  *   BASE_URL=http://localhost:3100 node scripts/verify-desktop.mjs
  */
 import { setTimeout as sleep } from "node:timers/promises";
+import { createEmptyVerificationState } from "./verification-state.mjs";
 
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:3100";
 
@@ -73,7 +74,7 @@ async function resetServerState() {
   const res = await fetch(`${BASE_URL}/api/state`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ revision: snapshot.revision, state: {} }),
+    body: JSON.stringify({ revision: snapshot.revision, state: createEmptyVerificationState() }),
   });
   if (res.status !== 200) {
     const body = await res.text().catch(() => "");

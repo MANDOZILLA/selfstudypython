@@ -1,6 +1,5 @@
-import { createClient, type Client, type InArgs, type Transaction } from "@libsql/client";
+import { createClient, type Client, type InArgs, type ResultSet, type Transaction } from "@libsql/client";
 import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
-import { eq } from "drizzle-orm";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -327,10 +326,10 @@ export async function trySaveStateWithRevision(
       const current = typeof raw === "string" || typeof raw === "number" ? Number(raw) : NaN;
       const revision = Number.isInteger(current) && current >= 0 ? current : 0;
       if (revision !== expectedRevision) {
+        // Keep the state read under the same write lock as its revision.
+        const snapshot = await readSnapshotBatch(statements => tx.batch(statements));
         await tx.rollback();
-        // The connection is free again after rollback; read the current copy
-        // for the 409 response through the normal drizzle path.
-        return { ok: false, revision, state: await loadStateFromDatabase(drizzle(client, { schema })) };
+        return { ok: false, revision, state: snapshot.state ?? createDefaultState() };
       }
       const updatedAt = new Date().toISOString();
       await writeStateTablesRaw(tx, migrateState(state), updatedAt);
@@ -351,9 +350,37 @@ export async function trySaveStateWithRevision(
 /** Read the durable snapshot for /api/state. No singleton row means no state yet (revision 0). */
 export async function readServerSnapshot(client: Client): Promise<ServerSnapshot> {
   await ensureMigrated(client);
-  const db = drizzle(client, { schema });
-  const revision = await getStateRevision(client);
-  const metaRows = await db.select().from(schema.stateMeta).where(eq(schema.stateMeta.id, "singleton"));
-  if (metaRows.length === 0) return { revision, state: null, updatedAt: null };
-  return { revision, state: await loadStateFromDatabase(db), updatedAt: metaRows[0].updatedAt };
+  // libsql executes the batch in a read transaction: every table and the
+  // revision belong to one committed snapshot, even with concurrent writers.
+  return readSnapshotBatch(statements => client.batch(statements, "read"));
+}
+
+async function readSnapshotBatch(batch: (statements: string[]) => Promise<ResultSet[]>): Promise<ServerSnapshot> {
+  const [revisionRows, metaRows, attempts, runs, sessions, assessments] = await batch([
+    "SELECT value FROM db_meta WHERE key = 'state_revision'",
+    "SELECT payload, updated_at FROM state_meta WHERE id = 'singleton'",
+    "SELECT payload FROM attempts ORDER BY rowid",
+    "SELECT payload FROM mission_runs ORDER BY rowid",
+    "SELECT payload FROM diagnostic_sessions ORDER BY rowid",
+    "SELECT payload FROM assessment_attempts ORDER BY rowid",
+  ]);
+  const rawRevision = revisionRows.rows[0]?.value;
+  const revision = rawRevision === undefined ? 0 : Number(rawRevision);
+  if (!Number.isSafeInteger(revision) || revision < 0) throw new Error("Invalid stored state revision");
+  const metaRow = metaRows.rows[0];
+  if (!metaRow) return { revision, state: null, updatedAt: null };
+  // A failed read or malformed JSON must fail the request. Returning defaults
+  // would let a browser acknowledge and subsequently overwrite lost work.
+  const meta = JSON.parse(String(metaRow.payload));
+  const payloads = (result: ResultSet) => result.rows.map(row => JSON.parse(String(row.payload)));
+  const state = migrateState({
+    version: STATE_VERSION,
+    dashboard: meta.dashboard,
+    portfolio: meta.portfolio,
+    attempts: payloads(attempts),
+    missionRuns: payloads(runs),
+    diagnosticSessions: payloads(sessions),
+    assessmentAttempts: payloads(assessments),
+  });
+  return { revision, state, updatedAt: String(metaRow.updated_at) };
 }

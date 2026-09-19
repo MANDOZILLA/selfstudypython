@@ -13,7 +13,7 @@ import { failureResult } from "../../public/grading/protocol.js";
 
 loader.config({ paths: { vs: "/monaco/vs" } });
 
-type TaskDraft = {
+export type TaskDraft = {
   code: string;
   response: string;
   hintsUsed: number;
@@ -24,6 +24,12 @@ type TaskDraft = {
   grading: boolean;
   saved: boolean;
 };
+
+/** A check result is evidence for the exact submitted source. Editing that
+ * source invalidates the result and makes the draft unsaved again. */
+export function updateAssessmentCodeDraft(draft: TaskDraft, code: string): TaskDraft {
+  return { ...draft, code, gradeResult: null, grading: false, saved: false };
+}
 
 function emptyDraft(): TaskDraft {
   return {
@@ -98,6 +104,12 @@ export function TaskRunner({ studio, assessment, task, draft, setDraft }: {
   const runRef = useRef<{ cancel: () => void; requestId: string } | null>(null);
   const isCode = task.kind === "debug" || task.kind === "scratch" || task.kind === "project";
   const [plainEditor, setPlainEditor] = useState(false);
+
+  function updateCode(code: string) {
+    runRef.current?.cancel();
+    runRef.current = null;
+    setDraft(d => updateAssessmentCodeDraft(d, code));
+  }
 
   function runCodeChecks() {
     if (runRef.current) runRef.current.cancel();
@@ -184,13 +196,13 @@ export function TaskRunner({ studio, assessment, task, draft, setDraft }: {
     {isCode ? <>
       <div className="editor-toolbar"><span>main.py <small>Python</small></span><button className="text-button" onClick={() => setPlainEditor(!plainEditor)}>{plainEditor ? "Use code editor" : "Use plain text"}</button></div>
       <div className="editor-canvas assessment-editor">{plainEditor
-        ? <textarea className="plain-editor" aria-label="Python code" value={draft.code} spellCheck={false} onChange={event => setDraft(d => ({ ...d, code: event.target.value, saved: false }))} />
+        ? <textarea className="plain-editor" aria-label="Python code" value={draft.code} spellCheck={false} onChange={event => updateCode(event.target.value)} />
         : <Editor
           path={`assessment/${assessment.id}/${task.id}/main.py`}
           language="python"
           theme="light"
           value={draft.code}
-          onChange={value => setDraft(d => ({ ...d, code: value ?? "", saved: false }))}
+          onChange={value => updateCode(value ?? "")}
           loading={<p className="editor-loading">Loading code editor… You can also choose “Use plain text”.</p>}
           options={{
             minimap: { enabled: false },

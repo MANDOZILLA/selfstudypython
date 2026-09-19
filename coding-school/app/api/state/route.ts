@@ -1,5 +1,6 @@
 import { closeServerDatabase, getServerDatabase, readServerSnapshot, trySaveStateWithRevision } from "../../../db/client";
-import { migrateState } from "../../../lib/state";
+import { migrateState, STATE_VERSION } from "../../../lib/state";
+import { z } from "zod";
 
 /** GET + PUT /api/state — the durable learner-state store.
  *
@@ -16,6 +17,19 @@ import { migrateState } from "../../../lib/state";
 export const dynamic = "force-dynamic";
 
 const MAX_BODY_BYTES = 5 * 1024 * 1024;
+
+// Browser migration happens before synchronization. Require the complete
+// current-state envelope before normalization can discard invalid evidence.
+const stateEnvelope = z.object({
+  version: z.literal(STATE_VERSION),
+  dashboard: z.object({ activeTab: z.enum(["overview", "lessons", "learned", "assessment", "portfolio"]) }),
+  diagnostic: z.object({ completed: z.boolean(), completedAt: z.string().nullable() }),
+  attempts: z.array(z.unknown()),
+  missionRuns: z.array(z.unknown()),
+  diagnosticSessions: z.array(z.unknown()),
+  assessmentAttempts: z.array(z.unknown()),
+  portfolio: z.array(z.unknown()),
+});
 
 export async function GET() {
   const { client } = await getServerDatabase();
@@ -49,15 +63,25 @@ export async function PUT(request: Request) {
   }
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return invalid();
   const { revision, state } = raw as { revision?: unknown; state?: unknown };
-  if (typeof revision !== "number" || !Number.isInteger(revision) || revision < 0) return invalid();
-  // migrateState normalizes but never rejects garbage; require an object
-  // shape first so a malformed payload cannot wipe the store into defaults.
-  if (!state || typeof state !== "object" || Array.isArray(state)) return invalid();
+  if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0) return invalid();
+  const envelope = stateEnvelope.safeParse(state);
+  if (!envelope.success) return invalid();
+  let normalized: ReturnType<typeof migrateState>;
+  try {
+    normalized = migrateState(state);
+  } catch {
+    return invalid();
+  }
+  // PUT replaces the complete store. Do not acknowledge a save if migration
+  // would silently discard submitted records. Local migration already runs
+  // before pushState, so normal browser writes satisfy this invariant.
+  const collections = ["attempts", "missionRuns", "diagnosticSessions", "assessmentAttempts", "portfolio"] as const;
+  if (collections.some(key => envelope.data[key].length !== normalized[key].length)) return invalid();
 
   const { client } = await getServerDatabase();
   let result: Awaited<ReturnType<typeof trySaveStateWithRevision>>;
   try {
-    result = await trySaveStateWithRevision(client, migrateState(state), revision);
+    result = await trySaveStateWithRevision(client, normalized, revision);
   } catch (error) {
     // Another server process holds the write lock (BEGIN IMMEDIATE failed).
     // The client is unusable for further transactions after this (driver

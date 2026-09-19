@@ -12,7 +12,9 @@
  *
  * Screenshots land in /tmp. Exits non-zero on the first failed assertion.
  */
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { setTimeout as sleep } from "node:timers/promises";
 
 const PORT = 3100;
@@ -57,7 +59,9 @@ async function main() {
   const { chromium } = await import("playwright");
   let server;
   if (SHOULD_SERVE) {
-    server = spawn("npm", ["run", "dev", "--", "--port", String(PORT)], { cwd: new URL("..", import.meta.url).pathname, stdio: "ignore" });
+    const cwd = fileURLToPath(new URL("..", import.meta.url));
+    execFileSync(process.execPath, ["scripts/prepare-editor.mjs"], { cwd });
+    server = spawn(process.execPath, [createRequire(import.meta.url).resolve("next/dist/bin/next"), "dev", "--hostname", "127.0.0.1", "--port", String(PORT)], { cwd, stdio: "ignore" });
     await waitForServer(BASE_URL);
   }
 
@@ -82,6 +86,9 @@ async function desktopFlow(browser) {
   await page.goto(BASE_URL, { waitUntil: "networkidle" });
 
   const startButton = page.getByRole("button", { name: /take the placement diagnostic/i });
+  // Dashboard boots from the server snapshot asynchronously; wait for the
+  // entry to render instead of racing the first paint.
+  await startButton.waitFor({ timeout: 15000 }).catch(() => {});
   check("dashboard shows the diagnostic entry", await startButton.isVisible());
   await startButton.click();
   await page.waitForURL(/diagnostic\?session=/);

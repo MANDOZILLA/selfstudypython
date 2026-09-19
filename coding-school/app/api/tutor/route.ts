@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { deterministicTutor, type TutorContext } from "../../../lib/tutor";
-import { requestOpenRouterTutor } from "../../../lib/tutor-provider";
+import { requestOpenRouterTutor, isSafeAppReference } from "../../../lib/tutor-provider";
 
 /** POST /api/tutor — tutor help for the current task.
  *
@@ -65,6 +65,15 @@ export async function POST(request: Request) {
   if (provider.tutor) {
     return Response.json({ source: "openrouter", tutor: provider.tutor });
   }
-  const tutor = deterministicTutor(ctx);
+  // Sanitize only the fallback path: the provider already rejects an unsafe
+  // taskUrl as malformed (preserving that signal), but the deterministic tutor
+  // would otherwise re-emit the same hostile URL as a clickable reference.
+  // deterministicTutor also sanitizes internally; this keeps the stored ctx
+  // clean even if other fallback fields are added later.
+  const safeCtx: TutorContext = {
+    ...ctx,
+    taskUrl: isSafeAppReference(ctx.taskUrl) ? ctx.taskUrl : "#",
+  };
+  const tutor = deterministicTutor(safeCtx);
   return Response.json({ source: "deterministic", tutor, fallbackReason: provider.reason ?? "no_key" });
 }

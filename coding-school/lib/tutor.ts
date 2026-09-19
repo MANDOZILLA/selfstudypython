@@ -38,6 +38,18 @@ export interface TutorContext {
   taskUrl: string;
 }
 
+/** Client-safe allowlist mirror of the server check: references stay inside
+ *  the app. Fragment-only links never navigate away; slash paths must start
+ *  with a single "/" and contain no control chars or backslashes (WHATWG URL
+ *  parsing strips tabs/newlines, so "/\n/evil" would normalize to "//evil").
+ *  Kept local (not imported from tutor-provider) so client modules never pull
+ *  in the server-only provider. */
+export function isSafeTutorReference(url: string): boolean {
+  if (url.startsWith("#")) return true;
+  if (!/^\/(?![\\/])/.test(url)) return false;
+  return !/[\t\r\n\\]/.test(url);
+}
+
 /** Mechanism-based explanations for common Python errors. Keyed by the error
  *  kind reported in the structured execution status; each entry explains the
  *  mechanism (what actually went wrong) rather than matching keywords. */
@@ -130,11 +142,15 @@ export function deterministicTutor(ctx: TutorContext): TutorResponse {
 
   const hintLevel = ctx.hints.length === 0 ? 0 : nextRung;
 
+  // Never emit an external/protocol-relative link: fall back to "#" so a
+  // hostile taskUrl cannot launder a phishing URL through the deterministic
+  // response's clickable "See also" reference.
+  const safeTaskUrl = isSafeTutorReference(ctx.taskUrl) ? ctx.taskUrl : "#";
   return {
     summary,
     diagnosis,
     nextSteps,
     hintLevel,
-    references: [{ label: `${ctx.taskTitle} — lesson`, url: ctx.taskUrl }],
+    references: [{ label: `${ctx.taskTitle} — lesson`, url: safeTaskUrl }],
   };
 }

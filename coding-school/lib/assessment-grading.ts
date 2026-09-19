@@ -28,17 +28,36 @@ type WrittenPredicate = (trimmed: string) => { correct: boolean; detail: string 
 const pass = (detail: string) => ({ correct: true, detail });
 const fail = (detail: string) => ({ correct: false, detail });
 
+/** Reject a learner explicitly negating the claim whose terms they mention. */
+const negates = (t: string, claim: RegExp) =>
+  new RegExp(
+    `\\b(?:(?:does|do|is|are|would|should|can)(?:n't|\\s+(?:\\w+\\s+){0,2}not)|won't)\\s+(?:\\w+\\s+){0,2}(?:${claim.source})`,
+    "i",
+  ).test(t);
+
+/** True when at least one wrong value is stated without nearby negation. */
+const mentionsUnnegated = (t: string, claim: RegExp) => {
+  const flags = claim.flags.includes("g") ? claim.flags : `${claim.flags}g`;
+  for (const match of t.matchAll(new RegExp(claim.source, flags))) {
+    const prefix = t.slice(Math.max(0, (match.index ?? 0) - 40), match.index);
+    if (!/(?:\bnot|n't)(?:\s+\w+){0,2}\s*$/i.test(prefix)) return true;
+  }
+  return false;
+};
+
 const GRADERS: Record<string, Record<string, WrittenPredicate>> = {
   "foundations-read-challenge": {
     "read-trace": t =>
       /\b(skipped|skips|continue|continues)\b/i.test(t) &&
-      (/\bcolon\b/i.test(t) || /['"]:\s*['"]/.test(t))
+      (/\bcolon\b/i.test(t) || /['"]:\s*['"]/.test(t)) &&
+      !negates(t, /skip(?:ped|s)?|continue(?:s|d)?/)
         ? pass("the colon-less line is skipped by the `if \":\" not in line: continue` guard")
         : fail("say which statement skips the broken line"),
     "read-result": t =>
       /\berror\b/i.test(t) &&
       (/\b2\b/.test(t) || /\btwice\b/i.test(t)) &&
-      !/\b(three|3 times|once)\b/i.test(t)
+      !negates(t, /2|two|twice/) &&
+      !mentionsUnnegated(t, /\b(?:three|3\s+times|once)\b/i)
         ? pass("counts['error'] == 2")
         : fail("state the exact count for the 'error' level"),
     "read-contract": t =>

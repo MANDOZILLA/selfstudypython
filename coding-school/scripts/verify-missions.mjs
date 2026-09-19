@@ -16,9 +16,12 @@
  *   node scripts/verify-missions.mjs --serve   # starts `next dev` on :3101
  *   BASE_URL=http://localhost:3000 node scripts/verify-missions.mjs
  */
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
+import { createEmptyVerificationState } from "./verification-state.mjs";
 
 const PORT = 3101;
 const BASE_URL = process.env.BASE_URL ?? `http://localhost:${PORT}`;
@@ -189,7 +192,7 @@ async function seedServerState() {
  * browser context booted with empty localStorage.
  */
 async function resetServerState() {
-  await putServerState({}, "resetServerState");
+  await putServerState(createEmptyVerificationState(), "resetServerState");
 }
 
 /** Attach console-error and pageerror collectors; returns the error list. */
@@ -347,7 +350,9 @@ async function main() {
   const { chromium } = await import("playwright");
   let server;
   if (SHOULD_SERVE) {
-    server = spawn("npm", ["run", "dev", "--", "--port", String(PORT)], { cwd: new URL("..", import.meta.url).pathname, stdio: "ignore" });
+    const cwd = fileURLToPath(new URL("..", import.meta.url));
+    execFileSync(process.execPath, ["scripts/prepare-editor.mjs"], { cwd });
+    server = spawn(process.execPath, [createRequire(import.meta.url).resolve("next/dist/bin/next"), "dev", "--hostname", "127.0.0.1", "--port", String(PORT)], { cwd, stdio: "ignore" });
     await waitForServer(BASE_URL);
   }
   // --no-sandbox: this verification runs as root in CI-like environments.

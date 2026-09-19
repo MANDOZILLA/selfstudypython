@@ -65,6 +65,54 @@ function envInt(name: string, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function positiveInteger(value: number | undefined, fallback: number): number {
+  return Number.isSafeInteger(value) && (value ?? 0) > 0 ? value! : fallback;
+}
+
+/** References rendered by the client stay inside this app.
+ *  Fragment-only (#...) links never navigate away, so inner content is safe.
+ *  Slash paths must start with a single "/" and contain no control chars or
+ *  backslashes: WHATWG URL parsing strips tabs/newlines before resolving, so
+ *  "/\n/evil" would otherwise normalize to "//evil" (external). */
+export function isSafeAppReference(url: string): boolean {
+  if (url.startsWith("#")) return true;
+  if (!/^\/(?![\\/])/.test(url)) return false;
+  return !/[\t\r\n\\]/.test(url);
+}
+
+async function readBoundedText(
+  response: Response,
+  maxBytes: number,
+): Promise<{ text: string; oversized: false } | { text: null; oversized: true }> {
+  const rawLength = response.headers.get("content-length");
+  const contentLength = rawLength === null ? Number.NaN : Number(rawLength);
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    return { text: null, oversized: true };
+  }
+  if (!response.body) return { text: "", oversized: false };
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bytesRead = 0;
+  let text = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytesRead += value.byteLength;
+      if (bytesRead > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        return { text: null, oversized: true };
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+    return { text, oversized: false };
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 /** Ask OpenRouter for tutor help. Returns {tutor: null, reason} on ANY
  *  failure (no key, timeout, 429/401/5xx, oversized or malformed body,
  *  network error) so the caller can fall back to the deterministic tutor.
@@ -77,9 +125,10 @@ export async function requestOpenRouterTutor(
   const apiKey = opts.apiKey ?? process.env.OPENROUTER_API_KEY;
   if (!apiKey) return { tutor: null, reason: "no_key" };
   const model = opts.model ?? process.env.TUTOR_MODEL ?? DEFAULT_MODEL;
-  const timeoutMs = opts.timeoutMs ?? envInt("TUTOR_TIMEOUT_MS", DEFAULT_TIMEOUT_MS);
-  const maxBytes = opts.maxBytes ?? envInt("TUTOR_MAX_RESPONSE_BYTES", DEFAULT_MAX_RESPONSE_BYTES);
+  const timeoutMs = positiveInteger(opts.timeoutMs, envInt("TUTOR_TIMEOUT_MS", DEFAULT_TIMEOUT_MS));
+  const maxBytes = positiveInteger(opts.maxBytes, envInt("TUTOR_MAX_RESPONSE_BYTES", DEFAULT_MAX_RESPONSE_BYTES));
   const fetchFn = opts.fetchFn ?? fetch;
+  if (!isSafeAppReference(ctx.taskUrl)) return { tutor: null, reason: "malformed" };
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -107,10 +156,9 @@ export async function requestOpenRouterTutor(
     if (response.status === 429) return { tutor: null, reason: "rate_limited" };
     if (response.status === 401) return { tutor: null, reason: "unauthorized" };
     if (!response.ok) return { tutor: null, reason: "provider_error" };
-    const contentLength = Number(response.headers.get("content-length") ?? "0");
-    if (contentLength > maxBytes) return { tutor: null, reason: "oversized" };
-    const text = await response.text();
-    if (text.length > maxBytes) return { tutor: null, reason: "oversized" };
+    const body = await readBoundedText(response, maxBytes);
+    if (body.oversized) return { tutor: null, reason: "oversized" };
+    const text = body.text;
     let content: unknown;
     try {
       const envelope = JSON.parse(text) as { choices?: { message?: { content?: unknown } }[] };
@@ -128,6 +176,9 @@ export async function requestOpenRouterTutor(
     }
     const validated = tutorResponseSchema.safeParse(parsed);
     if (!validated.success) return { tutor: null, reason: "malformed" };
+    if (validated.data.references.some(reference => !isSafeAppReference(reference.url))) {
+      return { tutor: null, reason: "malformed" };
+    }
     return { tutor: validated.data, reason: null };
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") return { tutor: null, reason: "timeout" };

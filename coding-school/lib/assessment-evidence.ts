@@ -101,8 +101,11 @@ export function deriveTaskRecord(attempt: AssessmentTaskAttempt): AssessmentTask
  * mastered tasks that differ in task and in context or date.
  */
 export function deriveSkillStatus(skillId: string, records: AssessmentTaskRecord[]): SkillStatus {
-  const completed = records.length;
-  const mastered = records.filter(r => r.mastered);
+  // Accepting a history array is convenient for callers, but evidence for a
+  // different skill must never complete or master the requested skill.
+  const relevant = records.filter(r => r.skillId === skillId);
+  const completed = relevant.length;
+  const mastered = relevant.filter(r => r.mastered);
   let status: SkillStatusLabel = "not-started";
   if (completed > 0) status = "completed";
   const diverse = mastered.some((a, i) =>

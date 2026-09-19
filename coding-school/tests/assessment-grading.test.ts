@@ -33,6 +33,18 @@ describe("assessment written semantic grading", () => {
   describe("foundations-read", () => {
     const g = (criterion: string, response: string) =>
       gradeAssessmentWritten("foundations-read-challenge", response).tests.find(t => t.id === criterion)!;
+
+    test("explicitly negated claims do not earn credit", () => {
+      expect(g("read-trace", "The colon-less line does not skip; it continues.").passed).toBe(false);
+      expect(g("read-trace", "The colon-less line doesn't skip; it continues.").passed).toBe(false);
+      expect(g("read-result", "The error count is not 2.").passed).toBe(false);
+      expect(g("read-result", "The error count definitely isn't 2.").passed).toBe(false);
+    });
+
+    test("unrelated negation does not hide a correct claim", () => {
+      expect(g("read-result", "Blank lines do not increase the error count; the error count is 2.").passed).toBe(true);
+      expect(g("read-result", "The error count is not three; it is 2.").passed).toBe(true);
+    });
     test("read-trace: the colon-less line is skipped by the colon guard, not an except clause", () => {
       expect(g("read-trace", "The broken line is stripped, then the `if \":\" not in line` check skips it with continue — no exception is raised.").passed).toBe(true);
       expect(g("read-trace", "The line has no colon so the guard continues to the next line.").passed).toBe(true);

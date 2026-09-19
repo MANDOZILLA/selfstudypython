@@ -44,18 +44,33 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { setTimeout as sleep } from "node:timers/promises";
 
-const ROOT = new URL("..", import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
+const require = createRequire(import.meta.url);
+const bins = { vitest: "vitest", tsc: "typescript", eslint: "eslint", next: "next" };
+function resolveBin(name) {
+  const manifest = require.resolve(`${bins[name]}/package.json`);
+  const { bin } = require(manifest);
+  return join(dirname(manifest), typeof bin === "string" ? bin : bin[name]);
+}
 const PORT = 3100;
 const BASE_URL = `http://localhost:${PORT}`;
 const DB_PATH = join(ROOT, ".data", "coding-school.db");
 
 /** Run a command with inherited stdio; resolve on exit 0, reject otherwise. */
 function run(cmd, args, env = {}) {
+  if (cmd === "npm" && args.join(" ") === "run build") {
+    return run("node", ["scripts/prepare-editor.mjs"], env).then(() => run("npx", ["next", "build"], env));
+  }
+  if (cmd === "npx") {
+    args = [resolveBin(args[0]), ...args.slice(1)];
+  }
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(cmd, args, {
+    const child = spawn(process.execPath, args, {
       cwd: ROOT,
       stdio: "inherit",
       env: { ...process.env, CI: "true", ...env },
@@ -136,7 +151,10 @@ async function main() {
     await stage("curriculum validation", () => run("npx", ["vitest", "run", "tests/curriculum-validation.test.ts"]));
     await stage("grader mutation tests", () => run("npx", ["vitest", "run", "tests/grader-mutation.test.ts"]));
     await stage("sqlite repository/migration/security", () => run("npx", ["vitest", "run", "tests/sqlite.test.ts"]));
-    await stage("typescript", () => run("npx", ["tsc", "--noEmit"]));
+    await stage("typescript", async () => {
+      await run("npx", ["next", "typegen"]);
+      await run("npx", ["tsc", "--noEmit"]);
+    });
     await stage("eslint", () => run("npx", ["eslint"]));
     await stage("production build", () => run("npm", ["run", "build"]));
 
@@ -157,7 +175,7 @@ async function main() {
     tempDbPath = join(tempDbDir, "verify.db");
     const serverEnv = { ...process.env, CODING_SCHOOL_DB_PATH: tempDbPath };
     delete serverEnv.OPENROUTER_API_KEY;
-    server = spawn("npx", ["next", "start", "--port", String(PORT)], { cwd: ROOT, stdio: "inherit", env: serverEnv });
+    server = spawn(process.execPath, [resolveBin("next"), "start", "--hostname", "127.0.0.1", "--port", String(PORT)], { cwd: ROOT, stdio: "inherit", env: serverEnv });
     await waitForServer(BASE_URL);
     console.log(`Production server up at ${BASE_URL} (OPENROUTER_API_KEY unset, CODING_SCHOOL_DB_PATH=${tempDbPath})`);
 
