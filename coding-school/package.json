@@ -6,12 +6,16 @@
     "predev": "node scripts/prepare-editor.mjs",
     "prebuild": "node scripts/prepare-editor.mjs",
     "dev": "next dev --hostname 127.0.0.1",
+    "setup": "node scripts/setup.mjs",
     "build": "next build",
     "start": "next start --hostname 127.0.0.1",
-    "lint": "eslint",
+    "lint": "eslint app curriculum db lib scripts tests public/grading public/python-worker.js next.config.ts postcss.config.mjs vitest.config.mts",
     "test": "vitest run",
-    "verify:runtime-boundary": "node scripts/verify-runtime-boundary.mjs",
-    "test:runtime-boundary": "node scripts/test-verify-runtime-boundary.mjs"
+    "verify:diagnostic": "node scripts/verify-diagnostic.mjs --serve",
+    "verify:product": "node scripts/verify-product.mjs",
+    "verify:tutor": "node scripts/verify-tutor.mjs",
+    "verify:desktop": "node scripts/verify-desktop.mjs",
+    "verify:mobile": "node scripts/verify-mobile.mjs"
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.3.0",
@@ -38,5 +42,8 @@
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^5.0.0"
+  },
+  "overrides": {
+    "dompurify": "3.4.15"
   }
 }

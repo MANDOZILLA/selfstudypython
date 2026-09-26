@@ -1,38 +1,34 @@
-Workbench School is a single-learner Python studio that runs on this computer.
-Mission progress, drafts and grading evidence are saved in `.data/coding-school.db`.
-See [local data, backup and recovery](db/README.md) before moving or restoring the database.
+# Workbench School
 
-## Getting Started
+A single-learner Python studio that runs on this computer. The application lives in `coding-school/`.
 
-First, run the development server:
+## Start locally
 
-```bash
+**Windows, no setup:** double-click `Start-Coding-School.bat`. It downloads
+Node.js automatically if you don't have it, installs everything the app
+needs, starts the school, and opens it. No manual installs.
+
+From the repository root (needs Node.js 20.9+ on PATH):
+
+```sh
+npm run setup
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://127.0.0.1:3000. The server binds to this computer by default; it has no multi-user authentication.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+For a production build, run `npm run build`, then `npm start`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Verify
 
-## Learn More
+```sh
+npm test
+npm run lint
+npm run verify:product
+```
 
-To learn more about Next.js, take a look at the following resources:
+The whole-product verifier runs tests, type checking, lint, a production build, and desktop/mobile browser journeys. It needs Playwright Chromium (`cd coding-school` then `npx playwright install chromium`) and a free port 3100. It uses a temporary database and checks that learner data remains unchanged.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Saved work
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Progress lives in `coding-school/.data/coding-school.db`, with browser storage as an offline cache. Back up this database before moving or restoring the application.

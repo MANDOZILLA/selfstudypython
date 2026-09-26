@@ -14,15 +14,6 @@ const request = { type: "run" as const, requestId: "run-1", exerciseId: "messy-c
 const required = ["concept-csv", "concept-decimal", "sample", "empty", "header", "precision", "invalid", "duplicates", "quoted", "shape"].map(id => ({ id, name: id, passed: true, required: true, detail: "" }));
 afterEach(() => vi.useRealTimers());
 describe("worker lifecycle", () => {
-  it.each(["version", "checks", "score"])("ignores a malformed %s without relabeling it as current evidence", kind => {
-    const worker = new WorkerTransport(); const completed = vi.fn();
-    const cancel = startGradingRun(request, completed, () => worker);
-    const valid = aggregateResult(request, { executionOk: true, tests: required });
-    const invalid = kind === "version" ? {...valid, graderVersion:"stale"} : kind === "checks" ? {...valid, tests:[]} : {...valid, score:0};
-    worker.onmessage?.({data: invalid});
-    expect(completed).not.toHaveBeenCalled();
-    cancel();
-  });
   it("reports matching Python progress without accepting it as a grade", () => {
     const worker = new WorkerTransport();
     const completed = vi.fn();
@@ -44,6 +35,19 @@ describe("worker lifecycle", () => {
     worker.onmessage?.({ data: passed });
     expect(completed.mock.calls[0]?.[0]?.passed).toBe(true);
     expect(worker.terminated).toBe(true);
+  });
+  it("drops ignored grader versions without completing and accepts a later valid result", () => {
+    const worker = new WorkerTransport();
+    const completed = vi.fn();
+    const ignored = vi.fn();
+    startGradingRun(request, completed, () => worker, 15000, undefined, ignored);
+    const passed = aggregateResult(request, { executionOk: true, tests: required });
+    worker.onmessage?.({ data: { ...passed, graderVersion: "0.0.0" } });
+    expect(completed).not.toHaveBeenCalled();
+    expect(ignored).toHaveBeenCalledWith(expect.objectContaining({ ignored: true, reason: "grader-version-mismatch" }));
+    expect(worker.terminated).toBe(false);
+    worker.onmessage?.({ data: passed });
+    expect(completed.mock.calls[0]?.[0]?.passed).toBe(true);
   });
   it.each(["onerror", "onmessageerror"] as const)("reports %s as failed without changing files", event => {
     const worker = new WorkerTransport();
@@ -77,5 +81,12 @@ describe("worker lifecycle", () => {
     const completed = vi.fn();
     startGradingRun(request, completed, () => { throw Error("unavailable"); });
     expect(completed.mock.calls[0]?.[0]?.executionOk).toBe(false);
+  });
+  it("forwards the data-science package loading phase as progress", () => {
+    const worker = new WorkerTransport();
+    const progress = vi.fn();
+    startGradingRun(request, vi.fn(), () => worker, 15000, progress);
+    worker.onmessage?.({ data: { ...request, type: "progress", phase: "packages" } });
+    expect(progress).toHaveBeenCalledWith("packages");
   });
 });

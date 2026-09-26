@@ -1,12 +1,15 @@
 import { deriveReviewSchedule, deriveSkillEvidence, selectToday } from "./adaptive";
 import { curriculum, getMission, getTask } from "./curriculum";
+import { PORTFOLIO_PROJECT_DEFINITIONS } from "../curriculum/portfolio-projects";
 import { recordMissionAttempt, type AttemptSubmission, type LearningState, type MissionDraft } from "./state";
+import { classifyGradeResult } from "./diagnostic";
 import type { GradeResult } from "./runner";
 
-export type Destination = "today" | "lessons" | "learned" | "assessment";
+export type Destination = "today" | "lessons" | "learned" | "assessment" | "portfolio";
 export const destinations: { id: Destination; label: string }[] = [
-  { id: "today", label: "Today" }, { id: "lessons", label: "Lessons" },
+  { id: "today", label: "Today" }, { id: "lessons", label: "Curriculum" },
   { id: "learned", label: "What I Learned" }, { id: "assessment", label: "Self-Assessment" },
+  { id: "portfolio", label: "Portfolio" },
 ];
 export const unassisted = { hintsUsed: 0, aiAssisted: false, solutionViewed: false };
 export const workbenchPanels = ["instructions", "code", "checks"] as const;
@@ -51,6 +54,13 @@ export function getEvidenceRows(state: LearningState) {
   });
 }
 
+export function getPortfolioModel(state: LearningState) {
+  return PORTFOLIO_PROJECT_DEFINITIONS.map(project => {
+    const snapshots = state.portfolio.filter(s => s.projectId === project.id);
+    return { project, snapshots, complete: snapshots.length === project.components.length };
+  });
+}
+
 export function getWorkbenchModel(state: LearningState, runId: string, selectedTaskId?: string) {
   const run = state.missionRuns.find(r => r.id === runId && r.status === "active");
   if (!run) return null;
@@ -77,7 +87,10 @@ export function getWorkbenchModel(state: LearningState, runId: string, selectedT
 }
 
 export function persistAttempt(state: LearningState, runId: string, taskId: string, input: AttemptSubmission, persist: (state: LearningState) => LearningState, now = new Date()) {
-  if (getTask(taskId)?.kind === "code" && !input.result?.executionOk) return { state, saved: false, error: null };
+  // Infrastructure noise (the lone "execution" check) is never evidence and
+  // is not recorded; genuine graded failures are recorded with an honest
+  // failed status.
+  if (getTask(taskId)?.kind === "code" && (!input.result || classifyGradeResult(input.result) === "infra")) return { state, saved: false, error: null };
   try { return { state: persist(recordMissionAttempt(state, runId, taskId, input, now)), saved: true, error: null }; }
   catch (error) { return { state, saved: false, error: error instanceof Error ? error.message : String(error) }; }
 }
@@ -92,10 +105,22 @@ export function getProjectReview(state: LearningState, runId?: string, now = new
     assistance: project ? getEvidenceRows(state).find(row => row.attempt.id === project.id)?.assistance : undefined };
 }
 
-export type RunStatus = "Ready" | "Loading Python" | "Running checks" | "Passed" | "Needs changes" | "Timed out" | "Couldn't run";
+export type RunStatus = "Ready" | "Loading Python" | "Loading data-science packages…" | "Running checks" | "Running code" | "Passed" | "Needs changes" | "Timed out" | "Couldn't run" | "Stale grader" | "Ran successfully" | "Run failed";
 export function runStatus(result: GradeResult | null): RunStatus {
   if (!result) return "Ready";
+  // Execute mode runs the entrypoint without grading: report the run itself.
+  if ((result as { mode?: string }).mode === "executed") {
+    if (result.executionOk) return "Ran successfully";
+    return /timed out/i.test(result.stderr) ? "Timed out" : "Run failed";
+  }
   if (result.passed) return "Passed";
-  if (!result.executionOk) return /timed out/i.test(result.stderr) ? "Timed out" : "Couldn't run";
+  if (!result.executionOk) {
+    if (/timed out/i.test(result.stderr)) return "Timed out";
+    // A genuine learner failure (a syntax error, an exception in solve())
+    // carries the real check list; only infrastructure noise reports the
+    // lone "execution" test.
+    if (result.tests.some(test => test.id !== "execution")) return "Needs changes";
+    return "Couldn't run";
+  }
   return "Needs changes";
 }

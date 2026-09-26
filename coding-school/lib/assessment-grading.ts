@@ -1,0 +1,168 @@
+/**
+ * Semantic short-answer grading for checkpoint-assessment read/explain tasks.
+ * Pure TypeScript — no DOM, no dependencies beyond the grader catalog (used
+ * only to enumerate which criteria exist and their versions).
+ *
+ * Each (exerciseId, criterion) maps to a semantic predicate. Deliberately NOT
+ * keyword-bag scoring: predicates require the mechanism or the exact value
+ * the rubric demands, and they reject answers that affirm a wrong value.
+ */
+import { graderCatalog } from "../public/grading/catalog.js";
+
+export interface AssessmentWrittenCheck {
+  id: string;
+  name: string;
+  required: true;
+  passed: boolean;
+  detail: string;
+}
+
+export interface AssessmentWrittenRaw {
+  graderVersion: string;
+  executionOk: true;
+  tests: AssessmentWrittenCheck[];
+}
+
+type WrittenPredicate = (trimmed: string) => { correct: boolean; detail: string };
+
+const pass = (detail: string) => ({ correct: true, detail });
+const fail = (detail: string) => ({ correct: false, detail });
+
+/** Reject a learner explicitly negating the claim whose terms they mention. */
+const negates = (t: string, claim: RegExp) =>
+  new RegExp(
+    `\\b(?:(?:does|do|is|are|would|should|can)(?:n't|\\s+(?:\\w+\\s+){0,2}not)|won't)\\s+(?:\\w+\\s+){0,2}(?:${claim.source})`,
+    "i",
+  ).test(t);
+
+/** True when at least one wrong value is stated without nearby negation. */
+const mentionsUnnegated = (t: string, claim: RegExp) => {
+  const flags = claim.flags.includes("g") ? claim.flags : `${claim.flags}g`;
+  for (const match of t.matchAll(new RegExp(claim.source, flags))) {
+    const prefix = t.slice(Math.max(0, (match.index ?? 0) - 40), match.index);
+    if (!/(?:\bnot|n't)(?:\s+\w+){0,2}\s*$/i.test(prefix)) return true;
+  }
+  return false;
+};
+
+const GRADERS: Record<string, Record<string, WrittenPredicate>> = {
+  "foundations-read-challenge": {
+    "read-trace": t =>
+      /\b(skipped|skips|continue|continues)\b/i.test(t) &&
+      (/\bcolon\b/i.test(t) || /['"]:\s*['"]/.test(t)) &&
+      !negates(t, /skip(?:ped|s)?|continue(?:s|d)?/)
+        ? pass("the colon-less line is skipped by the `if \":\" not in line: continue` guard")
+        : fail("say which statement skips the broken line"),
+    "read-result": t =>
+      /\berror\b/i.test(t) &&
+      (/\b2\b/.test(t) || /\btwice\b/i.test(t)) &&
+      !negates(t, /2|two|twice/) &&
+      !mentionsUnnegated(t, /\b(?:three|3\s+times|once)\b/i)
+        ? pass("counts['error'] == 2")
+        : fail("state the exact count for the 'error' level"),
+    "read-contract": t =>
+      /\blevels?\b/i.test(t) &&
+      /\b(count|counts|counting|tallies|per level)\b/i.test(t) &&
+      !/\bmessages?\b/i.test(t)
+        ? pass("log lines are counted per level")
+        : fail("say what is counted — levels, not messages"),
+  },
+  "foundations-explain-challenge": {
+    "explain-except": t =>
+      /valueerror/i.test(t) && /\bint\b/i.test(t)
+        ? pass("int() raises ValueError, which the except clause must name")
+        : fail("name the exception int() raises on a non-numeric age and where it must appear"),
+    "explain-edge": t =>
+      /\b(empty|duplicates?|malformed|zero|negative|whitespace|missing|none)\b/i.test(t) &&
+      /\b(crash|crashes|wrong|silently|silent|matters?|guard|fail|breaks?|inflate)\b/i.test(t)
+        ? pass("names a concrete edge case and why it matters")
+        : fail("name one concrete edge case and explain why it matters"),
+  },
+  "data-read-challenge": {
+    "read-value": t =>
+      /\b7\b/.test(t) && /\b9\b/.test(t) &&
+      (!/\b8\b/.test(t) || /\b(skip|skipped)\b/i.test(t) || /\beight\b/i.test(t))
+        ? pass("load returns [('7', 7.0), ('9', 9.0)] — the 'eight' row is skipped")
+        : fail("say exactly which rows load — the 7 and 9 rows, not the 'eight' row"),
+    "read-envelope": t =>
+      /attributeerror/i.test(t) ||
+      (/\bnone\b/i.test(t) && /\b(strip|split|crash|raises?|error)\b/i.test(t))
+        ? pass("None has no strip/split, so it raises AttributeError")
+        : fail("say what load(None) does and why"),
+  },
+  "data-explain-challenge": {
+    "explain-header": t =>
+      /header/i.test(t) && /\b(names?|reorder|reordered|misalign|wrong (keys|columns))\b/i.test(t)
+        ? pass("DictReader maps by header name, so reordering misaligns values")
+        : fail("explain how DictReader uses the header and what reordering breaks"),
+    "explain-corruption": t =>
+      /\b(ragged|extra comma|duplicates?|corrupt|whitespace|missing)\b/i.test(t) &&
+      /\b(valid|validate|check|guard|skip|reject|count|field)\b/i.test(t)
+        ? pass("names a corruption and a guard against it")
+        : fail("name one way the input can be corrupt and how to guard against it"),
+  },
+  "applied-read-challenge": {
+    "read-exhaust": t =>
+      /\bnone\b/i.test(t) && (/\b3\b/.test(t) || /\bthree\b/i.test(t))
+        ? pass("returns None after three attempts")
+        : fail("say what is returned after the retries are exhausted and how many tries happen"),
+    "read-client-error": t =>
+      /\b400s?\b/.test(t) &&
+      /\b(immediately|right away|not retried|never retried|never be retried|never retr(?:y|ies)|aren'?t retried|isn'?t retried|without retry|without retrying|no retry|no retrying|returns? the response|pointless|no point in retrying|doesn'?t retry|doesn'?t get retried|don'?t get retried|don'?t retry|don'?t bother retrying|do not retry|does not retry|won'?t be retried|shouldn'?t be retried|should not be retried|should not retry|shouldn'?t retry|not worth retrying|isn'?t worth retrying)\b/i.test(t)
+        ? pass("a 400 returns immediately without retry")
+        : fail("say whether the 400 is retried and why"),
+  },
+  "applied-explain-challenge": {
+    "explain-fallback": t =>
+      /fallback/i.test(t) && /\b(whole batch|entire batch|deterministic|one (bad|corrupt)|single|lose|fail the batch)\b/i.test(t)
+        ? pass("one bad line must not fail the batch; the fallback count keeps it deterministic")
+        : fail("explain what breaks without the fallback counter"),
+    "explain-retry": t =>
+      /\b429\b/.test(t) && /\b400\b/.test(t) &&
+      /\b(rate limit|client error|pointless|won'?t succeed|invalid|temporary|transient)\b/i.test(t)
+        ? pass("retry the 429 rate limit, not the 400 client error")
+        : fail("say which status is retried and why the other is not"),
+  },
+};
+
+/** Criterion order per exercise, derived from the catalog's requiredTests. */
+function criterionOrder(exerciseId: string): { graderVersion: string; criteria: string[] } | null {
+  for (const grader of Object.values(graderCatalog)) {
+    const entry = grader as { exerciseId: string; version: string; requiredTests: string[] };
+    if (entry.exerciseId === exerciseId && GRADERS[exerciseId]) {
+      return { graderVersion: entry.version, criteria: entry.requiredTests };
+    }
+  }
+  return null;
+}
+
+/** True when (exerciseId, criterion) has a semantic written grader. */
+export function hasWrittenGrader(exerciseId: string, criterion: string): boolean {
+  return Boolean(GRADERS[exerciseId]?.[criterion]);
+}
+
+/**
+ * Grade a written assessment response. Never throws: an unknown exercise
+ * yields no checks, and every criterion degrades to failed on empty input.
+ * The returned shape matches the Python suites' raw result so the same
+ * aggregation and evidence pipeline applies.
+ */
+export function gradeAssessmentWritten(exerciseId: string, response: string): AssessmentWrittenRaw {
+  const order = criterionOrder(exerciseId);
+  if (!order) {
+    return { graderVersion: "0.0.0", executionOk: true, tests: [] };
+  }
+  const trimmed = response.trim();
+  const tests = order.criteria.map(id => {
+    const predicate = GRADERS[exerciseId][id];
+    const result = trimmed ? predicate(trimmed) : { correct: false, detail: "no response" };
+    return {
+      id,
+      name: id.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
+      required: true as const,
+      passed: result.correct,
+      detail: result.detail,
+    };
+  });
+  return { graderVersion: order.graderVersion, executionOk: true, tests };
+}

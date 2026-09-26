@@ -1,177 +1,430 @@
 import { describe, expect, it } from "vitest";
-import { existsSync } from "node:fs";
-import { createDefaultState, migrateState, startOrResumeMission } from "../lib/state";
-import { selectToday } from "../lib/adaptive";
-import { failureResult, aggregateResult, verifyWorkerResult } from "../public/grading/protocol.js";
-import { getGrader } from "../public/grading/catalog.js";
-import type { LearningState } from "../lib/state";
+import {
+  DIAGNOSTIC_CODING_QUOTA,
+  DIAGNOSTIC_MAX_ITEMS,
+  DIAGNOSTIC_MIN_ITEMS,
+  DIAGNOSTIC_SESSION_VERSION,
+  answerConcept,
+  canCompleteDiagnostic,
+  classifyGradeResult,
+  completeDiagnosticSession,
+  createDiagnosticSession,
+  deriveDiagnosticProfile,
+  diagnosticSkillState,
+  markLegacyDiagnosticSession,
+  nextDiagnosticItem,
+  recordCodingOutcome,
+  saveDiagnosticDraft,
+  type ConceptGrader,
+  type DiagnosticSession,
+} from "../lib/diagnostic";
+import { DIAGNOSTIC_CORE_SKILLS, DIAGNOSTIC_ITEMS, type DiagnosticItem } from "../curriculum/diagnostic-items";
 
-// A missing bank is itself a broken content contract; this also gives a clean RED
-// before the diagnostic implementation exists.
-async function api() {
-  expect(existsSync("curriculum/diagnostic.ts"), "authored diagnostic bank exists").toBe(true);
-  return import("../lib/diagnostic");
+const alwaysCorrect: ConceptGrader = () => ({ correct: true, detail: "stub" });
+const byId = new Map(DIAGNOSTIC_ITEMS.map(i => [i.id, i]));
+
+function answerCurrentCorrectly(session: DiagnosticSession, grade: ConceptGrader = alwaysCorrect): DiagnosticSession {
+  const current = byId.get(session.currentItemId!);
+  if (!current) throw new Error("no current item");
+  if (current.kind === "concept") return answerConcept(session, current, "stub answer", grade);
+  return recordCodingOutcome(session, current,
+    { kind: "graded", passed: true, executionOk: true, graderVersion: "1.0.0" }, "stub code");
 }
-async function unableToAnswer(state:LearningState){
-  const d=await api();const s=d.currentDiagnostic(state)!;const item=d.getDiagnosticItem(s.currentItemId!)!;
-  if(item.kind==="code"){
-    const draft=d.diagnosticDraft(s,item);const request={type:"run" as const,requestId:crypto.randomUUID(),exerciseId:item.id,graderId:item.graderId!,files:draft.sourceFiles};
-    state=d.recordDiagnosticAttempt(state,s.id,item.id,request.requestId,draft.sourceFiles,aggregateResult(request,{executionOk:true,tests:getGrader(item.id,item.graderId!)!.requiredTests.map((id:string)=>({id,name:id,passed:false,required:true,detail:"Incorrect output"}))}));
-  }
-  return d.submitDiagnostic(state,s.id,item.id,{requestId:crypto.randomUUID(),skip:item.kind==="short"});
+
+type SyntheticResponse = {
+  skillId: string;
+  kind: "concept" | "coding";
+  correct: boolean;
+};
+
+/** Build an in-progress session from hand-authored responses, so completion
+ *  gates can be tested in isolation from the item-selection engine. */
+function syntheticSession(parts: SyntheticResponse[]): DiagnosticSession {
+  const responses = parts.map((part, i) => ({
+    itemId: `synthetic-${i}`,
+    skillId: part.skillId,
+    kind: part.kind,
+    correct: part.correct,
+    answer: "",
+    code: "",
+    hintsUsed: 0,
+    graderId: null,
+    graderVersion: null,
+    legacy: false,
+    respondedAt: "2026-09-13T12:00:00.000Z",
+  }));
+  return {
+    id: "synthetic",
+    formatVersion: DIAGNOSTIC_SESSION_VERSION,
+    status: "in-progress",
+    startedAt: "2026-09-13T12:00:00.000Z",
+    completedAt: null,
+    responses,
+    currentItemId: null,
+    draftAnswer: "",
+    draftCode: "",
+    draftHints: 0,
+    codingSuccessCount: responses.filter(r => r.kind === "coding" && r.correct && !r.legacy).length,
+    infraError: null,
+    profile: null,
+    recommendation: null,
+  };
 }
-describe("adaptive placement baseline", () => {
-  it("preserves legacy sessions read-only while excluding their evidence from placement",async()=>{
-    const d=await api();let state=d.startDiagnostic(createDefaultState());const session=d.currentDiagnostic(state)!;
-    state=d.saveDiagnosticDraft(state,session.id,session.currentItemId!,{answer:"23 str",sourceFiles:{},hintsUsed:0,aiAssisted:false});
-    state=d.submitDiagnostic(state,session.id,session.currentItemId!,{requestId:"historical-answer"});
-    const old=structuredClone(state);old.diagnostic.sessions![0].version="1.0.0";
-    const restored=migrateState(old);const history=restored.diagnostic.sessions![0];
-    expect(history.responses[0].id).toBe("historical-answer");
-    expect(history.legacy).toBe(true);
-    expect(history.profile.every(p=>p.band==="Untested" && p.evidenceCount===0)).toBe(true);
-    expect(d.placementRecommendation(restored,"mission").evidenceIds).toEqual([]);
-    const retake=d.startDiagnostic(restored,new Date(),true);
-    expect(retake.diagnostic.sessions).toHaveLength(2);
-    expect(d.currentDiagnostic(retake)!.status).toBe("active");
+
+function runConfidentPath(): DiagnosticSession {
+  let session = createDiagnosticSession(new Date("2026-09-13T12:00:00.000Z"));
+  let guard = 0;
+  while (nextDiagnosticItem(session) && guard++ < 40) session = answerCurrentCorrectly(session);
+  return session;
+}
+
+describe("diagnostic session lifecycle", () => {
+  it("creates an in-progress session with a stable id and current format version", () => {
+    const session = createDiagnosticSession(new Date("2026-09-13T12:00:00.000Z"));
+    expect(session.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(session.status).toBe("in-progress");
+    expect(session.formatVersion).toBe(DIAGNOSTIC_SESSION_VERSION);
+    expect(session.currentItemId).toBeTruthy();
   });
-  it("retains old grader trials as history without counting them toward coding evidence",async()=>{
-    const d=await api();let state=d.startDiagnostic(createDefaultState());state=await unableToAnswer(state);
-    state=await unableToAnswer(state);
-    const old=structuredClone(state);old.diagnostic.sessions![0].attempts[0].graderVersion="0.0.1";
-    const restored=migrateState(old);const session=d.currentDiagnostic(restored)!;
-    expect(session.attempts).toHaveLength(1);
-    expect(session.legacy).toBe(true);
-    expect(session.profile.every(p=>p.codingCount===0)).toBe(true);
+
+  it("stays focused on the first skill until it is observed before moving on", () => {
+    let session = createDiagnosticSession();
+    const firstSkill = nextDiagnosticItem(session)!.skillId;
+    // One correct answer is not decisive yet, so the engine keeps probing the same skill.
+    session = answerCurrentCorrectly(session);
+    expect(diagnosticSkillState(session, firstSkill)).not.toBe("observed");
+    const second = nextDiagnosticItem(session)!;
+    expect(second.skillId).toBe(firstSkill);
+    session = answerCurrentCorrectly(session);
+    expect(diagnosticSkillState(session, firstSkill)).toBe("observed");
+    // Only now may the engine move on to the next skill.
+    const third = nextDiagnosticItem(session)!;
+    expect(third.skillId).not.toBe(firstSkill);
   });
-  it.each([
-    ["modules-read","ROOT(81)",false], ["strings-easy","YTH",false],
-    ["exceptions-easy","don't catch ValueError around int conversion; skip the invalid row and keep later rows processing",false],
-    ["http-read","too many requests; don't wait for Retry-After before another request",false],
-    ["strings-hard","False; name = name.strip()",true],
-    ["exceptions-easy","Catch ValueError around int(text) inside the loop; skip the invalid row and continue processing later rows.",true],
-    ["http-read","429 means too many requests. Wait for the delay specified by Retry-After before retrying.",true],
-  ])("grades %s with item-specific semantics: %s",async(id,answer,passed)=>{
-    const d=await api();expect(d.gradeShortAnswer(d.getDiagnosticItem(id as string)!,answer as string).passed).toBe(passed);
+
+  it("confident path stops in 12-18 items with observed, uncertain, and untested skills", () => {
+    const session = runConfidentPath();
+    expect(session.responses.length).toBeGreaterThanOrEqual(DIAGNOSTIC_MIN_ITEMS);
+    expect(session.responses.length).toBeLessThanOrEqual(18);
+    expect(nextDiagnosticItem(session)).toBeNull();
+    const check = canCompleteDiagnostic(session);
+    expect(check.ok).toBe(true);
+    const completed = completeDiagnosticSession(session);
+    expect(completed.status).toBe("completed");
+    expect(completed.completedAt).toBeTruthy();
+    const profile = deriveDiagnosticProfile(completed);
+    const states = Object.values(profile.profile);
+    expect(states).toContain("observed");
+    expect(states).toContain("uncertain");
+    expect(states).toContain("untested");
+    // Confident path probes each skill in order until observed, stopping as
+    // soon as a skill is still genuinely uncertain after the quota is met.
+    expect(session.responses.length).toBe(15);
+    expect(states.filter(s => s === "observed")).toHaveLength(7);
+    expect(states.filter(s => s === "uncertain")).toHaveLength(1);
+    expect(states.filter(s => s === "untested")).toHaveLength(1);
+    expect(profile.recommendation.length).toBeGreaterThan(20);
   });
-  it("keeps unavailable and invalid execution out of attempts, responses and placement",async()=>{
-    const d=await api();let state=d.startDiagnostic(createDefaultState());state=await unableToAnswer(state);
-    const session=d.currentDiagnostic(state)!;const item=d.getDiagnosticItem(session.currentItemId!)!;const draft=d.diagnosticDraft(session,item);
-    const request={type:"run" as const,requestId:"unavailable",exerciseId:item.id,graderId:item.graderId!,files:draft.sourceFiles};
-    const before=structuredClone(state);
-    expect(()=>d.recordDiagnosticAttempt(state,session.id,item.id,request.requestId,draft.sourceFiles,failureResult(request,"Pyodide failed to load"))).toThrow(/not assessed|retry|unavailable/i);
-    expect(()=>d.submitDiagnostic(state,session.id,item.id,{requestId:"advance"})).toThrow(/run checks/i);
-    expect(state).toEqual(before);
-    const valid=aggregateResult(request,{executionOk:true,tests:getGrader(item.id,item.graderId!)!.requiredTests.map((id:string)=>({id,name:id,passed:true,required:true,detail:""}))});
-    for(const invalid of [{...valid,graderVersion:"stale"},{...valid,tests:[]},{...valid,score:0},{...valid,requestId:"old"}]){
-      expect(verifyWorkerResult(request,invalid)).toBeNull();
-      expect(()=>d.recordDiagnosticAttempt(state,session.id,item.id,request.requestId,draft.sourceFiles,invalid)).toThrow();
-      expect(state).toEqual(before);
+
+  it("never offers fewer than 12 or more than 25 items", () => {
+    const alternating: ConceptGrader = (() => { let n = 0; return () => ({ correct: (n++ % 2 === 0), detail: "stub" }); })();
+    let session = createDiagnosticSession();
+    let guard = 0;
+    while (nextDiagnosticItem(session) && guard++ < 60) {
+      const current = byId.get(session.currentItemId!)!;
+      session = current.kind === "concept"
+        ? answerConcept(session, current, "stub", alternating)
+        : recordCodingOutcome(session, current, { kind: "graded", passed: guard % 2 === 0, executionOk: true, graderVersion: "1.0.0" }, "code");
     }
-    state=d.recordDiagnosticAttempt(state,session.id,item.id,request.requestId,draft.sourceFiles,valid);
-    expect(d.currentDiagnostic(state)!.attempts).toHaveLength(1);
+    expect(session.responses.length).toBeLessThanOrEqual(DIAGNOSTIC_MAX_ITEMS);
+    expect(session.responses.length).toBeGreaterThanOrEqual(DIAGNOSTIC_MIN_ITEMS);
   });
-  it("provides validated stable content across every requested topic", async () => {
-    const d = await api();
-    expect(d.diagnosticItems.length).toBeGreaterThanOrEqual(40);
-    expect(new Set(d.diagnosticItems.map(i => i.id)).size).toBe(d.diagnosticItems.length);
-    expect(d.diagnosticSkills.map(s => s.id)).toEqual(["variables", "strings", "conditionals", "loops", "functions", "collections", "exceptions", "reasoning", "comprehensions", "modules", "files", "csv-json", "classes", "http", "data"]);
-    expect(d.validateDiagnosticContent().success).toBe(true);
-  });
-  it("probes core breadth first and resumes the exact question and draft", async () => {
-    const d = await api(); let state = d.startDiagnostic(createDefaultState());
-    const first = d.currentDiagnostic(state)!;
-    state = d.saveDiagnosticDraft(state, first.id, first.currentItemId!, { answer: "a draft", sourceFiles: {"main.py": "print('kept')"}, hintsUsed: 1, aiAssisted: true });
-    const reloaded = migrateState(JSON.parse(JSON.stringify(state)));
-    expect(d.startDiagnostic(reloaded)).toEqual(reloaded);
-    expect(d.currentDiagnostic(reloaded)?.drafts[first.currentItemId!]).toMatchObject({ answer: "a draft", hintsUsed: 1, aiAssisted: true });
-    const seen = [];
-    for (let n = 0; n < 8; n++) {
-      const session = d.currentDiagnostic(state)!; const item = d.getDiagnosticItem(session.currentItemId!)!;
-      seen.push(item.skillId); state = await unableToAnswer(state);
+
+  it("conflicted path can continue toward 25 while evidence stays uncertain", () => {
+    let n = 0;
+    const flaky: ConceptGrader = () => ({ correct: (n++ % 3 !== 0), detail: "stub" });
+    let session = createDiagnosticSession();
+    let guard = 0;
+    while (nextDiagnosticItem(session) && guard++ < 60) {
+      const current = byId.get(session.currentItemId!)!;
+      session = current.kind === "concept"
+        ? answerConcept(session, current, "stub", flaky)
+        : recordCodingOutcome(session, current, { kind: "graded", passed: false, executionOk: true, graderVersion: "1.0.0" }, "code");
     }
-    expect(new Set(seen).size).toBe(8);
+    // Uncertain evidence keeps the engine probing instead of stopping early.
+    expect(session.responses.length).toBeGreaterThan(DIAGNOSTIC_MIN_ITEMS);
   });
-  it("normalizes precise answers, accepts semantic equivalents, and rejects keyword soup", async () => {
-    const d = await api();
-    expect(d.gradeShortAnswer(d.getDiagnosticItem("variables-read")!, "  23, STR  ").passed).toBe(true);
-    expect(d.gradeShortAnswer(d.getDiagnosticItem("variables-read")!, "5 int").passed).toBe(false);
-    expect(d.gradeShortAnswer(d.getDiagnosticItem("exceptions-easy")!, "Catch ValueError around int conversion; skip that row and keep processing the others.").passed).toBe(true);
-    expect(d.gradeShortAnswer(d.getDiagnosticItem("exceptions-easy")!, "ValueError int skip conversion").passed).toBe(false);
-    expect(d.gradeShortAnswer(d.getDiagnosticItem("exceptions-easy")!, "Do not catch ValueError; stop processing all rows.").passed).toBe(false);
+
+  it("a 12-response session covering only two skills cannot complete", () => {
+    const parts: SyntheticResponse[] = [];
+    for (let i = 0; i < 4; i++) parts.push({ skillId: "python-functions", kind: "concept", correct: true });
+    for (let i = 0; i < 2; i++) parts.push({ skillId: "python-functions", kind: "coding", correct: true });
+    for (let i = 0; i < 6; i++) parts.push({ skillId: "python-exceptions", kind: "concept", correct: true });
+    const session = syntheticSession(parts);
+    expect(session.responses.length).toBe(12);
+    expect(session.codingSuccessCount).toBe(DIAGNOSTIC_CODING_QUOTA);
+    const check = canCompleteDiagnostic(session);
+    expect(check.ok).toBe(false);
+    expect(check.reasons.join(" ")).toMatch(/skill/i);
+    expect(() => completeDiagnosticSession(session)).toThrow(/skill/i);
   });
-  it("finishes only after breadth, 12 minimum questions and five executable submissions; caps uncertainty at 25", async () => {
-    const d = await api(); let state = d.startDiagnostic(createDefaultState());
-    for (let n = 0; n < 25; n++) {
-      const s = d.currentDiagnostic(state)!;
-      expect(s.status).toBe("active");
-      state = await unableToAnswer(state);
-      if (n < 11) expect(d.currentDiagnostic(state)?.status).toBe("active");
+
+  it("needs a genuinely uncertain skill and completes once one appears", () => {
+    const parts: SyntheticResponse[] = [];
+    DIAGNOSTIC_CORE_SKILLS.slice(0, 6).forEach((skillId, index) => {
+      parts.push({ skillId, kind: "concept", correct: true });
+      // Two successful Python executions for the quota, on two different skills.
+      parts.push({ skillId, kind: index < 2 ? "coding" : "concept", correct: true });
+    });
+    const allDecided = syntheticSession(parts);
+    expect(allDecided.responses.length).toBe(12);
+    expect(allDecided.codingSuccessCount).toBe(DIAGNOSTIC_CODING_QUOTA);
+    const blocked = canCompleteDiagnostic(allDecided);
+    expect(blocked.ok).toBe(false);
+    expect(blocked.reasons.join(" ")).toMatch(/uncertain/i);
+    // One more response that leaves a seventh skill genuinely uncertain.
+    const withUncertain = syntheticSession([
+      ...parts,
+      { skillId: DIAGNOSTIC_CORE_SKILLS[6], kind: "concept", correct: true },
+    ]);
+    expect(canCompleteDiagnostic(withUncertain).ok).toBe(true);
+    const completed = completeDiagnosticSession(withUncertain);
+    expect(deriveDiagnosticProfile(completed).profile[DIAGNOSTIC_CORE_SKILLS[6]]).toBe("uncertain");
+  });
+
+  it("requires the coding quota and refuses completion with zero successful executions", () => {
+    let session = createDiagnosticSession();
+    let guard = 0;
+    while (nextDiagnosticItem(session) && guard++ < 40) {
+      const current = byId.get(session.currentItemId!)!;
+      session = current.kind === "concept"
+        ? answerConcept(session, current, "right", alwaysCorrect)
+        : recordCodingOutcome(session, current, { kind: "graded", passed: false, executionOk: true, graderVersion: "1.0.0" }, "wrong code");
     }
-    const s = d.currentDiagnostic(state)!;
-    expect(s.status).toBe("completed");
-    expect(s.responses).toHaveLength(25);
-    expect(s.responses.filter(r => d.getDiagnosticItem(r.itemId)?.kind === "code").length).toBeGreaterThanOrEqual(5);
-    expect(d.selectDiagnosticItem(s)).toBeUndefined();
-    expect(s.profile.some(p => p.band === "Untested")).toBe(true);
-    expect(s.profile.every(p => p.band !== "Strong evidence")).toBe(true);
+    expect(session.codingSuccessCount).toBe(0);
+    const check = canCompleteDiagnostic(session);
+    expect(check.ok).toBe(false);
+    expect(check.reasons.join(" ")).toMatch(/coding/i);
+    expect(() => completeDiagnosticSession(session)).toThrow(/coding/i);
   });
-  it("rejects stale item/results, keeps submission retries idempotent, and preserves assistance", async () => {
-    const d = await api(); let state = d.startDiagnostic(createDefaultState()); const s = d.currentDiagnostic(state)!;
-    const item = d.getDiagnosticItem(s.currentItemId!)!;
-    state = d.saveDiagnosticDraft(state, s.id, item.id, { answer: "23 str", sourceFiles: {}, hintsUsed: 1, aiAssisted: true });
-    const request = { requestId: crypto.randomUUID() };
-    state = d.submitDiagnostic(state, s.id, item.id, request);
-    expect(d.submitDiagnostic(state, s.id, item.id, request)).toEqual(state);
-    expect(() => d.submitDiagnostic(state, s.id, item.id, { requestId: crypto.randomUUID() })).toThrow(/current|stale/i);
-    expect(d.currentDiagnostic(state)?.responses[0]).toMatchObject({ hintsUsed: 1, aiAssisted: true });
-    expect(state.mastery).toEqual({}); expect(state.missionRuns).toEqual([]); expect(state.attempts).toEqual([]);
+
+  it("re-offers a failed coding item instead of soft-locking when the quota is unreachable from fresh items", () => {
+    const alwaysWrong: ConceptGrader = () => ({ correct: false, detail: "stub" });
+    let session = createDiagnosticSession();
+    const failedCodingIds = new Set<string>();
+    let retried: DiagnosticItem | null = null;
+    let guard = 0;
+    while (guard++ < 60) {
+      const current = session.currentItemId ? byId.get(session.currentItemId)! : null;
+      if (!current) break;
+      if (current.kind === "coding") {
+        if (failedCodingIds.has(current.id)) { retried = current; break; }
+        failedCodingIds.add(current.id);
+        session = recordCodingOutcome(session, current,
+          { kind: "graded", passed: false, executionOk: true, graderVersion: "1.0.0" }, "broken code");
+      } else {
+        session = answerConcept(session, current, "wrong", alwaysWrong);
+      }
+    }
+    // Every coding item was failed, so the quota cannot be met from fresh
+    // items. The engine must offer a failed coding item for another attempt
+    // rather than marching through concepts to an uncompletable dead end.
+    expect(failedCodingIds.size).toBeGreaterThan(0);
+    expect(session.codingSuccessCount).toBe(0);
+    expect(retried).not.toBeNull();
+    expect(retried!.kind).toBe("coding");
+    // Passing the retry counts toward the quota.
+    const after = recordCodingOutcome({ ...session, currentItemId: retried!.id }, retried!,
+      { kind: "graded", passed: true, executionOk: true, graderVersion: "1.0.0" }, "fixed code");
+    expect(after.codingSuccessCount).toBe(1);
   });
-  it("uses placement evidence in Today while always resuming a mission first", async () => {
-    const d = await api(); let state = d.startDiagnostic(createDefaultState());
-    while(d.currentDiagnostic(state)?.status === "active") state=await unableToAnswer(state);
-    const selection = selectToday(state, new Date());
-    expect(selection.reason).toMatch(/placement|baseline/i);
-    expect(selection.evidenceIds?.length).toBeGreaterThan(0);
-    state = startOrResumeMission(state);
-    expect(selectToday(state, new Date()).kind).toBe("resume");
-    expect(state.missionRuns[0].status).toBe("active");
-    expect(Object.keys(state.mastery)).toHaveLength(0);
+
+  it("counts only current-version successful executions toward the quota", () => {
+    let session = createDiagnosticSession();
+    // Answer everything correctly except coding items use a legacy grader version.
+    let guard = 0;
+    while (nextDiagnosticItem(session) && guard++ < 40) {
+      const current = byId.get(session.currentItemId!)!;
+      session = current.kind === "concept"
+        ? answerConcept(session, current, "right", alwaysCorrect)
+        : recordCodingOutcome(session, current, { kind: "graded", passed: true, executionOk: true, graderVersion: "0.9.0" }, "code");
+    }
+    expect(session.codingSuccessCount).toBe(0);
+    expect(session.responses.filter(r => r.legacy).length).toBeGreaterThan(0);
+    expect(canCompleteDiagnostic(session).ok).toBe(false);
   });
-  it("requires a coding attempt even when the learner cannot solve the item",async()=>{
-    const d=await api();let state=d.startDiagnostic(createDefaultState());state=await unableToAnswer(state);
-    const s=d.currentDiagnostic(state)!;
-    expect(()=>d.submitDiagnostic(state,s.id,s.currentItemId!,{requestId:crypto.randomUUID(),skip:true})).toThrow(/run checks/i);
+});
+
+describe("infrastructure failures create no evidence", () => {
+  it("infra outcome records no response, no credit, and a retryable error preserving code", () => {
+    let session = createDiagnosticSession();
+    // Advance to a coding item.
+    let guard = 0;
+    while (session.currentItemId && byId.get(session.currentItemId)!.kind !== "coding" && guard++ < 20) {
+      session = answerCurrentCorrectly(session);
+    }
+    const codingItem = byId.get(session.currentItemId!)!;
+    expect(codingItem.kind).toBe("coding");
+    const before = session.responses.length;
+    session = recordCodingOutcome(session, codingItem, { kind: "infra", message: "Pyodide failed to load" }, "my precious code");
+    expect(session.responses.length).toBe(before);
+    expect(session.codingSuccessCount).toBe(0);
+    expect(session.infraError?.message).toMatch(/Pyodide/);
+    expect(session.draftCode).toBe("my precious code");
+    expect(session.currentItemId).toBe(codingItem.id);
   });
-  it("selects harder confirmations, easier repair and stops a varied confident skill",async()=>{
-    const d=await api();const state=d.startDiagnostic(createDefaultState());const session=d.currentDiagnostic(state)!;
-    session.responses=["variables-read","strings-code","conditionals-code","loops-code","functions-code","collections-code","exceptions-read","reasoning-read"].map((itemId,n)=>({id:`r${n}`,itemId,answer:"",outcome:"passed" as const,feedback:"",attemptId:itemId.endsWith("code")?`a${n}`:null,hintsUsed:0,aiAssisted:false,completedAt:new Date().toISOString()}));
-    expect(d.selectDiagnosticItem(session)?.id).toBe("variables-code");
-    session.responses[0].outcome="needs-practice";
-    expect(d.selectDiagnosticItem(session)?.id).toBe("variables-easy");
-    session.responses[0].outcome="passed";
-    session.responses.push({...session.responses[0],id:"r-confirm",itemId:"variables-code",attemptId:"a-confirm"});
-    expect(d.deriveDiagnosticProfile(session)[0]).toMatchObject({band:"Strong evidence",confidence:"Varied",responseIds:["r0","r-confirm"]});
-    expect(d.selectDiagnosticItem(session)?.skillId).not.toBe("variables");
-    session.responses.at(-1)!.hintsUsed=1;
-    expect(d.deriveDiagnosticProfile(session)[0].band).toBe("Working evidence");
+
+  it("retry after recovery records the graded response and clears the error", () => {
+    let session = createDiagnosticSession();
+    let guard = 0;
+    while (session.currentItemId && byId.get(session.currentItemId)!.kind !== "coding" && guard++ < 20) {
+      session = answerCurrentCorrectly(session);
+    }
+    const codingItem = byId.get(session.currentItemId!)!;
+    session = recordCodingOutcome(session, codingItem, { kind: "infra", message: "timeout" }, "code v1");
+    const cleared = { ...session, infraError: null };
+    const after = recordCodingOutcome(cleared, codingItem, { kind: "graded", passed: true, executionOk: true, graderVersion: "1.0.0" }, "code v1");
+    expect(after.infraError).toBeNull();
+    expect(after.responses.length).toBe(session.responses.length + 1);
+    expect(after.responses.at(-1)?.correct).toBe(true);
+    expect(after.codingSuccessCount).toBe(1);
   });
-  it("rejects a worker result after code edits and refuses forged saved practical claims",async()=>{
-    const d=await api();let state=d.startDiagnostic(createDefaultState());state=await unableToAnswer(state);
-    const session=d.currentDiagnostic(state)!;const item=d.getDiagnosticItem(session.currentItemId!)!;const draft=d.diagnosticDraft(session,item);
-    const request={type:"run" as const,requestId:crypto.randomUUID(),exerciseId:item.id,graderId:item.graderId!,files:draft.sourceFiles};
-    const grader=getGrader(item.id,item.graderId!)!;
-    const result=aggregateResult(request,{executionOk:true,tests:grader.requiredTests.map((id:string)=>({id,name:id,passed:true,required:true,detail:""}))});
-    state=d.saveDiagnosticDraft(state,session.id,item.id,{...draft,sourceFiles:{"main.py":"# changed"}});
-    expect(()=>d.recordDiagnosticAttempt(state,session.id,item.id,request.requestId,draft.sourceFiles,result)).toThrow(/stale/i);
-    const forged=JSON.parse(JSON.stringify(state));forged.diagnostic.sessions[0].responses[0].outcome="passed";
-    expect(()=>migrateState(forged)).toThrow(/conceptual evidence/i);
+
+  it("classifies runner failure results as infrastructure, learner crashes as graded", () => {
+    const infra = { requestId: "r", executionOk: false, passed: false, tests: [{ id: "execution", name: "x", required: true, passed: false, detail: "timed out" }] };
+    expect(classifyGradeResult(infra)).toBe("infra");
+    const learnerCrash = { requestId: "r", executionOk: false, passed: false, tests: [{ id: "sample", name: "x", required: true, passed: false, detail: "traceback" }] };
+    expect(classifyGradeResult(learnerCrash)).toBe("graded");
   });
-  it("keeps failed coding trials visible when a later revision passes",async()=>{
-    const d=await api();const session=d.currentDiagnostic(d.startDiagnostic(createDefaultState()))!;
-    const time=new Date().toISOString();
-    session.responses=[{id:"answer",itemId:"strings-code",answer:"",outcome:"passed",feedback:"",attemptId:"passed-trial",hintsUsed:0,aiAssisted:false,completedAt:time}];
-    session.attempts=[{id:"failed-trial",itemId:"strings-code",sourceFiles:{"main.py":"return ''"},graderId:"diag-strings-v1",graderVersion:"1.1.0",passed:false,executionOk:true,checks:[],hintsUsed:0,aiAssisted:false,completedAt:time},{id:"passed-trial",itemId:"strings-code",sourceFiles:{"main.py":"return value.strip()"},graderId:"diag-strings-v1",graderVersion:"1.1.0",passed:true,executionOk:true,checks:[],hintsUsed:0,aiAssisted:false,completedAt:time}];
-    expect(d.deriveDiagnosticProfile(session).find(p=>p.skillId==="strings")).toMatchObject({confidence:"Conflicting",attemptIds:["failed-trial","passed-trial"]});
+
+  it("ignored outcomes change nothing and preserve the draft", () => {
+    let session = createDiagnosticSession();
+    let guard = 0;
+    while (session.currentItemId && byId.get(session.currentItemId)!.kind !== "coding" && guard++ < 20) {
+      session = answerCurrentCorrectly(session);
+    }
+    const codingItem = byId.get(session.currentItemId!)!;
+    const before = session.responses.length;
+    const after = recordCodingOutcome({ ...session, draftCode: "draft" }, codingItem,
+      { kind: "ignored", reason: "grader-version-mismatch" }, "draft");
+    expect(after.responses.length).toBe(before);
+    expect(after.codingSuccessCount).toBe(0);
+    expect(after.draftCode).toBe("draft");
+    expect(after.infraError).toBeNull();
+    expect(after.currentItemId).toBe(codingItem.id);
+  });
+});
+
+describe("stale identifiers are rejected", () => {
+  it("rejects answers and coding outcomes for a non-current item", () => {
+    const session = createDiagnosticSession();
+    const other = DIAGNOSTIC_ITEMS.find(i => i.id !== session.currentItemId)!;
+    expect(() => answerConcept(session, other, "x", alwaysCorrect)).toThrow(/current/i);
+    expect(() => recordCodingOutcome(session, other, { kind: "graded", passed: true, executionOk: true, graderVersion: "1.0.0" }, "x")).toThrow(/current/i);
+  });
+});
+
+describe("legacy grader versions", () => {
+  it("preserves old-version responses, marks them legacy, and excludes them from placement", () => {
+    let session = createDiagnosticSession();
+    let guard = 0;
+    while (session.currentItemId && byId.get(session.currentItemId)!.kind !== "coding" && guard++ < 20) {
+      session = answerCurrentCorrectly(session);
+    }
+    const codingItem = byId.get(session.currentItemId!)!;
+    session = recordCodingOutcome(session, codingItem, { kind: "graded", passed: true, executionOk: true, graderVersion: "0.0.0" }, "code");
+    const response = session.responses.at(-1)!;
+    expect(response.legacy).toBe(true);
+    expect(session.codingSuccessCount).toBe(0);
+    const profile = deriveDiagnosticProfile(session);
+    expect(profile.legacyCount).toBe(1);
+    // Legacy evidence alone cannot make a skill observed.
+    expect(profile.profile[codingItem.skillId]).not.toBe("observed");
+  });
+
+  it("marks every response of an old-format session legacy and zeroes its quota contribution", () => {
+    let session = createDiagnosticSession();
+    session = answerCurrentCorrectly(session);
+    const oldFormat = { ...session, formatVersion: "0.9.0", codingSuccessCount: 2 };
+    expect(oldFormat.responses.every(r => !r.legacy)).toBe(true);
+
+    const marked = markLegacyDiagnosticSession(oldFormat);
+
+    expect(marked.formatVersion).toBe("0.9.0");
+    expect(marked.id).toBe(session.id);
+    expect(marked.responses).toHaveLength(1);
+    expect(marked.responses.every(r => r.legacy)).toBe(true);
+    expect(marked.codingSuccessCount).toBe(0);
+    // Legacy responses cannot make a skill observed.
+    expect(deriveDiagnosticProfile(marked).profile[marked.responses[0].skillId]).not.toBe("observed");
+  });
+
+  it("leaves current-format sessions untouched", () => {
+    const session = answerCurrentCorrectly(createDiagnosticSession());
+    expect(markLegacyDiagnosticSession(session)).toBe(session);
+  });
+});
+
+describe("completed sessions are immutable and retakes create new sessions", () => {
+  it("refuses to record on a completed session", () => {
+    const completed = completeDiagnosticSession(runConfidentPath());
+    const current = byId.get(completed.currentItemId ?? DIAGNOSTIC_ITEMS[0].id)!;
+    expect(() => answerConcept(completed, current, "x", alwaysCorrect)).toThrow(/completed/i);
+    expect(() => recordCodingOutcome(completed, current, { kind: "graded", passed: true, executionOk: true, graderVersion: "1.0.0" }, "x")).toThrow(/completed/i);
+  });
+
+  it("gives each retake a fresh id", () => {
+    const first = createDiagnosticSession();
+    const second = createDiagnosticSession();
+    expect(first.id).not.toBe(second.id);
+  });
+
+  it("never fabricates mission completion or mastery", () => {
+    const completed = completeDiagnosticSession(runConfidentPath());
+    const keys = Object.keys(completed);
+    for (const forbidden of ["attempts", "missionRuns", "mastery", "missionsCompleted"]) {
+      expect(keys, `session must not contain ${forbidden}`).not.toContain(forbidden);
+    }
+  });
+});
+
+describe("draft preservation", () => {
+  it("keeps answer, code, and hints through a JSON round-trip (reload)", () => {
+    const session = createDiagnosticSession();
+    const withDraft = { ...session, draftAnswer: "partial answer", draftCode: "partial code", draftHints: 2 };
+    const reloaded = JSON.parse(JSON.stringify(withDraft)) as DiagnosticSession;
+    expect(reloaded.draftAnswer).toBe("partial answer");
+    expect(reloaded.draftCode).toBe("partial code");
+    expect(reloaded.draftHints).toBe(2);
+    expect(reloaded.currentItemId).toBe(session.currentItemId);
+  });
+  it("saves drafts without recording a response", () => {
+    const session = createDiagnosticSession();
+    const saved = saveDiagnosticDraft(session, { answer: "a", code: "c", hints: 1 });
+    expect(saved.draftAnswer).toBe("a");
+    expect(saved.draftCode).toBe("c");
+    expect(saved.draftHints).toBe(1);
+    expect(saved.responses).toHaveLength(0);
+    expect(saved.currentItemId).toBe(session.currentItemId);
+    // Partial updates keep the other fields.
+    const partial = saveDiagnosticDraft(saved, { code: "c2" });
+    expect(partial.draftAnswer).toBe("a");
+    expect(partial.draftCode).toBe("c2");
+  });
+  it("refuses draft changes on a completed session", () => {
+    const completed = { ...createDiagnosticSession(), status: "completed" as const };
+    expect(() => saveDiagnosticDraft(completed, { answer: "x" })).toThrow(/immutable/i);
+  });
+});
+
+describe("profile derivation", () => {
+  it("marks untouched skills untested", () => {
+    const session = createDiagnosticSession();
+    const profile = deriveDiagnosticProfile(session);
+    for (const skillId of DIAGNOSTIC_CORE_SKILLS) expect(profile.profile[skillId]).toBe("untested");
+  });
+
+  it("coding quota constant is positive", () => {
+    expect(DIAGNOSTIC_CODING_QUOTA).toBeGreaterThan(0);
   });
 });

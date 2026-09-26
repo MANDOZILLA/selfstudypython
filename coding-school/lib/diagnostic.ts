@@ -1,156 +1,286 @@
 import { z } from "zod";
-import { diagnosticItems, diagnosticSkills } from "../curriculum/diagnostic";
-import { diagnosticItemSchema, diagnosticStateSchema, type DiagnosticDraft, type DiagnosticItem, type DiagnosticProfile, type DiagnosticSession } from "./diagnostic-types";
-import type { LearningState } from "./state";
-import type { GradeResult } from "./runner";
+import { DIAGNOSTIC_CORE_SKILLS, DIAGNOSTIC_ITEMS, type DiagnosticItem } from "../curriculum/diagnostic-items";
 import { getGrader } from "../public/grading/catalog.js";
-import { verifyWorkerResult } from "../public/grading/protocol.js";
-export { diagnosticItems, diagnosticSkills };
-export const getDiagnosticItem = (id: string) => diagnosticItems.find(i => i.id === id);
-export const currentDiagnostic = (state: LearningState) => state.diagnostic.sessions?.at(-1);
-export const isLegacyDiagnostic = (session: DiagnosticSession) => Boolean(session.legacy || session.version !== "1.1.0" || session.attempts.some(a => getGrader(a.itemId,a.graderId)?.version !== a.graderVersion));
-export const diagnosticDraft = (session: DiagnosticSession, item: DiagnosticItem): DiagnosticDraft => session.drafts[item.id] ?? { answer: "", sourceFiles: item.kind === "code" ? {"main.py": item.starter!} : {}, hintsUsed: 0, aiAssisted: false };
-const copy = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
-const filesEqual = (a: Record<string,string>, b: Record<string,string>) => Object.keys(a).length === Object.keys(b).length && Object.entries(a).every(([k,v]) => b[k] === v);
-const normalize = (text: string) => text.normalize("NFKC").replace(/[`'"\[\],]/g, " ").replace(/\s+/g, " ").trim();
-function matchesShortItem(item: DiagnosticItem, answer: string): boolean {
-  const text = answer.normalize("NFKC").replaceAll("’", "'").replace(/`/g, "").trim();
-  if (item.id === "modules-read") return /^root\s*\(\s*81\s*\)$/.test(text);
-  if (item.id === "strings-hard") return /^False\s*[;,]?\s*name\s*=\s*name\s*\.\s*strip\s*\(\s*\)\s*;?$/.test(text);
-  if (item.id === "exceptions-easy") {
-    if (/\b(?:not|never|don'?t|avoid|without)\b|catch all|BaseException/i.test(text)) return false;
-    return /\b(?:catch|except|handle)\s+(?:the\s+)?ValueError\b/i.test(text) && /\b(?:int\s*\(|int conversion|integer conversion|conversion|convert)/i.test(text) && /\b(?:around|inside|within|each|per)\b.{0,25}\b(?:loop|row|conversion|int)\b/i.test(text) && /\b(?:skip|ignore)\b.{0,25}\b(?:invalid|bad|that)\b.{0,10}\b(?:row|record)\b/i.test(text) && /\b(?:continue|keep)\b.{0,30}\b(?:later|next|remaining|processing)\b/i.test(text);
-  }
-  if (item.id === "http-read") {
-    if (/\b(?:not|never|don'?t|avoid|without|ignore|immediate\w*)\b/i.test(text)) return false;
-    return /\b(?:too many requests|rate[ -]limit(?:ed|ing)?)\b/i.test(text) && /\b(?:wait|delay|back[ -]?off)\b.{0,70}\bretry[ -]after\b/i.test(text);
-  }
-  const caseSensitive = ["strings-easy", "reasoning-easy", "classes-easy", "files-read", "files-easy", "exceptions-read", "csv-json-read"].includes(item.id);
-  return (item.rubric?.accepted ?? []).some(value => caseSensitive ? normalize(value) === normalize(text) : normalize(value).toLowerCase() === normalize(text).toLowerCase());
+
+/** Bump when the item bank or a diagnostic grader changes meaningfully. */
+export const DIAGNOSTIC_SESSION_VERSION = "1.0.0";
+export const DIAGNOSTIC_MIN_ITEMS = 12;
+export const DIAGNOSTIC_MAX_ITEMS = 25;
+/** Successful Python executions required before a diagnostic may complete. Never zero. */
+export const DIAGNOSTIC_CODING_QUOTA = 2;
+
+export type DiagnosticProfileState = "observed" | "uncertain" | "untested";
+
+export const diagnosticResponseSchema = z.object({
+  itemId: z.string().min(1),
+  skillId: z.string().min(1),
+  kind: z.enum(["concept", "coding"]),
+  correct: z.boolean(),
+  answer: z.string(),
+  code: z.string(),
+  hintsUsed: z.number().int().nonnegative(),
+  graderId: z.string().nullable(),
+  graderVersion: z.string().nullable(),
+  legacy: z.boolean(),
+  respondedAt: z.string(),
+});
+export type DiagnosticResponse = z.infer<typeof diagnosticResponseSchema>;
+
+export const diagnosticInfraErrorSchema = z.object({ message: z.string(), at: z.string() });
+export const diagnosticSessionSchema = z.object({
+  id: z.string().min(1),
+  formatVersion: z.string().min(1),
+  status: z.enum(["in-progress", "completed"]),
+  startedAt: z.string(),
+  completedAt: z.string().nullable(),
+  responses: z.array(diagnosticResponseSchema),
+  currentItemId: z.string().nullable(),
+  draftAnswer: z.string(),
+  draftCode: z.string(),
+  draftHints: z.number().int().nonnegative(),
+  codingSuccessCount: z.number().int().nonnegative(),
+  infraError: diagnosticInfraErrorSchema.nullable(),
+  profile: z.record(z.string(), z.enum(["observed", "uncertain", "untested"])).nullable(),
+  recommendation: z.string().nullable(),
+});
+export type DiagnosticSession = z.infer<typeof diagnosticSessionSchema>;
+
+/** Injected semantic grader so the engine stays decoupled from the grading module. */
+export type ConceptGrader = (itemId: string, answer: string) => { correct: boolean; detail: string };
+export type CodingOutcome =
+  | { kind: "graded"; passed: boolean; executionOk: boolean; graderVersion: string }
+  | { kind: "infra"; message: string }
+  | { kind: "ignored"; reason: string };
+
+function clone<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T; }
+const nowIso = (now?: Date) => (now ?? new Date()).toISOString();
+function randomId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return `diag-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
 }
-export function gradeShortAnswer(item: DiagnosticItem, answer: string) {
-  const passed = item.kind === "short" && matchesShortItem(item, answer);
-  return { passed, feedback: passed ? "This response matches the authored rubric. It is conceptual evidence only." : "This response did not establish the requested behavior. The placement will treat it as an area to revisit; no solution is revealed." };
+
+/** Only current-format evidence counts toward placement confidence and coding quotas. */
+const validResponses = (session: DiagnosticSession, skillId: string) =>
+  session.responses.filter(r => r.skillId === skillId && !r.legacy);
+
+function decisive(responses: DiagnosticResponse[]): boolean {
+  const correct = responses.filter(r => r.correct);
+  const incorrect = responses.filter(r => !r.correct);
+  return correct.some(r => r.kind === "coding") || correct.length >= 2 || incorrect.length >= 2;
 }
-export function deriveDiagnosticProfile(session: DiagnosticSession): DiagnosticProfile[] {
-  return diagnosticSkills.map(skill => {
-    const responses = session.responses.filter(r => getDiagnosticItem(r.itemId)?.skillId === skill.id);
-    const observed = isLegacyDiagnostic(session) ? [] : responses.filter(r => r.outcome !== "skipped");
-    const conceptual = observed.filter(r => getDiagnosticItem(r.itemId)?.kind === "short");
-    const coding = observed.filter(r => r.attemptId !== null);
-    const trials = isLegacyDiagnostic(session) ? [] : session.attempts.filter(a=>responses.some(r=>r.itemId===a.itemId));
-    const independent = observed.filter(r => r.outcome === "passed" && !r.hintsUsed && !r.aiAssisted);
-    const failures = observed.some(r => r.outcome === "needs-practice") || trials.some(a=>!a.passed);
-    const conflict = failures && observed.some(r => r.outcome === "passed");
-    const varied = independent.some(r => getDiagnosticItem(r.itemId)?.kind === "short") && independent.some(r => getDiagnosticItem(r.itemId)?.kind === "code") && !failures;
-    const band = !observed.length ? "Untested" : varied ? "Strong evidence" : failures ? "Needs practice" : "Working evidence";
-    return { skillId: skill.id, band, confidence: !observed.length ? "None" : conflict ? "Conflicting" : varied ? "Varied" : "Limited", evidenceCount: observed.length, conceptualCount: conceptual.length, codingCount: coding.length, latestResult: responses.at(-1)?.outcome ?? null,
-      responseIds: responses.map(r => r.id), attemptIds: trials.map(a=>a.id),
-      notes: !observed.length ? responses.length ? "Presented but not attempted; ability remains untested." : "No question sampled this skill." : `${conceptual.length} conceptual response(s), ${coding.length} coding response(s). ${varied ? "Independent success in both forms; placement evidence only, not mastery." : conflict ? "The responses disagree; additional practical work is needed." : coding.length ? "Limited practical evidence; varied independent work is still needed." : "No executable evidence yet; conceptual answers do not establish practical strength."}${observed.some(r=>r.hintsUsed||r.aiAssisted) ? " Assistance was used and limits independent claims." : ""}` };
-  });
+
+export function diagnosticSkillState(session: DiagnosticSession, skillId: string): DiagnosticProfileState {
+  const evidence = validResponses(session, skillId);
+  if (!evidence.length) return "untested";
+  return decisive(evidence) ? "observed" : "uncertain";
 }
-/** Stable authored ordering breaks ties. First probe all eight foundations, then
- * use harder/mixed-format confirmations or easier repairs, capped at 25 items. */
-export function selectDiagnosticItem(session: DiagnosticSession): DiagnosticItem | undefined {
-  const answered = new Set(session.responses.map(r => r.itemId));
-  if (answered.size >= 25) return undefined;
-  const profile = deriveDiagnosticProfile(session);
-  const core = diagnosticSkills.filter(s => s.core);
-  for (const skill of core) if (!session.responses.some(r=>getDiagnosticItem(r.itemId)?.skillId===skill.id)) return diagnosticItems.find(i=>i.skillId===skill.id && i.difficulty===2);
-  const codingCount = isLegacyDiagnostic(session) ? 0 : session.responses.filter(r=>r.attemptId!==null).length;
-  const coreProfile=profile.filter(p=>core.some(s=>s.id===p.skillId));
-  if (answered.size>=12 && codingCount>=5 && coreProfile.filter(p=>p.band==="Strong evidence").length>=4 && coreProfile.every(p=>p.latestResult==="passed" && p.confidence!=="Conflicting")) return undefined;
-  let candidates=diagnosticItems.filter(i=>!answered.has(i.id) && profile.find(p=>p.skillId===i.skillId)?.band!=="Strong evidence");
-  if (25-answered.size <= 5-codingCount) candidates=candidates.filter(i=>i.kind==="code");
-  const weight=(item: DiagnosticItem) => {
-    const p=profile.find(p=>p.skillId===item.skillId)!;
-    const last=session.responses.filter(r=>getDiagnosticItem(r.itemId)?.skillId===item.skillId).at(-1);
-    const target=last?.outcome==="passed" && !last.hintsUsed && !last.aiAssisted ? 3 : last ? 1 : 2;
-    const mixed=last && getDiagnosticItem(last.itemId)?.kind!==item.kind;
-    return (p.confidence==="Conflicting"?100:0)+(p.band==="Needs practice"?30:0)+(last?40:0)+(diagnosticSkills.find(s=>s.id===item.skillId)?.core?20:0)-Math.abs(target-item.difficulty)*8+(mixed && last?.outcome==="passed"?10:0);
+
+/** Sessions stored under an older format version keep their history, but every
+ *  response becomes Legacy / unverified: it stops counting toward placement
+ *  confidence and the coding quota. Nothing is deleted. */
+export function markLegacyDiagnosticSession(session: DiagnosticSession): DiagnosticSession {
+  if (session.formatVersion === DIAGNOSTIC_SESSION_VERSION) return session;
+  return {
+    ...clone(session),
+    responses: session.responses.map(response => ({ ...response, legacy: true })),
+    codingSuccessCount: 0,
   };
-  return candidates.sort((a,b)=>weight(b)-weight(a))[0];
 }
-export function startDiagnostic(state: LearningState, now=new Date(), retake=false): LearningState {
-  const current=currentDiagnostic(state);
-  if ((current?.status==="active" && !isLegacyDiagnostic(current)) || (current && !retake)) return state;
-  const next=copy(state); const session: DiagnosticSession={ id:crypto.randomUUID(), version:"1.1.0", status:"active", currentItemId:null, drafts:{}, attempts:[], responses:[], profile:[], startedAt:now.toISOString(), completedAt:null };
-  session.currentItemId=selectDiagnosticItem(session)!.id; session.profile=deriveDiagnosticProfile(session);
-  next.diagnostic={...next.diagnostic,sessions:[...(next.diagnostic.sessions??[]),session]}; return next;
+
+export function createDiagnosticSession(now?: Date): DiagnosticSession {
+  const session: DiagnosticSession = {
+    id: randomId(), formatVersion: DIAGNOSTIC_SESSION_VERSION, status: "in-progress",
+    startedAt: nowIso(now), completedAt: null, responses: [], currentItemId: null,
+    draftAnswer: "", draftCode: "", draftHints: 0, codingSuccessCount: 0,
+    infraError: null, profile: null, recommendation: null,
+  };
+  const first = nextDiagnosticItem(session);
+  return { ...session, currentItemId: first?.id ?? null };
 }
-function active(state:LearningState, sessionId:string,itemId:string) {
-  const session=currentDiagnostic(state);
-  if (!session || isLegacyDiagnostic(session) || session.id!==sessionId || session.status!=="active" || session.currentItemId!==itemId) throw new Error("This result is stale; resume the current diagnostic question.");
-  const item=getDiagnosticItem(itemId); if(!item) throw new Error("This diagnostic item is unavailable.");
-  return {session,item};
-}
-export function saveDiagnosticDraft(state:LearningState,sessionId:string,itemId:string,draft:DiagnosticDraft):LearningState {
-  const next=copy(state); const {session,item}=active(next,sessionId,itemId); const prior=diagnosticDraft(session,item);
-  session.drafts[itemId]={...copy(draft),hintsUsed:Math.max(prior.hintsUsed,draft.hintsUsed),aiAssisted:prior.aiAssisted||draft.aiAssisted}; return next;
-}
-export function recordDiagnosticAttempt(state:LearningState,sessionId:string,itemId:string,requestId:string,sourceFiles:Record<string,string>,result:GradeResult,now=new Date()):LearningState {
-  const next=copy(state); const {session,item}=active(next,sessionId,itemId); const draft=diagnosticDraft(session,item);
-  if(session.attempts.some(a=>a.id===requestId)) return state;
-  if(item.kind!=="code" || !filesEqual(draft.sourceFiles,sourceFiles)) throw new Error("This result is stale; run the current code again.");
-  const verified=verifyWorkerResult({type:"run",requestId,exerciseId:item.id,graderId:item.graderId!,files:sourceFiles},result);
-  if(!verified || verified.graderVersion!==getGrader(item.id,item.graderId!)?.version) throw new Error("The diagnostic grader result could not be verified.");
-  if(verified.tests.some((check:{id:string})=>check.id==="execution")) throw new Error("Python was unavailable; this run is not assessed. Retry Run checks. No evidence was saved.");
-  session.attempts.push({id:requestId,itemId,sourceFiles:copy(sourceFiles),graderId:item.graderId!,graderVersion:verified.graderVersion,passed:verified.passed,executionOk:verified.executionOk,checks:verified.tests,hintsUsed:draft.hintsUsed,aiAssisted:draft.aiAssisted,completedAt:now.toISOString()}); return next;
-}
-export function submitDiagnostic(state:LearningState,sessionId:string,itemId:string,input:{requestId:string;skip?:boolean},now=new Date()):LearningState {
-  const prior=currentDiagnostic(state);
-  if(prior?.id===sessionId && prior.responses.some(r=>r.id===input.requestId && r.itemId===itemId)) return state;
-  const next=copy(state); const {session,item}=active(next,sessionId,itemId); const draft=diagnosticDraft(session,item);
-  const attempt=session.attempts.filter(a=>a.itemId===itemId && filesEqual(a.sourceFiles,draft.sourceFiles)).at(-1);
-  if(item.kind==="code" && (input.skip || !attempt)) throw new Error("Run checks on the current code and record that attempt before continuing.");
-  const short=gradeShortAnswer(item,draft.answer);
-  const outcome=input.skip ? "skipped" : (item.kind==="code"?attempt!.passed:short.passed)?"passed":"needs-practice";
-  session.responses.push({id:input.requestId,itemId,answer:draft.answer,outcome,feedback:input.skip?"Not attempted; this skill remains uncertain.":item.kind==="short"?short.feedback:attempt!.passed?"The executable contract passed for this code.":"This code did not meet the executable contract. Use this as a repair recommendation.",attemptId:item.kind==="code" && !input.skip?attempt!.id:null,hintsUsed:draft.hintsUsed,aiAssisted:draft.aiAssisted,completedAt:now.toISOString()});
-  session.profile=deriveDiagnosticProfile(session); session.currentItemId=selectDiagnosticItem(session)?.id??null;
-  if(!session.currentItemId){session.status="completed";session.completedAt=now.toISOString();next.diagnostic.completed=true;next.diagnostic.completedAt=session.completedAt;}
-  return next;
-}
-export function placementRecommendation(state:LearningState,missionId:string) {
-  const session=[...(state.diagnostic.sessions??[])].reverse().find(s=>s.status==="completed" && !isLegacyDiagnostic(s));
-  if(!session) return {missionId,reason:"Begin with the mission overview and build independent project evidence.",evidenceIds:[] as string[]};
-  const profile=deriveDiagnosticProfile(session);
-  const uncertain=profile.filter(p=>p.band!=="Strong evidence");
-  const relevant=uncertain.filter(p=>diagnosticSkills.find(s=>s.id===p.skillId)?.core);
-  const priority=(p:DiagnosticProfile)=>p.band==="Needs practice"?0:p.band==="Working evidence"?1:2;
-  const focus=(relevant.length?relevant:uncertain).sort((a,b)=>priority(a)-priority(b)).slice(0,3);
-  return {missionId,reason:`Placement baseline: ${focus.length?`revisit ${focus.map(p=>diagnosticSkills.find(s=>s.id===p.skillId)!.title.toLowerCase()).join(", ")} during the mission's worked examples and practice.`:"the sampled foundations support starting this project's guided work."} Mission prerequisites still require completed projects.`,evidenceIds:(focus.length?focus:profile).flatMap(p=>p.responseIds),profile};
-}
-export function validateDiagnosticContent() {
-  return z.array(diagnosticItemSchema).superRefine((items,ctx)=>{
-    if(new Set(items.map(i=>i.id)).size!==items.length) ctx.addIssue({code:"custom",message:"Duplicate diagnostic IDs"});
-    for(const i of items) if(!diagnosticSkills.some(s=>s.id===i.skillId)|| (i.kind==="code"?!i.starter||!getGrader(i.id,i.graderId!):!i.rubric)) ctx.addIssue({code:"custom",message:`Invalid diagnostic contract: ${i.id}`});
-  }).safeParse(diagnosticItems);
-}
-/** Saved profiles are caches. Recompute from canonical responses and verified checks. */
-export function normalizeDiagnostic(value:unknown) {
-  const parsed=diagnosticStateSchema.safeParse(value); if(!parsed.success) throw new Error("Invalid diagnostic data.");
-  for(const session of parsed.data.sessions??[]){
-    if(new Set(session.responses.map(r=>r.id)).size!==session.responses.length || new Set(session.responses.map(r=>r.itemId)).size!==session.responses.length || session.responses.length>25) throw new Error("Duplicate diagnostic responses.");
-    if(isLegacyDiagnostic(session)) {
-      session.legacy=true;
-      session.profile=deriveDiagnosticProfile(session);
-      continue;
+
+export function nextDiagnosticItem(session: DiagnosticSession, items: DiagnosticItem[] = DIAGNOSTIC_ITEMS): DiagnosticItem | null {
+  if (session.status === "completed") return null;
+  if (session.responses.length >= DIAGNOSTIC_MAX_ITEMS) return null;
+  if (canCompleteDiagnostic(session).ok) return null;
+  const answered = new Set(session.responses.map(r => r.itemId));
+  const pool = items.filter(i => !answered.has(i.id));
+  if (!pool.length) return null;
+  // Focus: stay on one skill until it is observed before moving on. While a
+  // skill is still being probed, prefer its coding item when the coding quota
+  // is unmet and the skill has no coding evidence yet, so successful Python
+  // executions arrive naturally instead of being bolted on afterwards.
+  for (const skillId of DIAGNOSTIC_CORE_SKILLS) {
+    if (diagnosticSkillState(session, skillId) === "observed") continue;
+    const skillPool = pool.filter(i => i.skillId === skillId);
+    if (!skillPool.length) continue;
+    const touched = session.responses.some(r => r.skillId === skillId);
+    if (touched && session.codingSuccessCount < DIAGNOSTIC_CODING_QUOTA &&
+        !session.responses.some(r => r.skillId === skillId && r.kind === "coding")) {
+      const codingItem = skillPool.find(i => i.kind === "coding");
+      if (codingItem) return codingItem;
     }
-    for(const r of session.responses){
-      const item=getDiagnosticItem(r.itemId); if(!item) throw new Error("Unavailable diagnostic response.");
-      if(r.outcome==="skipped") continue;
-      if(item.kind==="short") {if((r.outcome==="passed")!==gradeShortAnswer(item,r.answer).passed || r.attemptId!==null) throw new Error("Invalid conceptual evidence.");}
-      else {const a=session.attempts.find(a=>a.id===r.attemptId && a.itemId===item.id);if(!a || (r.outcome==="passed")!==a.passed || r.hintsUsed<a.hintsUsed || (!r.aiAssisted && a.aiAssisted)) throw new Error("Invalid coding evidence.");}
-    }
-    for(const a of session.attempts){
-      const item=getDiagnosticItem(a.itemId);const grader=item&&getGrader(item.id,item.graderId!);
-      if(!grader || a.graderVersion!==grader.version || a.graderId!==item!.graderId) throw new Error("Unavailable diagnostic grader version.");
-      if(a.checks.length!==grader.requiredTests.length || new Set(a.checks.map(c=>c.id)).size!==a.checks.length || !grader.requiredTests.every((id:string)=>a.checks.some(c=>c.id===id && c.required))) throw new Error("Invalid diagnostic checks; execution was not assessed.");
-      if(a.passed!==Boolean(a.executionOk && grader.requiredTests.every((id:string)=>a.checks.some(c=>c.id===id && c.passed && c.required)))) throw new Error("Invalid diagnostic checks.");
-    }
-    session.profile=deriveDiagnosticProfile(session);
-    const selected=selectDiagnosticItem(session)?.id??null;
-    if(session.currentItemId!==selected || (session.status==="completed")!==(selected===null)) throw new Error("Invalid diagnostic position.");
+    return skillPool.find(i => i.kind === "concept") ?? skillPool[0];
   }
-  return parsed.data;
+  // Coding-quota repair: the bank holds only a few coding items against the
+  // quota, and a graded failure consumes its item. When the quota is still
+  // unmet and the adaptive engine has nothing fresher to probe, re-offer a
+  // previously failed coding item for another attempt. Without this, failing
+  // the available coding items soft-locks the session: the quota can never be
+  // met, yet items keep being served until the cap, and the diagnostic can
+  // never complete except via retake.
+  if (session.codingSuccessCount < DIAGNOSTIC_CODING_QUOTA) {
+    const retry = items.find(item => item.kind === "coding" &&
+      session.responses.some(r => r.itemId === item.id && r.kind === "coding" && !r.correct && !r.legacy) &&
+      !session.responses.some(r => r.itemId === item.id && r.kind === "coding" && r.correct));
+    if (retry) return retry;
+  }
+  return pool[0] ?? null;
+}
+
+function assertActive(session: DiagnosticSession, item: DiagnosticItem) {
+  if (session.status === "completed") throw new Error("This diagnostic session is completed and immutable.");
+  if (item.id !== session.currentItemId) throw new Error(`Item ${item.id} is not the current diagnostic item (stale item rejected).`);
+}
+
+/** Persist in-progress drafts (answer/code/hints) without recording a response. Completed sessions are immutable. */
+export function saveDiagnosticDraft(session: DiagnosticSession, draft: { answer?: string; code?: string; hints?: number }): DiagnosticSession {
+  if (session.status === "completed") throw new Error("This diagnostic session is completed and immutable.");
+  return {
+    ...clone(session),
+    draftAnswer: draft.answer ?? session.draftAnswer,
+    draftCode: draft.code ?? session.draftCode,
+    draftHints: draft.hints ?? session.draftHints,
+  };
+}
+
+function advance(session: DiagnosticSession): DiagnosticSession {
+  const next = nextDiagnosticItem(session);
+  return { ...session, currentItemId: next?.id ?? null, draftAnswer: "", draftCode: "", draftHints: 0, infraError: null };
+}
+
+export function answerConcept(
+  session: DiagnosticSession, item: DiagnosticItem, answer: string, gradeConcept: ConceptGrader, now?: Date,
+): DiagnosticSession {
+  assertActive(session, item);
+  if (item.kind !== "concept") throw new Error(`Item ${item.id} is not a concept item.`);
+  const graded = gradeConcept(item.id, answer);
+  const next: DiagnosticSession = {
+    ...clone(session),
+    responses: [...session.responses, {
+      itemId: item.id, skillId: item.skillId, kind: "concept" as const, correct: graded.correct,
+      answer, code: "", hintsUsed: session.draftHints,
+      graderId: item.concept?.graderId ?? null, graderVersion: null, legacy: false,
+      respondedAt: nowIso(now),
+    }],
+  };
+  return advance(next);
+}
+
+export function recordCodingOutcome(
+  session: DiagnosticSession, item: DiagnosticItem, outcome: CodingOutcome, code: string, now?: Date,
+): DiagnosticSession {
+  assertActive(session, item);
+  if (item.kind !== "coding" || !item.coding) throw new Error(`Item ${item.id} is not a coding item.`);
+  // Infrastructure failures and ignored (stale/mismatched) results must never
+  // become learner evidence. Code is preserved; the item stays current.
+  if (outcome.kind === "infra") {
+    return { ...clone(session), draftCode: code, infraError: { message: outcome.message, at: nowIso(now) } };
+  }
+  if (outcome.kind === "ignored") {
+    return { ...clone(session), draftCode: code };
+  }
+  const catalog = getGrader(item.coding.exerciseId, item.coding.graderId);
+  const legacy = outcome.graderVersion !== catalog?.version;
+  const correct = outcome.passed && outcome.executionOk;
+  const next: DiagnosticSession = {
+    ...clone(session),
+    codingSuccessCount: !legacy && correct ? session.codingSuccessCount + 1 : session.codingSuccessCount,
+    responses: [...session.responses, {
+      itemId: item.id, skillId: item.skillId, kind: "coding" as const, correct,
+      answer: "", code, hintsUsed: session.draftHints,
+      graderId: item.coding.graderId, graderVersion: outcome.graderVersion, legacy,
+      respondedAt: nowIso(now),
+    }],
+  };
+  return advance(next);
+}
+
+/** Runner failure results (single "execution" check) are infrastructure noise, not learner evidence. */
+export function classifyGradeResult(result: { executionOk: boolean; tests: { id: string }[] }): "infra" | "graded" {
+  if (!result.executionOk && result.tests.length > 0 && result.tests.every(t => t.id === "execution")) return "infra";
+  return "graded";
+}
+
+export function canCompleteDiagnostic(session: DiagnosticSession): { ok: boolean; reasons: string[] } {
+  if (session.status === "completed") return { ok: true, reasons: [] };
+  const reasons: string[] = [];
+  const count = session.responses.length;
+  if (count < DIAGNOSTIC_MIN_ITEMS) reasons.push(`answer at least ${DIAGNOSTIC_MIN_ITEMS} items (answered ${count})`);
+  if (count < DIAGNOSTIC_MAX_ITEMS) {
+    // Early stopping: the diagnostic ends while the evidence is fresh, not by
+    // grinding every skill to certainty. A probed skill is one with
+    // current-format responses; a skill with a single correct answer is still
+    // genuinely uncertain, and the profile should say so honestly instead of
+    // over-testing it into observed or leaving it untouched.
+    const probed = DIAGNOSTIC_CORE_SKILLS.filter(skillId =>
+      session.responses.some(r => r.skillId === skillId && !r.legacy));
+    const observed = probed.filter(skillId => diagnosticSkillState(session, skillId) === "observed");
+    const uncertain = probed.filter(skillId => diagnosticSkillState(session, skillId) === "uncertain");
+    if (probed.length < 6) reasons.push(`probe at least 6 different skills (probed ${probed.length} so far)`);
+    if (observed.length < 5) reasons.push(`show clear evidence on at least 5 skills (observed ${observed.length} so far)`);
+    if (uncertain.length < 1) reasons.push(`leave at least one probed skill still uncertain — the diagnostic stops while some areas are honestly unresolved (observed ${observed.length}, uncertain 0)`);
+  }
+  // The coding quota is absolute: a diagnostic may never complete with zero
+  // successful Python executions, even at the item cap.
+  if (session.codingSuccessCount < DIAGNOSTIC_CODING_QUOTA) {
+    reasons.push(`coding quota: ${DIAGNOSTIC_CODING_QUOTA} successful Python executions required (have ${session.codingSuccessCount})`);
+  }
+  return { ok: reasons.length === 0, reasons };
+}
+
+export function deriveDiagnosticProfile(session: DiagnosticSession): {
+  profile: Record<string, DiagnosticProfileState>; recommendation: string; legacyCount: number;
+} {
+  const profile: Record<string, DiagnosticProfileState> = {};
+  for (const skillId of DIAGNOSTIC_CORE_SKILLS) profile[skillId] = diagnosticSkillState(session, skillId);
+  const legacyCount = session.responses.filter(r => r.legacy).length;
+  const placedCount = session.responses.length - legacyCount;
+  const correctRate = (skillId: string) => {
+    const evidence = validResponses(session, skillId);
+    return evidence.length ? evidence.filter(r => r.correct).length / evidence.length : 0;
+  };
+  const strong = DIAGNOSTIC_CORE_SKILLS.filter(id => profile[id] === "observed" && correctRate(id) >= 0.6);
+  const weak = DIAGNOSTIC_CORE_SKILLS.filter(id => profile[id] === "observed" && correctRate(id) < 0.6);
+  const uncertain = DIAGNOSTIC_CORE_SKILLS.filter(id => profile[id] === "uncertain");
+  const untested = DIAGNOSTIC_CORE_SKILLS.filter(id => profile[id] === "untested");
+  const parts = [
+    `Placement from ${placedCount} diagnostic responses on ${session.completedAt ?? session.startedAt}.`,
+    strong.length ? `Solid ground: ${strong.join(", ")}.` : "",
+    weak.length ? `Needs practice: ${weak.join(", ")} — start with the earliest mission covering these.` : "",
+    uncertain.length ? `Still uncertain: ${uncertain.join(", ")}.` : "",
+    untested.length ? `Untested: ${untested.join(", ")}.` : "",
+    legacyCount ? `${legacyCount} response(s) used a legacy grader version and are marked Legacy / unverified; they did not affect placement.` : "",
+    "The diagnostic sets placement only. It never grants mission completion or mastery — those need independent project evidence over time.",
+  ];
+  return { profile, recommendation: parts.filter(Boolean).join(" "), legacyCount };
+}
+
+export function completeDiagnosticSession(session: DiagnosticSession, now?: Date): DiagnosticSession {
+  if (session.status === "completed") return clone(session);
+  const check = canCompleteDiagnostic(session);
+  if (!check.ok) throw new Error(`Diagnostic cannot complete yet: ${check.reasons.join("; ")}`);
+  const { profile, recommendation } = deriveDiagnosticProfile(session);
+  return {
+    ...clone(session), status: "completed", completedAt: nowIso(now),
+    currentItemId: null, draftAnswer: "", draftCode: "", draftHints: 0, infraError: null,
+    profile, recommendation,
+  };
+}
+
+/** Latest completed session, or null. Previous sessions stay in history untouched. */
+export function latestCompletedDiagnosticSession(sessions: DiagnosticSession[]): DiagnosticSession | null {
+  const completed = sessions
+    .filter(session => session.status === "completed")
+    .sort((a, b) => String(a.completedAt).localeCompare(String(b.completedAt)));
+  return completed[completed.length - 1] ?? null;
 }

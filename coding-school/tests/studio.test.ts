@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getDashboardModel, getLibraryRows, getEvidenceRows, getWorkbenchModel, persistAttempt, runStatus, nextWorkbenchPanel } from "../lib/studio";
 import { createDefaultState, startOrResumeMission, advanceMissionStage, recordMissionAttempt, saveMissionDraft, migrateState, type LearningState } from "../lib/state";
-import { getTask } from "../lib/curriculum";
+import { getTask, curriculum } from "../lib/curriculum";
 import { getGrader } from "../public/grading/catalog.js";
 import { aggregateResult, failureResult } from "../public/grading/protocol.js";
 
@@ -100,10 +100,11 @@ describe("persisted studio views", () => {
     expect(getWorkbenchModel(state, state.missionRuns[0].id)?.stageComplete).toBe(false);
   });
   it("derives library status and evidence rows from real attempts", () => {
-    expect(getLibraryRows(createDefaultState()).map(r => r.status)).toEqual(["Not started", "Not started"]);
+    const restNotStarted = () => curriculum.missions.slice(1).map(() => "Not started");
+    expect(getLibraryRows(createDefaultState()).map(r => r.status)).toEqual(["Not started", ...restNotStarted()]);
     expect(getEvidenceRows(createDefaultState())).toEqual([]);
     let state = submit(submit(learn(), "csv-instruction"), "csv-guided");
-    expect(getLibraryRows(state).map(r => r.status)).toEqual(["In progress", "Not started"]);
+    expect(getLibraryRows(state).map(r => r.status)).toEqual(["In progress", ...restNotStarted()]);
     const rows = getEvidenceRows(state);
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({ title: "Guided practice: clean a contact list", attempt: { passed: true }, assistance: "Independent", nextReview: "2026-09-12T12:00:00.000Z" });
@@ -112,7 +113,7 @@ describe("persisted studio views", () => {
     state = advanceMissionStage(state, state.missionRuns[0].id, now);
     state = submit(state, "csv-explain");
     state = advanceMissionStage(state, state.missionRuns[0].id, now);
-    expect(getLibraryRows(state).map(r => r.status)).toEqual(["Completed", "Not started"]);
+    expect(getLibraryRows(state).map(r => r.status)).toEqual(["Completed", ...restNotStarted()]);
   });
   it("captures hints and external assistance on persisted attempts", () => {
     const state = submit(learn(), "csv-instruction");
@@ -137,5 +138,65 @@ describe("persisted studio views", () => {
     const result = aggregateResult(request, submission("csv-guided", false).result);
     expect(runStatus(result)).toBe("Needs changes");
     expect(runStatus(aggregateResult(request, submission("csv-guided").result))).toBe("Passed");
+  });
+});
+
+describe("mission graded failures are honest evidence", () => {
+  // A genuine learner failure: the grader ran the real check list and the
+  // code raised, so executionOk is false WITH named checks (not the lone
+  // "execution" infrastructure test).
+  function failedSubmission(taskId: string) {
+    const variant = getTask(taskId)!.variants[0];
+    const grader = getGrader(variant.exerciseId, variant.graderId)!;
+    return { variantId: variant.id, sourceFiles: { "main.py": "def solve(records):\n    raise ValueError('boom')" }, assistance,
+      response: "",
+      result: { graderVersion: grader.version, executionOk: false,
+        tests: grader.requiredTests.map((id: string) => ({ id, name: id, required: true, passed: false, detail: "ValueError: boom" })) } };
+  }
+  it("records a genuine failed code attempt instead of discarding it", () => {
+    const state = submit(learn(), "csv-instruction");
+    const saved = persistAttempt(state, state.missionRuns[0].id, "csv-guided", failedSubmission("csv-guided"), migrateState, now);
+    expect(saved.saved).toBe(true);
+    expect(saved.error).toBeNull();
+    const attempt = saved.state.attempts.at(-1)!;
+    expect(attempt).toMatchObject({ taskId: "csv-guided", passed: false, executionOk: false });
+    expect(attempt.checks.length).toBeGreaterThan(1);
+    expect(attempt.checks.some(c => c.id !== "execution")).toBe(true);
+  });
+  it("grants no positive evidence from a failed attempt", () => {
+    const state = submit(learn(), "csv-instruction");
+    const saved = persistAttempt(state, state.missionRuns[0].id, "csv-guided", failedSubmission("csv-guided"), migrateState, now);
+    const attempt = saved.state.attempts.at(-1)!;
+    expect(attempt.skillOutcomes.every(s => !s.passed)).toBe(true);
+    expect(saved.state.mastery["csv-cleaning"]?.independentSuccesses ?? 0).toBe(0);
+    expect(saved.state.mastery["csv-cleaning"]?.status ?? "Practicing").not.toMatch(/Mastered|Demonstrated/);
+    expect(getWorkbenchModel(saved.state, state.missionRuns[0].id)?.stageComplete).toBe(false);
+  });
+  it("keeps genuine failures through a save/load roundtrip", () => {
+    const state = submit(learn(), "csv-instruction");
+    const saved = persistAttempt(state, state.missionRuns[0].id, "csv-guided", failedSubmission("csv-guided"), s => s, now);
+    const reloaded = migrateState(JSON.parse(JSON.stringify(saved.state)));
+    const attempt = reloaded.attempts.find(a => a.taskId === "csv-guided" && !a.passed);
+    expect(attempt).toMatchObject({ passed: false, executionOk: false });
+    expect(attempt!.checks.some(c => c.id !== "execution")).toBe(true);
+  });
+  it("reports Needs changes for graded failures, Couldn't run only for infra", () => {
+    const request = { requestId: "ui", exerciseId: "contacts-challenge", graderId: "contacts-v1" };
+    const graded = aggregateResult(request, failedSubmission("csv-guided").result);
+    expect(graded.executionOk).toBe(false);
+    expect(graded.tests.some((t: { id: string }) => t.id !== "execution")).toBe(true);
+    expect(runStatus(graded)).toBe("Needs changes");
+    expect(runStatus(failureResult(request, "Worker failed"))).toBe("Couldn't run");
+    expect(runStatus(failureResult(request, "Timed out after 15 seconds."))).toBe("Timed out");
+  });
+  it("still drops true infrastructure failures without recording", () => {
+    const state = submit(learn(), "csv-instruction");
+    const variant = getTask("csv-guided")!.variants[0];
+    const infra = failureResult({ requestId: "failure", exerciseId: variant.exerciseId, graderId: variant.graderId }, "Worker failed");
+    const saved = persistAttempt(state, state.missionRuns[0].id, "csv-guided", { ...failedSubmission("csv-guided"), result: infra }, migrateState, now);
+    expect(saved.saved).toBe(false);
+    expect(saved.error).toBeNull();
+    expect(saved.state).toBe(state);
+    expect(recordMissionAttempt(state, state.missionRuns[0].id, "csv-guided", { ...failedSubmission("csv-guided"), result: infra }, now)).toEqual(state);
   });
 });

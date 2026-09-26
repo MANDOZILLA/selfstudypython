@@ -8,6 +8,6 @@ self.onmessage = async ({ data }) => {
     runtime ??= await loadPyodide({ indexURL: "/pyodide/" });
     progress("running");
     return runtime;
-  });
+  }, phase => progress(phase));
   self.postMessage(result);
 };

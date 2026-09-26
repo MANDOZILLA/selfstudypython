@@ -16,6 +16,9 @@
 /public/monaco/
 /test-results/
 /.data/
+/.next-*/
+/build.log
+/verification.log
 
 # next.js
 /.next/

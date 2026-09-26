@@ -109,7 +109,7 @@ async function verifyReview(storageState, name, viewport) {
     assert.ok(await page.getByRole("button", { name: "Start review" }).isVisible());
     assert.equal(await page.locator(".stage-rail").getAttribute("aria-label"), "Review stage");
     assert.equal(await page.locator(".stage-rail li").count(), 1);
-    await nav(page, "Lessons", mobile);
+    await nav(page, "Curriculum", mobile);
     assert.equal(await page.getByText("Completed", { exact: true }).count(), 2);
     await nav(page, "Today", mobile);
     await page.getByRole("button", { name: "Start review" }).click();
@@ -126,7 +126,7 @@ async function verifyReview(storageState, name, viewport) {
     }
     await page.getByRole("heading", { name: "Your review is saved." }).waitFor();
     assert.ok(await page.getByText("Your completed project history is unchanged.").isVisible());
-    await nav(page, "Lessons", mobile);
+    await nav(page, "Curriculum", mobile);
     assert.equal(await page.getByText("Completed", { exact: true }).count(), 2);
     assert.ok((await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)), `${name}: horizontal overflow`);
     assert.deepEqual(errors, []);

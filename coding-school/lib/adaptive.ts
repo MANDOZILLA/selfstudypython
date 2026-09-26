@@ -1,6 +1,6 @@
 import type { AttemptRecord, LearningState } from "./state";
 import { curriculum } from "./curriculum";
-import { placementRecommendation } from "./diagnostic";
+import { deriveDiagnosticProfile, latestCompletedDiagnosticSession } from "./diagnostic";
 
 export type EvidenceStatus = "Not started" | "Practicing" | "Demonstrated in project" | "Demonstrated again later" | "Mastered";
 export type SkillEvidence = {
@@ -97,20 +97,29 @@ export function deriveReviewSchedule(attempts: AttemptRecord[]): Record<string, 
   return schedules;
 }
 
-export type TodaySelection = { kind: "resume" | "mission" | "review" | "complete"; missionId: string | null; runId?: string; reviewTaskIds: string[]; reason?: string; evidenceIds?: string[] };
+export type TodaySelection = { kind: "resume" | "mission" | "review" | "complete"; missionId: string | null; runId?: string; reviewTaskIds: string[] };
 export function selectToday(state: LearningState, now: Date): TodaySelection {
   const active = state.missionRuns.find(r => r.status !== "completed");
-  if (active) return { kind: "resume", missionId: active.missionId, runId: active.id, reviewTaskIds: active.stages[0].taskIds };
+  if (active) return { kind: "resume", missionId: active.missionId, runId: active.id, reviewTaskIds: active.stages[0].taskIds.filter(id => curriculum.reviewTasks.some(t => t.id === id)) };
   const completed = new Set(state.missionRuns.filter(r => r.status === "completed" && r.mode === "mission").map(r => r.missionId));
   const mission = curriculum.missions.find(m => !completed.has(m.id) && m.prerequisites.every(id => completed.has(id)));
   const relevant = new Set(mission ? [...mission.revisitedSkillIds, ...mission.introducedSkillIds] : curriculum.skills.map(s => s.id));
   const due = Object.values(deriveReviewSchedule(state.attempts)).filter(s => relevant.has(s.skillId) && s.dueAt <= now.toISOString())
     .sort((a, b) => Number(b.reason === "repair") - Number(a.reason === "repair") || a.dueAt.localeCompare(b.dueAt) || a.skillId.localeCompare(b.skillId));
+  // Placement evidence: skills the diagnostic left uncertain get review
+  // priority even before any mission attempt exists for them.
+  const latestDiagnostic = latestCompletedDiagnosticSession(state.diagnosticSessions);
+  const probedSkills = new Set((latestDiagnostic?.responses ?? []).filter(r => !r.legacy).map(r => r.skillId));
+  for (const skillId of placementReviewSkills(state)) {
+    if (relevant.has(skillId) && !due.some(s => s.skillId === skillId)) {
+      due.push({ skillId, dueAt: now.toISOString(), reason: "practice", intervalDays: 1 });
+    }
+  }
   const reviewTaskIds: string[] = [];
   for (const review of due) {
     if (reviewTaskIds.some(id => curriculum.reviewTasks.find(t => t.id === id)?.skillIds.includes(review.skillId))) continue;
     const options = curriculum.reviewTasks.filter(t => t.skillIds.includes(review.skillId) &&
-      t.skillIds.every(id => deriveSkillEvidence(state.attempts, id).status !== "Not started"));
+      t.skillIds.every(id => deriveSkillEvidence(state.attempts, id).status !== "Not started" || probedSkills.has(id)));
     // Prefer the least recently attempted context, stable authored order breaks ties.
     options.sort((a, b) => {
       const last = (id: string) => state.attempts.filter(x => x.taskId === id).at(-1)?.completedAt ?? "";
@@ -120,11 +129,23 @@ export function selectToday(state: LearningState, now: Date): TodaySelection {
     if (task) reviewTaskIds.push(task.id);
     if (reviewTaskIds.length === 2) break;
   }
-  const placement = mission ? placementRecommendation(state, mission.id) : undefined;
-  return { kind: mission ? "mission" : reviewTaskIds.length ? "review" : "complete", missionId: mission?.id ?? null, reviewTaskIds, ...(placement ? {reason:placement.reason,evidenceIds:placement.evidenceIds}: {}) };
+  return { kind: mission ? "mission" : reviewTaskIds.length ? "review" : "complete", missionId: mission?.id ?? null, reviewTaskIds };
 }
 
 export type DiagnosticPrompt = { id: string; skillId: string; difficulty: number; kind: "concept" | "coding" };
+
+/**
+ * Skill IDs the latest completed diagnostic left uncertain. This is placement
+ * evidence only: it can prioritize review, never fabricate mastery or unlocks.
+ */
+export function placementReviewSkills(state: LearningState): string[] {
+  const session = latestCompletedDiagnosticSession(state.diagnosticSessions);
+  if (!session) return [];
+  const { profile } = deriveDiagnosticProfile(session);
+  return Object.entries(profile)
+    .filter(([, skillState]) => skillState === "uncertain")
+    .map(([skillId]) => skillId);
+}
 export type DiagnosticResponse = { promptId: string; skillId: string; correct: boolean };
 
 export function chooseDiagnosticPrompt(

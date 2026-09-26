@@ -1,125 +1,291 @@
-// Exercise-specific executable contracts. These fixtures are not model grades.
-export const diagnosticContracts = {
-  variables: "[('positive',' 7 ',14),('negative','-3',-6),('zero','+0',0),('unseen','126',252)]",
-  strings: "[('trim','  Red Apple ','red-apple'),('repeated','a  b','a--b'),('empty','   ',''),('unicode',' ÉCOLE Bleue ','école-bleue')]",
-  conditionals: "[('low',0,5),('below',19,5),('boundary',20,3),('upper',49,3),('free',50,0),('large',100,0)]",
-  loops: "[('grid',[[1,2],[],[-4,8]],7),('empty',[],0),('rows',[[],[]],0),('negative',[[-5],[-2,1]],-6)]",
-  functions: "[('balance',(10,[2,-4]),8),('empty',(3,[]),3),('negative',(-3,[1,1]),-1),('repeat',(10,[2,-4]),8)]",
-  collections: "[('groups',[('Ada','py'),('Ada','py'),('Ada','sql'),('Bo','py')],{'Ada':2,'Bo':1}),('empty',[],{}),('case',[('a','X'),('a','x'),('b','X')],{'a':2,'b':1}),('repeat',[('x','a'),('x','a')],{'x':1})]",
-  exceptions: "[('mixed',[' 3 ','bad','-1','2.5','7'],[3,-1,7]),('empty',[],[]),('invalid',['','NaN','3e2'],[]),('signed',['+0','-42','001'],[0,-42,1])]",
-  reasoning: "[('first','a',['a']),('second','b',['b']),('none',None,[None]),('number',0,[0])]",
-  comprehensions: "[('filtered',[-2,0,3,1],[9,1]),('empty',[],[]),('negatives',[-3,0],[]),('repeats',[2,2,5],[4,4,25])]",
-  modules: "[('rounding',[2.1,-2.1,4.0],[3,-2,4]),('empty',[],[]),('zero',[0,-0.2,0.2],[0,0,1]),('whole',[-4,8],[-4,8])]",
-  files: "[('lines',' Ada \\n\\nBo\\n',['Ada','Bo']),('empty','',[]),('unicode',' Café \\n\\t東京\\n ',['Café','東京']),('last',' last ',['last'])]",
-  "csv-json": "[('names','[{\"name\":\"Ada, Jr.\"},{\"name\":\"Bo\"}]',['Ada, Jr.','Bo']),('empty','[]',[]),('unicode','[{\"name\":\"Éva\",\"age\":3}]',['Éva']),('spaces','[ { \"name\" : \"x y\" } ]',['x y'])]",
-  classes: "[('start',4,6),('default',0,2),('negative',-3,-1),('another',10,12)]",
-  http: "[('created',{'status':201,'payload':{'id':7}},{'id':7}),('lower',{'status':200,'payload':[]},[]),('upper',{'status':299,'payload':'ok'},'ok'),('below',{'status':199,'payload':{}},ValueError),('above',{'status':300,'payload':{}},ValueError),('missing',{'status':404,'payload':'ignored'},None),('rate',{'status':429,'payload':{}},ValueError),('server',{'status':500,'payload':{}},ValueError),('redirect',{'status':301,'payload':{}},ValueError)]",
-  data: "[('refund',[{'category':'books','amount':5},{'category':'books','amount':-2}],{'books':3}),('empty',[],{}),('groups',[{'category':'a','amount':0},{'category':'b','amount':7},{'category':'a','amount':3}],{'a':3,'b':7}),('case',[{'category':'A','amount':1},{'category':'a','amount':2}],{'A':1,'a':2})]",
-};
-export const diagnosticGraderCatalog = Object.fromEntries(Object.keys(diagnosticContracts).map(skill => [`diag-${skill}-v1`, Object.freeze({ exerciseId: `${skill}-code`, version: "1.1.0", requiredTests: ["behavior", "edges", "contract"] })]));
-export function diagnosticSuite(graderId) {
-  const skill = Object.keys(diagnosticContracts).find(key => `diag-${key}-v1` === graderId);
-  if (!skill) return undefined;
-  return `diagnostic_skill = ${JSON.stringify(skill)}\nfixtures = ${diagnosticContracts[skill]}\n` + String.raw`
-import ast, copy, json, tempfile, os, traceback, math, builtins
-tests=[]
-class Rounded(int): pass
-def check(identifier,title,passed,detail=''):
-    tests.append({'id':identifier,'name':title,'required':True,'passed':bool(passed),'detail':detail})
-def same(a,b):
-    if isinstance(a,Rounded) and type(b) is int: return int(a)==b
-    if type(a) is not type(b): return False
-    if type(a) is list: return len(a)==len(b) and all(same(x,y) for x,y in zip(a,b))
-    if type(a) is dict: return a.keys()==b.keys() and all(same(a[k],b[k]) for k in a)
-    return a==b
-def grade():
+// Diagnostic coding graders. Inspectable educational checks, fail closed: any
+// unexpected exception returns executionOk:false with the traceback.
+// Style mirrors public/grading/mission-suites.js: String.raw templates ending
+// with json.dumps(...), AST concept-call tracking reused from the mission harness.
+const callFormsHarness = String.raw`
+import ast
+import json
+import traceback
+
+def grade(source, fixtures):
+    checks = []
+    activity = set()
+    def check(identifier, passed, detail=''):
+        entry = {'id': identifier, 'name': identifier.replace('-', ' ').capitalize(), 'required': True, 'passed': bool(passed), 'detail': detail}
+        for index, existing in enumerate(checks):
+            if existing['id'] == identifier:
+                checks[index] = entry
+                return
+        checks.append(entry)
+    def tracked(kind, constructor):
+        def call(*args, **kwargs):
+            # Concept credit is for reaching the call on the executed data path;
+            # record before invoking so a call that raises on bad input still counts.
+            activity.add(kind)
+            return constructor(*args, **kwargs)
+        return call
+    # Fail closed with a COMPLETE check list: pre-register every required check
+    # as failed before the submission is touched, so a submission that cannot be
+    # parsed or loaded (syntax error, import error, wrong entry function) still
+    # yields a well-formed graded result. Without this the check list would be
+    # truncated and the protocol would misclassify the genuine failed attempt as
+    # an infrastructure failure, silently discarding the evidence.
+    check('concept-loads', False, 'The submission could not be loaded, so no calls were observed.')
+    check('concept-map', False, 'The submission could not be loaded, so no calls were observed.')
+    for fixture_id, _cases in fixtures:
+        check(fixture_id, False, 'The submission could not be loaded.')
     try:
-        tree=ast.parse(submission_source)
-        observed=[]; calls=[]; managed=[]
-        class FileContext:
-            def __init__(self,handle): self.handle=handle
-            def __getattr__(self,name): return getattr(self.handle,name)
-            def __iter__(self): return iter(self.handle)
-            def __enter__(self):
-                result=self.handle.__enter__()
-                managed.append(self)
-                return result
-            def __exit__(self,*args): return self.handle.__exit__(*args)
-        def observe_call(name,fn,*args,**kwargs):
-            result=fn(*args,**kwargs)
-            if name=='math.ceil': result=Rounded(result)
-            if name=='open': result=FileContext(result)
-            argument=args[0] if args else kwargs.get('file' if name=='open' else 's')
-            calls.append((name,argument,result))
-            return result
-        def track_callable(value):
-            for name,fn in (('math.ceil',math.ceil),('json.loads',json.loads),('open',builtins.open)):
-                if value is fn: return lambda *args,**kwargs: observe_call(name,fn,*args,**kwargs)
-            return value
-        def observe(value):
-            observed.append(value)
-            return value
-        class Track(ast.NodeTransformer):
-            def tracked_reference(self,node):
+        tree = ast.parse(source)
+        aliases = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for item in node.names:
+                    aliases[item.asname or item.name] = item.name
+            elif isinstance(node, ast.ImportFrom):
+                for item in node.names:
+                    aliases[item.asname or item.name] = (node.module or '') + '.' + item.name
+        def target(node):
+            if isinstance(node, ast.Name):
+                return aliases.get(node.id, node.id)
+            if isinstance(node, ast.Attribute):
+                return target(node.value) + '.' + node.attr
+            return ''
+        parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+        def consumes_result(node):
+            parent = parents.get(node)
+            if isinstance(parent, ast.Expr):
+                return False
+            if isinstance(parent, (ast.Assign, ast.AnnAssign)):
+                targets = parent.targets if isinstance(parent, ast.Assign) else [parent.target]
+                names = {item.id for root in targets for item in ast.walk(root) if isinstance(item, ast.Name)}
+                scope = parent
+                while scope in parents and not isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    scope = parents[scope]
+                return any(isinstance(item, ast.Name) and isinstance(item.ctx, ast.Load) and item.id in names for item in ast.walk(scope))
+            return True
+        def loads_input(node):
+            if node.args:
+                return node.args[0]
+            for keyword in node.keywords:
+                if keyword.arg == 's':
+                    return keyword.value
+            return None
+        def is_variable(value):
+            return value is not None and any(isinstance(item, (ast.Name, ast.Subscript)) for item in ast.walk(value))
+        def ceil_function(node):
+            if node.args:
+                func = node.args[0]
+            else:
+                func = next((keyword.value for keyword in node.keywords if keyword.arg == 'function'), None)
+            return func is not None and target(func) == 'math.ceil'
+        def has_iterable(node):
+            return len(node.args) >= 2 or any(keyword.arg == 'iterable' for keyword in node.keywords)
+        class TrackCalls(ast.NodeTransformer):
+            def visit_Call(self, node):
+                kind = None
+                name = target(node.func)
+                if name == 'json.loads' and consumes_result(node) and is_variable(loads_input(node)):
+                    kind = 'concept-loads'
+                elif name == 'map' and consumes_result(node) and ceil_function(node) and has_iterable(node):
+                    kind = 'concept-map'
                 self.generic_visit(node)
-                if isinstance(node.ctx,ast.Load):
-                    return ast.copy_location(ast.Call(func=ast.Name(id='__track_callable__',ctx=ast.Load()),args=[node],keywords=[]),node)
+                if kind:
+                    node.func = ast.Call(func=ast.Name(id='__grade_track__', ctx=ast.Load()), args=[ast.Constant(kind), node.func], keywords=[])
                 return node
-            visit_Name=tracked_reference
-            visit_Attribute=tracked_reference
-            def visit_ListComp(self,node):
-                self.generic_visit(node)
-                return ast.copy_location(ast.Call(func=ast.Name(id='__observe_comprehension__',ctx=ast.Load()),args=[node],keywords=[]),node)
-        transformed=ast.fix_missing_locations(Track().visit(copy.deepcopy(tree)))
-        scope={'__name__':'__submission__','__observe_comprehension__':observe,'__track_callable__':track_callable}
-        exec(compile(transformed,'main.py','exec'),scope)
-        solve=scope.get('solve')
-        if not callable(solve): raise ValueError('Define a callable solve(value).')
+        tree = ast.fix_missing_locations(TrackCalls().visit(tree))
+        namespace = {'__name__': '__submission__', '__grade_track__': tracked}
+        exec(compile(tree, 'main.py', 'exec'), namespace)
+        solve = namespace.get('solve')
+        if not callable(solve):
+            raise ValueError('Define a callable solve(payload).')
     except BaseException:
-        detail=traceback.format_exc()
-        for identifier in ('behavior','edges','contract'): check(identifier,'Run the submitted Python',False,detail)
-        return {'executionOk':False,'tests':tests,'error':detail}
-    failures=[]; mutation=False; concept_ok=True; execution_ok=True; previous_result=None
-    for name,value,expected in fixtures:
-        original=copy.deepcopy(value); path=None; observed.clear(); calls.clear(); managed.clear()
-        try:
-            if diagnostic_skill=='files':
-                f=tempfile.NamedTemporaryFile(mode='w',encoding='utf-8',delete=False)
-                path=f.name; f.write(value); f.close(); value=path
+        return {'executionOk': False, 'tests': checks, 'error': traceback.format_exc()}
+    execution_ok = True
+    for identifier, cases in fixtures:
+        errors = []
+        for value, expected in cases:
             try:
-                actual=solve(value)
-                passed=not isinstance(expected,type) and same(actual,expected)
-                if diagnostic_skill=='comprehensions' and expected:
-                    concept_ok=concept_ok and any(actual is result for result in observed)
-                if diagnostic_skill=='modules' and expected:
-                    used=[result for name,argument,result in calls if name=='math.ceil']
-                    concept_ok=concept_ok and type(actual) is list and all(any(number is result for result in used) for number in actual) and len(actual)==len(expected)
-                if diagnostic_skill=='csv-json':
-                    concept_ok=concept_ok and any(name=='json.loads' and argument==value and type(result) is list and type(actual) is list and len(actual)==len(result) and all(a is row['name'] for a,row in zip(actual,result)) for name,argument,result in calls)
-                if diagnostic_skill=='files':
-                    handles=[result for name,argument,result in calls if name=='open' and argument==path]
-                    concept_ok=concept_ok and bool(handles) and all(handle.closed and handle in managed for handle in handles)
-                if diagnostic_skill=='reasoning':
-                    if actual is previous_result: passed=False
-                    previous_result=actual
-                    if type(actual) is list: actual.append('__prior_result_changed__')
-            except ValueError:
-                passed=expected is ValueError
-            if not passed: failures.append(name+': returned behavior did not match the requirement.')
-            if diagnostic_skill in ('functions','data') and value!=original: mutation=True
-        except BaseException:
-            execution_ok=False; failures.append(name+': '+traceback.format_exc())
-        finally:
-            if path: os.unlink(path)
-    if diagnostic_skill=='classes':
-        try:
-            Counter=scope['Counter']; a,b=Counter(),Counter(8)
-            concept_ok=type(Counter) is type and a.increment()==1 and a.value==1 and b.value==8 and b.increment()==9
-        except BaseException: concept_ok=False
-    check('behavior','Return the requested values',not failures,'\n'.join(failures))
-    check('edges','Handle boundaries, empty inputs and repeated calls',not failures,'\n'.join(failures))
-    check('contract','Respect the function and required construct contract',concept_ok and not mutation,'Check required constructs, independent calls, and input preservation.' if not concept_ok or mutation else '')
-    return {'executionOk':execution_ok,'tests':tests,'error':''}
-json.dumps(grade())
+                actual = solve(value)
+                def exact(a, b):
+                    if type(a) is not type(b):
+                        return False
+                    if type(b) is list:
+                        return len(a) == len(b) and all(exact(x, y) for x, y in zip(a, b))
+                    return a == b
+                if not exact(actual, expected):
+                    errors.append('Expected ' + repr(expected) + '; received ' + repr(actual)[:400])
+            except BaseException:
+                execution_ok = False
+                errors.append(traceback.format_exc())
+        check(identifier, not errors, '\n'.join(errors))
+    for concept in checks:
+        if concept['id'] not in ('concept-loads', 'concept-map'):
+            continue
+        concept['passed'] = concept['id'] in activity
+        if not concept['passed']:
+            concept['detail'] = 'Call and use the required function on the executed data path. Bare, unused, assigned-but-never-read, or constant-only calls do not count.'
+    return {'executionOk': execution_ok, 'tests': checks, 'error': ''}
 `;
-}
+
+export const diagnosticCallFormsSuite = callFormsHarness + String.raw`
+fixtures = [
+    ('sample', [('[1.2, 2.7, -0.5]', [2, 3, 0])]),
+    ('empty', [ ('[]', []) ]),
+    ('invalid', [ ('not json', []), ('{"a": 1}', []) ]),
+]
+json.dumps(grade(submission_source, fixtures))
+`;
+
+export const diagnosticHttpSuite = String.raw`
+import json
+import traceback
+
+def grade(source):
+    checks = []
+    def check(identifier, passed, detail=''):
+        entry = {'id': identifier, 'name': identifier.replace('-', ' ').capitalize(), 'required': True, 'passed': bool(passed), 'detail': detail}
+        for index, existing in enumerate(checks):
+            if existing['id'] == identifier:
+                checks[index] = entry
+                return
+        checks.append(entry)
+    # Fail closed with a COMPLETE check list: pre-register every required check
+    # as failed before the submission is touched, so a submission that cannot be
+    # parsed or loaded still yields a well-formed graded result instead of a
+    # truncated one the protocol would misclassify as infrastructure noise.
+    for boundary_id in ('boundary-199', 'boundary-200', 'boundary-299', 'boundary-300'):
+        check(boundary_id, False, 'The submission could not be loaded.')
+    try:
+        namespace = {'__name__': '__submission__'}
+        exec(compile(source, 'main.py', 'exec'), namespace)
+        is_success = namespace.get('is_success')
+        if not callable(is_success):
+            raise ValueError('Define a callable is_success(status).')
+    except BaseException:
+        return {'executionOk': False, 'tests': checks, 'error': traceback.format_exc()}
+    execution_ok = True
+    for identifier, status, expected in [('boundary-199', 199, False), ('boundary-200', 200, True), ('boundary-299', 299, True), ('boundary-300', 300, False)]:
+        try:
+            actual = is_success(status)
+            if type(actual) is not bool or actual != expected:
+                check(identifier, False, 'is_success(' + repr(status) + ') returned ' + repr(actual) + '; expected ' + repr(expected) + '.')
+            else:
+                check(identifier, True)
+        except BaseException:
+            execution_ok = False
+            check(identifier, False, traceback.format_exc())
+    return {'executionOk': execution_ok, 'tests': checks, 'error': ''}
+
+json.dumps(grade(submission_source))
+`;
+
+export const diagnosticFilesSuite = String.raw`
+import ast
+import builtins
+import json
+import os
+import tempfile
+import traceback
+
+def grade(source):
+    checks = []
+    def check(identifier, passed, detail=''):
+        entry = {'id': identifier, 'name': identifier.replace('-', ' ').capitalize(), 'required': True, 'passed': bool(passed), 'detail': detail}
+        for index, existing in enumerate(checks):
+            if existing['id'] == identifier:
+                checks[index] = entry
+                return
+        checks.append(entry)
+    # Fail closed with a COMPLETE check list: pre-register every required check
+    # as failed before the submission is touched, so a submission that cannot be
+    # parsed or loaded still yields a well-formed graded result instead of a
+    # truncated one the protocol would misclassify as infrastructure noise.
+    for file_id in ('reads-lines', 'context-manager', 'missing-file'):
+        check(file_id, False, 'The submission could not be loaded.')
+    real_open = builtins.open
+    entered = []
+    class TrackedFile:
+        def __init__(self, wrapped):
+            self._wrapped = wrapped
+        def __enter__(self):
+            entered.append(self)
+            return self._wrapped.__enter__()
+        def __exit__(self, *exc):
+            return self._wrapped.__exit__(*exc)
+        def __getattr__(self, name):
+            return getattr(self._wrapped, name)
+    def tracking_open(*args, **kwargs):
+        return TrackedFile(real_open(*args, **kwargs))
+    try:
+        tree = ast.parse(source)
+        with_open_found = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.With):
+                for item in node.items:
+                    context = item.context_expr
+                    func = context.func if isinstance(context, ast.Call) else None
+                    name = ''
+                    if isinstance(func, ast.Name):
+                        name = func.id
+                    elif isinstance(func, ast.Attribute):
+                        name = func.attr
+                    if name == 'open':
+                        with_open_found = True
+        namespace = {'__name__': '__submission__', 'open': tracking_open}
+        exec(compile(tree, 'main.py', 'exec'), namespace)
+        read_lines = namespace.get('read_lines')
+        if not callable(read_lines):
+            raise ValueError('Define a callable read_lines(path).')
+    except BaseException:
+        return {'executionOk': False, 'tests': checks, 'error': traceback.format_exc()}
+    execution_ok = True
+    builtins.open = tracking_open
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            sample_path = os.path.join(tmp, 'sample.txt')
+            with real_open(sample_path, 'w') as handle:
+                handle.write('a\nb\n')
+            plain_path = os.path.join(tmp, 'plain.txt')
+            with real_open(plain_path, 'w') as handle:
+                handle.write('a\nb')
+            def exact(a, b):
+                if type(a) is not type(b):
+                    return False
+                if type(b) is list:
+                    return len(a) == len(b) and all(exact(x, y) for x, y in zip(a, b))
+                return a == b
+            entered.clear()
+            errors = []
+            for path, expected in [(sample_path, ['a', 'b']), (plain_path, ['a', 'b'])]:
+                try:
+                    actual = read_lines(path)
+                    if not exact(actual, expected):
+                        errors.append('Expected ' + repr(expected) + '; received ' + repr(actual)[:400])
+                except BaseException:
+                    execution_ok = False
+                    errors.append(traceback.format_exc())
+            check('reads-lines', not errors, '\n'.join(errors))
+            if with_open_found and entered:
+                check('context-manager', True)
+            else:
+                reasons = []
+                if not with_open_found:
+                    reasons.append('No with-statement wrapping an open(...) call was found.')
+                if not entered:
+                    reasons.append('No file opened during the graded calls was entered as a context manager; open the file with "with open(...) as ...".')
+                check('context-manager', False, ' '.join(reasons))
+            missing = os.path.join(tmp, 'missing.txt')
+            try:
+                result = read_lines(missing)
+                check('missing-file', False, 'Expected FileNotFoundError for a missing path; returned ' + repr(result)[:200] + ' instead.')
+            except FileNotFoundError:
+                check('missing-file', True)
+            except BaseException:
+                execution_ok = False
+                check('missing-file', False, traceback.format_exc())
+    finally:
+        builtins.open = real_open
+    return {'executionOk': execution_ok, 'tests': checks, 'error': ''}
+
+json.dumps(grade(submission_source))
+`;

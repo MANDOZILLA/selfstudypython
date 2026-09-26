@@ -1,23 +1,54 @@
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import type { AttemptRecord, MissionRun } from "../lib/mission-types";
+import type { DiagnosticSession } from "../lib/diagnostic";
+import type { ReviewSchedule } from "../lib/adaptive";
+import type { AssessmentTaskRecord } from "../lib/assessment-evidence";
 
-// The versioned SQL migration owns all checks, FKs and indexes. These mappings
-// give repository reads/writes typed Drizzle bindings without copying curriculum.
-export const learnerMeta = sqliteTable("learner_meta", {
-  id: integer("id").primaryKey(), revision: integer("revision").notNull(), initialized: integer("initialized", { mode: "boolean" }).notNull(),
-  legacyImported: integer("legacy_imported", { mode: "boolean" }).notNull(), activeTab: text("active_tab").notNull(), learningMode: integer("learning_mode", { mode: "boolean" }).notNull(),
+/**
+ * Durable learner state. Tables are explicit per entity (preferred over a
+ * single kv table) so sessions, attempts, and runs stay queryable; each row
+ * carries the full validated payload as JSON because learner state is
+ * document-shaped and always re-validated through zod on load.
+ */
+export const attempts = sqliteTable("attempts", {
+  id: text("id").primaryKey(),
+  runId: text("run_id").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  payload: text("payload", { mode: "json" }).$type<AttemptRecord>().notNull(),
 });
-export const missionRuns = sqliteTable("mission_runs", { id: text("id").primaryKey(), missionId: text("mission_id").notNull(), missionVersion: text("mission_version").notNull(), status: text("status").notNull(), stageIndex: integer("stage_index").notNull(), position: integer("position").notNull(), payload: text("payload").notNull() });
-export const missionStages = sqliteTable("mission_stages", { runId: text("run_id").notNull(), stageId: text("stage_id").notNull(), position: integer("position").notNull(), status: text("status").notNull(), payload: text("payload").notNull() });
-export const missionDrafts = sqliteTable("mission_drafts", { runId: text("run_id").notNull(), taskId: text("task_id").notNull(), payload: text("payload").notNull() });
-export const attempts = sqliteTable("attempts", { id: text("id").primaryKey(), runId: text("run_id").notNull(), stageId: text("stage_id").notNull(), taskId: text("task_id").notNull(), position: integer("position").notNull(), passed: integer("passed", { mode: "boolean" }).notNull(), completedAt: text("completed_at").notNull(), payload: text("payload").notNull() });
-export const attemptChecks = sqliteTable("attempt_checks", { attemptId: text("attempt_id").notNull(), position: integer("position").notNull(), checkId: text("check_id").notNull(), passed: integer("passed", { mode: "boolean" }).notNull(), payload: text("payload").notNull() });
-export const attemptOutcomes = sqliteTable("attempt_outcomes", { attemptId: text("attempt_id").notNull(), position: integer("position").notNull(), skillId: text("skill_id").notNull(), payload: text("payload").notNull() });
-export const reviewSchedules = sqliteTable("review_schedules", { skillId: text("skill_id").primaryKey(), dueAt: text("due_at").notNull(), intervalDays: integer("interval_days").notNull(), payload: text("payload").notNull() });
-export const portfolioSnapshots = sqliteTable("portfolio_snapshots", { position: integer("position").primaryKey(), projectId: text("project_id").notNull(), payload: text("payload").notNull() });
-export const diagnosticSessions = sqliteTable("diagnostic_sessions", { id: text("id").primaryKey(), completed: integer("completed", { mode: "boolean" }).notNull(), completedAt: text("completed_at"), profileJson: text("profile_json").notNull() });
-export const saveReceipts = sqliteTable("save_receipts", { requestId: text("request_id").primaryKey(), payloadHash: text("payload_hash").notNull(), revision: integer("revision").notNull() });
-export const placementSessions = sqliteTable("placement_sessions", {id:text("id").primaryKey(),position:integer("position").notNull(),status:text("status").notNull(),payload:text("payload").notNull()});
-export const placementDrafts = sqliteTable("placement_drafts", {sessionId:text("session_id").notNull(),itemId:text("item_id").notNull(),payload:text("payload").notNull()});
-export const placementAttempts = sqliteTable("placement_attempts", {id:text("id").primaryKey(),sessionId:text("session_id").notNull(),itemId:text("item_id").notNull(),position:integer("position").notNull(),payload:text("payload").notNull()});
-export const placementResponses = sqliteTable("placement_responses", {id:text("id").primaryKey(),sessionId:text("session_id").notNull(),itemId:text("item_id").notNull(),attemptId:text("attempt_id"),position:integer("position").notNull(),payload:text("payload").notNull()});
-export const placementProfiles = sqliteTable("placement_profiles", {sessionId:text("session_id").notNull(),skillId:text("skill_id").notNull(),payload:text("payload").notNull()});
+
+export const missionRuns = sqliteTable("mission_runs", {
+  id: text("id").primaryKey(),
+  updatedAt: text("updated_at").notNull(),
+  payload: text("payload", { mode: "json" }).$type<MissionRun>().notNull(),
+});
+
+export const diagnosticSessions = sqliteTable("diagnostic_sessions", {
+  id: text("id").primaryKey(),
+  updatedAt: text("updated_at").notNull(),
+  payload: text("payload", { mode: "json" }).$type<DiagnosticSession>().notNull(),
+});
+
+export const assessmentAttempts = sqliteTable("assessment_attempts", {
+  id: text("id").primaryKey(),
+  updatedAt: text("updated_at").notNull(),
+  payload: text("payload", { mode: "json" }).$type<AssessmentTaskRecord>().notNull(),
+});
+
+export const reviewState = sqliteTable("review_state", {
+  skillId: text("skill_id").primaryKey(),
+  updatedAt: text("updated_at").notNull(),
+  payload: text("payload", { mode: "json" }).$type<ReviewSchedule>().notNull(),
+});
+
+/** Singleton row (id "singleton") holding dashboard tab, diagnostic summary, and portfolio. */
+export const stateMeta = sqliteTable("state_meta", {
+  id: text("id").primaryKey(),
+  updatedAt: text("updated_at").notNull(),
+  payload: text("payload", { mode: "json" }).$type<Record<string, unknown>>().notNull(),
+});
+
+export const dbMeta = sqliteTable("db_meta", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+});

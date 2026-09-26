@@ -75,7 +75,7 @@ for (const [name, viewport] of [["desktop", { width: 1280, height: 720 }], ["mob
     await page.getByRole("button", { name: "Start 45-minute mission" }).waitFor();
     assert.ok(await page.getByText("No reviews scheduled yet.").isVisible());
     await noOverflow(); await snapshot("today");
-    await nav("Lessons");
+    await nav("Curriculum");
     assert.equal(await page.getByText("Not started", { exact: true }).count(), 2);
     await snapshot("lessons");
     await nav("What I Learned");
@@ -187,7 +187,7 @@ for (const [name, viewport] of [["desktop", { width: 1280, height: 720 }], ["mob
     assert.ok(await page.getByRole("heading", { name: "Evidence-backed strengths" }).isVisible());
     assert.ok(await page.getByText(/I use DictReader because/).isVisible());
     await snapshot("project-assessment");
-    await nav("Lessons");
+    await nav("Curriculum");
     assert.equal(await page.getByText("Completed", { exact: true }).count(), 1);
     assert.ok(await page.getByRole("button", { name: "Open mission" }).isEnabled());
     await noOverflow();

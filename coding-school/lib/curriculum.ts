@@ -11,14 +11,28 @@ export const curriculumSchema = z.object({ skills: z.array(skillSchema), lessons
   const fail = (message: string) => ctx.addIssue({ code: "custom", message });
   const skills = new Set(data.skills.map(s => s.id));
   const ids: string[] = [];
+  if (skills.size !== data.skills.length) fail("Duplicate skill ID");
   for (const skill of data.skills) if (skill.prerequisites.some(id => !skills.has(id))) fail(`Unknown prerequisite for ${skill.id}`);
+  const skillById = new Map(data.skills.map(skill => [skill.id, skill]));
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visitSkill = (id: string): boolean => {
+    if (visiting.has(id)) return true;
+    if (visited.has(id)) return false;
+    visiting.add(id);
+    const cyclic = skillById.get(id)?.prerequisites.some(prerequisite => skillById.has(prerequisite) && visitSkill(prerequisite)) ?? false;
+    visiting.delete(id);
+    visited.add(id);
+    return cyclic;
+  };
+  if (data.skills.some(skill => visitSkill(skill.id))) fail("Cyclic skill prerequisites");
   const tasks = [...data.reviewTasks];
   data.missions.forEach((mission, index) => {
     ids.push(mission.id);
     if (mission.prerequisites.some(id => !data.missions.slice(0, index).some(m => m.id === id))) fail(`Invalid prerequisite order for ${mission.id}`);
     if ([...mission.introducedSkillIds, ...mission.revisitedSkillIds].some(id => !skills.has(id))) fail(`Unknown mission skill: ${mission.id}`);
     if (mission.stages.map(s => s.kind).join() !== "review,learn,build,explain") fail(`Invalid stage order: ${mission.id}`);
-    if (mission.estimatedMinutes !== 45 || mission.stages.reduce((n, s) => n + s.estimatedMinutes, 0) !== 45 || mission.stages[0].estimatedMinutes > 5) fail(`Invalid pacing budget: ${mission.id}`);
+    if (mission.estimatedMinutes < 30 || mission.estimatedMinutes > 60 || mission.stages.reduce((n, s) => n + s.estimatedMinutes, 0) !== mission.estimatedMinutes || mission.stages[0].estimatedMinutes > 5) fail(`Invalid pacing budget: ${mission.id}`);
     for (const stage of mission.stages) { ids.push(stage.id); tasks.push(...stage.tasks); }
   });
   for (const task of tasks) {
@@ -37,6 +51,8 @@ export const curriculumSchema = z.object({ skills: z.array(skillSchema), lessons
   if (new Set(ids).size !== ids.length) fail("Duplicate mission, stage or task ID");
 });
 export const curriculum = { skills: source.skills, lessons: source.lessons, projects: source.projects, assessments: source.assessments, missions: source.missions, reviewTasks: source.reviewTasks };
+/** Bumped whenever authored curriculum content changes; sealed into portfolio snapshots. */
+export const CURRICULUM_VERSION = "1.0.0";
 export const validateCurriculum = (value: unknown) => curriculumSchema.safeParse(value);
 export type Lesson = z.infer<typeof lessonSchema>;
 export const getMission = (id: string) => curriculum.missions.find(m => m.id === id);

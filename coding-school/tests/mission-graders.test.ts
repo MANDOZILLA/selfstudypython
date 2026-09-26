@@ -8,7 +8,7 @@ beforeAll(async () => { runtime = await loadPyodide({ indexURL: resolve("public/
 async function grade(code: string, graderId: string, exerciseId: string) {
   return runSubmission({ type: "run", requestId: "mission-test", exerciseId, graderId, files: { "main.py": code } }, async () => runtime);
 }
-const jsonReference = `import json
+export const jsonReference = `import json
 from decimal import Decimal, InvalidOperation
 def solve(json_text):
     try:

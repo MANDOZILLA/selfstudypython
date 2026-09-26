@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { curriculum, validateCurriculum } from "../lib/curriculum";
+import { DIAGNOSTIC_CORE_SKILLS, DIAGNOSTIC_ITEMS, DIAGNOSTIC_SKILLS } from "../curriculum";
 
 describe("seed curriculum", () => {
   it("exposes complete authored missions through the compatibility lesson view", () => {
     expect(validateCurriculum(curriculum).success).toBe(true);
-    expect(curriculum.lessons).toHaveLength(2);
+    expect(curriculum.lessons).toHaveLength(10);
     for (const lesson of curriculum.lessons) {
       expect(lesson.objectives.length).toBeGreaterThan(1);
       expect(lesson.examples.length).toBeGreaterThanOrEqual(2);
@@ -22,5 +23,30 @@ describe("seed curriculum", () => {
       ...curriculum.projects.map((project) => project.id),
     ];
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("rejects duplicate skill IDs", () => {
+    const invalid = structuredClone(curriculum);
+    invalid.skills.push({ ...invalid.skills[0] });
+    expect(validateCurriculum(invalid).success).toBe(false);
+  });
+
+  it("rejects cycles in the skill prerequisite graph", () => {
+    const invalid = structuredClone(curriculum);
+    invalid.skills[0].prerequisites = [invalid.skills[1].id];
+    invalid.skills[1].prerequisites = [invalid.skills[0].id];
+    expect(validateCurriculum(invalid).success).toBe(false);
+  });
+
+  it("registers the diagnostic item bank and its skills through the curriculum index", () => {
+    expect(DIAGNOSTIC_ITEMS.length).toBeGreaterThanOrEqual(40);
+    expect(DIAGNOSTIC_SKILLS.map(s => s.id).sort()).toEqual([...DIAGNOSTIC_CORE_SKILLS].sort());
+    for (const skill of DIAGNOSTIC_SKILLS) {
+      expect(skill.title.length).toBeGreaterThan(0);
+    }
+    const known = new Set<string>(DIAGNOSTIC_SKILLS.map(s => s.id));
+    for (const item of DIAGNOSTIC_ITEMS) {
+      expect(known.has(item.skillId)).toBe(true);
+    }
   });
 });

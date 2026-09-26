@@ -1,0 +1,232 @@
+{
+  "title": "PROJECT-LED APCSP → MACHINE LEARNING → RESEARCH CURRICULUM",
+  "overview": "Assumption:\n- 75–90 minutes per day\n- 5–6 days per week\n- Start: APCSP-level Python\n- Goal: by winter, have a legitimate ML project to show\n- Goal: by spring/summer, be capable of contributing meaningfully to an applied ML research project\n\nCORE DESIGN RULE\n\nProjects are not rewards after lessons.\nProjects are the environment in which lessons happen.\n\nA new concept should usually appear because the current project creates a problem that the learner cannot solve cleanly with existing tools.\n\nExamples:\n- “I need this action to repeat until something changes.” → while loops\n- “I duplicated this logic six times.” → functions\n- “I need to store structured records.” → dictionaries\n- “I have 50,000 values and Python loops are clumsy.” → NumPy\n- “I need to analyze labeled columns and missing values.” → Pandas\n- “My model works on training data but fails on new data.” → overfitting/generalization\n- “My accuracy looks impossibly good.” → data leakage\n\nThe curriculum should usually introduce only 1–3 genuinely new ideas at a time.\n\nEverything else in the project should reuse older skills.",
+  "sections": [
+    {
+      "number": 1,
+      "title": "LEARNING MODEL",
+      "duration": null,
+      "intro": "Every concept gets a complexity level.\n\nLOW COMPLEXITY\nExamples:\n- enumerate\n- zip\n- tuples\n- simple slicing\n- basic comprehensions\n- simple plotting options\n\nLearning structure:\n1. Short explanation\n2. Two complete examples\n3. One replication task\n4. One transfer task\n5. Immediate use in the active project\n\nTime:\nAbout 20–45 minutes total.\n\nMEDIUM COMPLEXITY\nExamples:\n- dictionaries\n- exceptions\n- NumPy indexing\n- Pandas groupby\n- train/test splitting\n- scaling\n- imputation\n\nLearning structure:\n1. Conceptual explanation\n2. Several examples\n3. 3–5 increasingly difficult tasks\n4. Debugging task\n5. Small applied build\n6. Reuse the next day\n7. Retrieval later\n\nTime:\nAbout 1–3 sessions.\n\nHIGH COMPLEXITY\nExamples:\n- functions\n- OOP\n- vectorization\n- probability\n- linear regression\n- overfitting\n- gradient descent\n- neural networks\n\nLearning structure:\n1. Mental model\n2. Multiple worked examples\n3. Guided implementation\n4. Harder implementation with less starter code\n5. Debugging\n6. Mini-project\n7. Use inside anchor project\n8. Reuse the next day\n9. Transfer days/weeks later\n10. Explain in your own words\n\nTime:\nUsually 3–8 sessions.\n\nMastery is not:\n“I completed the lesson.”\n\nMastery means:\n- independent transfer\n- later retrieval\n- ability to explain the idea\n- ability to choose the idea without being told to use it",
+      "units": []
+    },
+    {
+      "number": 2,
+      "title": "WEEKLY STRUCTURE",
+      "duration": null,
+      "intro": "Typical six-session week:\n\nSession 1\n- retrieval from older material\n- introduce 1–2 new concepts\n- worked examples\n- first project feature using the concept\n\nSession 2\n- same concept in harder context\n- less starter code\n- project feature\n\nSession 3\n- add 1 related concept\n- combine it with the previous concept\n- project feature\n\nSession 4\n- mini-project or substantial feature\n- no step-by-step recipe\n\nSession 5\n- debugging\n- transfer problem\n- explanation/reflection\n\nSession 6\n- anchor-project development\n- old-skill retrieval\n- documentation / tests / cleanup\n\nSunday:\n- off or catch-up\n\nRecommended daily split:\n- 10 min retrieval\n- 15–20 min teaching/examples\n- 40–50 min building\n- 10 min debugging/testing\n- 5 min reflection\n\nApproximate learning ratio:\n- 60–70% project building\n- 20–30% direct teaching/examples\n- 10% retrieval/debugging",
+      "units": []
+    },
+    {
+      "number": 3,
+      "title": "PHASE 0 — DIAGNOSTIC",
+      "duration": "2–4 DAYS",
+      "intro": "Do not restart Python from variables.\n\nTest:\n- variables\n- strings\n- arithmetic\n- booleans\n- conditionals\n- for loops\n- while loops\n- lists\n- dictionaries\n- functions\n- nested data\n- sets\n- tuples\n- comprehensions\n- file I/O\n- exceptions\n- imports\n- debugging\n\nExample diagnostic:\n\nInput:\n[\n    {\"email\": \" TEST@example.com \"},\n    {\"email\": \"test@example.com\"},\n    None,\n    {\"email\": 17},\n    {\"email\": \"hello@gmail.com\"}\n]\n\nRequired output:\n[\"test@example.com\", \"hello@gmail.com\"]\n\nRules:\n- input must be a list\n- only dictionaries count\n- email must be a string\n- trim whitespace\n- lowercase\n- remove duplicates\n- preserve first valid occurrence\n- do not mutate input\n\nAnything clearly mastered is skipped.\nAnything weak becomes a short repair mission.",
+      "units": []
+    },
+    {
+      "number": 4,
+      "title": "PHASE 1 — PRACTICAL PYTHON",
+      "duration": "ABOUT 2–3 WEEKS",
+      "intro": "Goal:\nBecome strong enough at Python that later ML work is not constantly blocked by basic programming.\n\nDo not spend 5–7 weeks here.",
+      "units": [
+        {
+          "number": 1,
+          "title": "CONTROL FLOW AND PROGRAM STATE",
+          "content": "Main project:\nTERMINAL 21 CARD GAME\n\nExisting knowledge reused:\n- variables\n- input\n- output\n- conditionals\n- arithmetic\n\nNew concepts:\n- while loops deeply\n- loop state\n- sentinel values\n- break\n- continue\n- randomness\n- input validation\n- lists\n\nProject progression:\n\nStage 1:\nPlayer starts with a total.\n\nRequirements:\n- show current total\n- ask hit or stand\n- if hit, add a card\n- if stand, end turn\n- if total exceeds 21, bust\n\nStage 2:\nReplace fixed card value with random cards.\n\nUse:\nimport random\n\nStage 3:\nReject invalid input.\n\nOnly:\nhit\nstand\n\nStage 4:\nAdd dealer logic.\n\nDealer keeps drawing while total < 17.\n\nStage 5:\nTrack actual hands using lists.\n\nExample:\nplayer_hand = [10, 7]\n\nStage 6:\nAdd replaying.\n\nStage 7:\nAdd multiple rounds and hand history.\n\nFinal independent challenge:\nAdd ace logic where ace counts as 1 or 11 depending on the hand.\n\nThis project should force repeated use of:\n- state\n- loops\n- branching\n- lists\n- input\n- random behavior"
+        },
+        {
+          "number": 2,
+          "title": "FUNCTIONS",
+          "content": "Complexity:\nHIGH\n\nReason for introduction:\nThe card game becomes duplicated and messy.\n\nTeach:\n- parameters\n- arguments\n- return values\n- local scope\n- global scope\n- side effects\n- function contracts\n- decomposition\n- pure vs impure functions\n\nWorked example:\ndef draw_card():\n    return random.randint(1, 10)\n\nThen refactor the card game into:\n- draw_card()\n- player_turn()\n- dealer_turn()\n- determine_winner()\n- play_round()\n\nMini-project 1:\nTEXT STATISTICS LIBRARY\n\nFunctions:\n- count_words(text)\n- average_word_length(text)\n- most_common_word(text)\n- sentence_count(text)\n\nMini-project 2:\nGRADE ANALYSIS LIBRARY\n\nFunctions:\n- mean(scores)\n- median(scores)\n- highest(scores)\n- lowest(scores)\n- letter_grade(score)\n\nLarge project:\nSTRATEGY SIMULATION ENGINE\n\nGoal:\nRepresent different decision strategies as functions.\n\nExample:\ndef aggressive_strategy(state):\n    ...\n\ndef conservative_strategy(state):\n    ...\n\nSimulate thousands of games and compare outcomes.\n\nThis introduces the idea:\ninput → function → output\n\nThat mental model later maps directly onto ML models."
+        },
+        {
+          "number": 3,
+          "title": "DATA STRUCTURES + MULTI-FILE PROGRAMS",
+          "content": "New concepts:\n- dictionaries\n- nested dictionaries\n- sets\n- tuples\n- comprehensions\n- enumerate\n- zip\n- sorting with key=\n- mutation vs copying\n- references\n- modules\n- imports\n\nMain project:\nTEXT ADVENTURE ENGINE\n\nRepresent rooms as structured data.\n\nExample:\nrooms = {\n    \"lab\": {\n        \"description\": \"A deserted laboratory.\",\n        \"north\": \"hallway\",\n        \"items\": [\"keycard\"]\n    }\n}\n\nBuild:\n- navigation\n- inventory\n- items\n- room state\n- commands\n- win conditions\n- saveable state later\n\nIntroduce dictionaries because the project needs structured records.\nIntroduce sets when unique items/states are needed.\nIntroduce tuples when immutable coordinates or fixed pairs make sense."
+        },
+        {
+          "number": 4,
+          "title": "ERRORS, FILES, TESTING, DEBUGGING",
+          "content": "New concepts:\n- try/except\n- tracebacks\n- file I/O\n- JSON\n- CSV\n- assertions\n- unit testing\n- logging\n- basic project structure\n- requirements.txt\n- virtual environments\n- Git/GitHub basics\n- README writing\n\nMain project:\nCRASH-PROOF DATA IMPORTER\n\nInput example:\nid,name,age,balance\n1,Amy,17,124.50\n2,Bob,bad,70\n3,,19,100.00\n4,Eve,16,error\n\nProgram must:\n- read file\n- validate each record\n- explain why invalid rows are invalid\n- preserve valid rows\n- output cleaned data\n- output error report\n- never silently crash on bad rows\n\nProject structure:\nloader.py\nvalidator.py\ncleaner.py\nreport.py\nmain.py\ntests/\n\nThis is the first time engineering habits are explicitly required."
+        }
+      ]
+    },
+    {
+      "number": 5,
+      "title": "PHASE 2 — SCIENTIFIC PYTHON",
+      "duration": "ABOUT 3 WEEKS",
+      "intro": "Goal:\nMove from normal Python into numerical/data work quickly.",
+      "units": [
+        {
+          "number": 5,
+          "title": "NUMPY",
+          "content": "Complexity:\nHIGH\n\nNew concepts:\n- ndarray\n- shape\n- dimensions\n- dtype\n- indexing\n- slicing\n- boolean masks\n- vectorization\n- broadcasting\n- aggregations\n- axis\n- random generators\n- seeds\n- reproducibility\n\nAnchor project 1:\nIMAGE PROCESSING LAB\n\nUse an image represented as a NumPy array.\n\nBuild:\n- brightness adjustment\n- contrast adjustment\n- crop\n- flip\n- grayscale\n- thresholding\n- masking\n- noise injection\n- normalization\n\nConcept order should follow project need.\n\nExample:\nNeed to crop → learn slicing.\nNeed to remove dark pixels → learn boolean masks.\nNeed to adjust all pixels efficiently → learn vectorization/broadcasting.\n\nAnchor project 2:\nMONTE CARLO BUSINESS SIMULATOR\n\nSimulate many customers.\n\nEach customer can have:\n- conversion probability\n- order value\n- return probability\n\nEstimate:\n- expected revenue\n- variance\n- probability of hitting revenue target\n- best/worst simulation outcomes\n\nRun thousands of trials.\n\nAdd reproducibility:\nrng = np.random.default_rng(42)\n\nRequired engineering:\n- CLI parameter or config for seed\n- results saved to CSV\n- README explaining assumptions"
+        },
+        {
+          "number": 6,
+          "title": "PANDAS + VISUALIZATION",
+          "content": "New concepts:\n- Series\n- DataFrame\n- loading CSV\n- filtering\n- selecting columns\n- missing data\n- duplicates\n- groupby\n- aggregation\n- merges\n- dates\n- categories\n- derived columns\n- Matplotlib basics\n\nMain project:\nBUSINESS INVESTIGATION\n\nDataset:\nSeveral thousand transactions with:\n- dates\n- region\n- product\n- units\n- price\n- missing values\n- duplicate rows\n- inconsistent category names\n\nPrompt:\n“Revenue appears to have fallen sharply in one region. Figure out what happened.”\n\nDo not tell the student which Pandas function to use.\n\nThey must:\n- inspect data\n- clean malformed rows\n- normalize categories\n- parse dates\n- calculate revenue\n- compare regions\n- compare months\n- identify anomalies\n- visualize trends\n- explain likely causes\n\nDeliverables:\nanalysis.py\ncleaned_data.csv\nfigures/\nreport.md\nREADME.md\n\nResearch habit starts here.\n\nRequired report structure:\nQuestion\nInitial hypothesis\nMethod\nResult\nInterpretation\nLimitation"
+        }
+      ]
+    },
+    {
+      "number": 6,
+      "title": "PHASE 3 — STATISTICS + FIRST MACHINE LEARNING",
+      "duration": "ABOUT 4 WEEKS",
+      "intro": "Important sequencing change:\nDo not wait until all math is finished before touching ML.\n\nBasic statistics and first ML happen together.",
+      "units": [
+        {
+          "number": 7,
+          "title": "STATISTICS THROUGH SIMULATION",
+          "content": "New concepts:\n- mean\n- median\n- variance\n- standard deviation\n- percentiles\n- distributions\n- outliers\n- probability\n- events\n- independence\n- conditional probability\n- random variables\n- expected value\n- Bernoulli distribution\n- binomial distribution\n- normal distribution\n- sampling\n- standard error\n- confidence interval intuition\n- correlation\n- covariance\n- statistical vs practical significance\n- hypothesis testing intuition\n- p-values and their limitations\n\nMain project:\nA/B TESTING LAB\n\nVariant A conversion:\n8%\n\nVariant B conversion:\n9%\n\nSimulate:\n- 50 visitors\n- 500\n- 5,000\n- 50,000\n\nRepeat each experiment many times.\n\nQuestions:\n- How often does the worse version appear better?\n- How does sample size change uncertainty?\n- How large must an effect be to become reliably visible?\n- How often does random chance produce misleading results?\n\nDeliverables:\nsimulation.py\nresults.csv\nplots/\nreport.md\n\nRequired research habits:\n- write hypothesis before running\n- multiple random seeds\n- summarize mean and variability\n- explain uncertainty"
+        },
+        {
+          "number": 8,
+          "title": "FIRST REAL ML",
+          "content": "This should happen around week 6–8 from the start of the full curriculum, not month 4.\n\nNew concepts:\n- supervised learning\n- features\n- target\n- regression\n- classification\n- train/test split\n- baseline\n- generalization\n- basic evaluation\n\nUse scikit-learn.\n\nMain project:\nFIRST REGRESSION BENCHMARK\n\nModels:\n- DummyRegressor\n- LinearRegression\n- DecisionTreeRegressor\n\nMetrics:\n- MAE\n- MSE\n- RMSE\n- R²\n\nQuestions:\n- Does the model beat the baseline?\n- Which model overfits?\n- How can you tell?\n- Which errors are largest?\n- What kinds of rows are hard to predict?\n\nRequired:\n- fixed seed\n- train/test split\n- results table\n- error analysis\n- README\n\nDo not chase model complexity yet."
+        }
+      ]
+    },
+    {
+      "number": 7,
+      "title": "PHASE 4 — MATH FOR ML + BETTER ML",
+      "duration": "ABOUT 4–6 WEEKS",
+      "intro": "Now deepen the math because the learner has already seen why it matters.",
+      "units": [
+        {
+          "number": 9,
+          "title": "LINEAR ALGEBRA",
+          "content": "Teach:\n- vectors\n- vector operations\n- dot product\n- norms\n- Euclidean distance\n- cosine similarity\n- matrices\n- matrix dimensions\n- transpose\n- linear combinations\n- matrix multiplication\n- feature matrices\n- least-squares intuition\n\nMain project:\nSIMILARITY ENGINE\n\nRepresent items as feature vectors.\n\nExample features:\n- price\n- rating\n- size\n- category score\n\nImplement:\n- Euclidean distance\n- cosine similarity\n\nThen rank nearest items.\n\nExtension:\nNormalize features and observe how rankings change.\n\nResearch question:\n“How sensitive is nearest-neighbor similarity to feature scaling?”"
+        },
+        {
+          "number": 10,
+          "title": "OPTIMIZATION + CALCULUS INTUITION",
+          "content": "Teach:\n- slope\n- derivative intuition\n- partial derivative\n- gradients\n- chain rule intuition\n- loss functions\n- learning rate\n- gradient descent\n- convergence\n\nMain project:\nLINEAR REGRESSION FROM SCRATCH\n\nModel:\ny_hat = wx + b\n\nImplement:\n1. prediction\n2. error\n3. MSE\n4. gradient for w\n5. gradient for b\n6. parameter update\n7. training loop\n\nPlots:\n- loss vs iteration\n- fitted line vs actual values\n\nCompare:\n- your implementation\n- scikit-learn LinearRegression\n\nQuestions:\n- Why does learning rate matter?\n- What happens if it is too large?\n- Too small?\n- How does scaling affect optimization?\n\nThis is portfolio-worthy if documented properly."
+        }
+      ]
+    },
+    {
+      "number": 8,
+      "title": "PHASE 5 — REAL MACHINE LEARNING",
+      "duration": "ABOUT 5–7 WEEKS",
+      "intro": "",
+      "units": [
+        {
+          "number": 11,
+          "title": "CLASSIFICATION",
+          "content": "Teach:\n- logistic regression\n- class probabilities\n- decision boundary\n- confusion matrix\n- accuracy\n- precision\n- recall\n- F1\n- class imbalance\n\nMain project:\nFAILURE PREDICTION SYSTEM\n\nUse a public binary-classification dataset.\n\nDo not focus only on accuracy.\n\nRequired analysis:\n- false positives\n- false negatives\n- confidence\n- difficult cases\n- class imbalance\n- threshold effects\n\nQuestion:\n“What kinds of mistakes does the system make?”"
+        },
+        {
+          "number": 12,
+          "title": "PREPROCESSING + PIPELINES",
+          "content": "Teach:\n- feature scaling\n- categorical encoding\n- imputation\n- pipelines\n- feature engineering\n- train/validation/test\n- cross-validation\n- hyperparameters\n\nMain project:\nMODEL PIPELINE LAB\n\nBuild a reproducible pipeline.\n\nMust handle:\n- missing numeric values\n- categorical features\n- scaling\n- model training\n- evaluation\n\nRequired:\n- Pipeline / ColumnTransformer where appropriate\n- no preprocessing leakage\n- repeated cross-validation"
+        },
+        {
+          "number": 13,
+          "title": "OVERFITTING + BIAS/VARIANCE",
+          "content": "Teach:\n- underfitting\n- overfitting\n- model complexity\n- bias\n- variance\n- regularization\n- learning curves\n\nMain project:\nOVERFITTING LABORATORY\n\nTrain decision trees with depths:\n1\n2\n3\n5\n10\n20\nunlimited\n\nTrack:\n- training score\n- validation score\n\nPlot both.\n\nThen repeat across several seeds.\n\nRequired conclusions:\n- underfitting zone\n- useful zone\n- overfitting zone"
+        },
+        {
+          "number": 14,
+          "title": "DATA LEAKAGE",
+          "content": "This gets its own unit.\n\nTeach:\n- target leakage\n- future information leakage\n- preprocessing leakage\n- duplicate leakage\n- identifier leakage\n- time leakage\n\nMain project:\nML CRIME SCENE\n\nGive several suspiciously strong models.\n\nExamples:\n- 99.7% accuracy because target-derived feature exists\n- scaling done before split\n- future event included as feature\n- duplicate rows across train/test\n- random split used on time series\n\nStudent must:\n1. find the leak\n2. explain why it is invalid\n3. fix it\n4. rerun experiment\n5. compare new result\n\nThis is highly useful for research and portfolio work."
+        },
+        {
+          "number": 15,
+          "title": "TIME-AWARE ML",
+          "content": "Important for finance/economics applications.\n\nTeach:\n- temporal ordering\n- random split vs chronological split\n- walk-forward validation intuition\n- look-ahead bias\n- rolling windows\n- lagged features\n\nMini-project:\nFORECAST VALIDATION LAB\n\nCreate a time-indexed dataset.\n\nCompare:\n- random train/test split\n- chronological split\n\nShow how random splitting can make performance look artificially strong."
+        }
+      ]
+    },
+    {
+      "number": 9,
+      "title": "PHASE 6 — FIRST POLISHED RESEARCH-STYLE PROJECT",
+      "duration": "ABOUT 3 WEEKS",
+      "intro": "Goal:\nHave something credible by winter.\n\nProject:\nMODEL ROBUSTNESS STUDY\n\nCore question:\n“How robust are different tabular ML models when data quality gets worse?”\n\nModels:\n- Dummy baseline\n- Linear / Logistic model depending on task\n- Random Forest\n- Gradient Boosting\n\nPossible corruption types:\n- missing features\n- noisy features\n- smaller training sets\n- label noise\n\nExperiment levels:\n0%\n5%\n10%\n20%\n30%\n\nSeeds:\n0\n1\n2\n3\n4\n\nReport:\n- mean performance\n- standard deviation\n- model ranking\n- failure points\n- error analysis\n- limitations\n\nRequired structure:\nAbstract\nResearch Question\nHypotheses\nDataset\nMethods\nModels\nMetrics\nExperiments\nResults\nDiscussion\nLimitations\nFuture Work\nReproduction Instructions\n\nImportant:\nThis is a training research project.\nIt is not automatically “impressive” just because it uses ML.\n\nTo make it strong:\n- explain why the question matters\n- use proper baselines\n- repeat trials\n- report uncertainty\n- avoid leakage\n- include ablations where useful\n- make the repository reproducible",
+      "units": []
+    },
+    {
+      "number": 10,
+      "title": "PHASE 7 — PYTORCH, ONLY WHEN USEFUL",
+      "duration": "SPRING",
+      "intro": "Do not force PyTorch earlier just for resume value.\n\nUse it when neural networks meaningfully help the research direction.",
+      "units": [
+        {
+          "number": 16,
+          "title": "PYTORCH FUNDAMENTALS",
+          "content": "Teach:\n- tensors\n- shapes\n- dtype\n- CPU/GPU\n- Dataset\n- DataLoader\n- batches\n- autograd\n- nn.Module\n- loss functions\n- optimizers\n- epochs\n- validation loops\n\nMain project:\nMANUAL REGRESSION → PYTORCH\n\nRebuild the earlier linear regression project.\n\nCompare:\n- manual gradient descent\n- autograd\n- optimizer\n\nStudent must explain:\noptimizer.zero_grad()\npred = model(X)\nloss = loss_fn(pred, y)\nloss.backward()\noptimizer.step()"
+        },
+        {
+          "number": 17,
+          "title": "NEURAL NETWORKS",
+          "content": "Teach:\n- layers\n- neurons\n- nonlinear activations\n- ReLU\n- hidden representations\n- initialization intuition\n- regularization\n- training curves\n\nMain project:\nIMAGE CLASSIFIER EXPERIMENT\n\nCompare:\n- 1 hidden layer\n- 2 hidden layers\n- ReLU\n- Tanh\n- different learning rates\n- different training-set sizes\n\nImportant:\nNeural network is not assumed to be best.\n\nIf classical ML performs better, report that honestly."
+        }
+      ]
+    },
+    {
+      "number": 11,
+      "title": "PHASE 8 — RESEARCH PREPARATION",
+      "duration": "LATE SPRING → SUMMER",
+      "intro": "",
+      "units": [
+        {
+          "number": 18,
+          "title": "EXPERIMENTAL DESIGN",
+          "content": "Teach:\n- research questions\n- hypotheses\n- independent variables\n- dependent variables\n- controls\n- baselines\n- repeated trials\n- random seeds\n- ablations\n- confounding variables\n- effect size\n- uncertainty\n- multiple comparisons basics\n\nMini research study:\n“How does training-set size affect different model families?”\n\nTrain using:\n5%\n10%\n25%\n50%\n100%\n\nUse multiple seeds.\n\nPlot learning curves.\n\nWrite conclusions."
+        },
+        {
+          "number": 19,
+          "title": "PAPER READING",
+          "content": "Do not begin with huge frontier-model papers.\n\nPaper reading order:\n1. Abstract\n2. Introduction\n3. Figures/tables\n4. Conclusion\n5. Methods\n6. Experiments\n7. Related work\n\nFor every paper answer:\n- What question?\n- What hypothesis?\n- What dataset?\n- What baseline?\n- What changed?\n- What metric?\n- What result?\n- What limitation?\n\nThen reproduce one manageable experiment or figure."
+        },
+        {
+          "number": 20,
+          "title": "INDEPENDENT RESEARCH",
+          "content": "Final summer project should ideally be narrower and domain-relevant.\n\nPossible direction:\nfinance/economics + ML\n\nBut the research question should come first, not the desire to use a specific model.\n\nPotential forms:\n- robustness under distribution shift\n- time-series leakage\n- forecasting under regime change\n- model calibration under class imbalance\n- feature stability over time\n- tabular model comparison under realistic missingness\n\nFinal repository:\nresearch-project/\n├── README.md\n├── report.pdf\n├── requirements.txt\n├── data/\n├── src/\n├── experiments/\n├── configs/\n├── results/\n├── figures/\n└── tests/\n\nRequired:\n- clear research question\n- literature review\n- baseline\n- controlled experiments\n- multiple seeds\n- metrics\n- visualizations\n- error analysis\n- limitations\n- reproducible code"
+        }
+      ]
+    },
+    {
+      "number": 12,
+      "title": "SELF-TEACHING / DOCUMENTATION SKILL",
+      "duration": null,
+      "intro": "This must be taught deliberately.\n\nStarting around NumPy, the curriculum should occasionally require something that has NOT been explicitly taught.\n\nExample:\n“Calculate the 25th, 50th, and 75th percentiles.”\n\nThe learner is told:\n- what result is required\n- where to look\n- not the function name\n\nDocumentation worksheet:\n\nFunction:\nWhat problem does it solve?\nImportant parameters:\nReturn value:\nExample I wrote myself:\nOne mistake I could make:\n\nLater:\nremove even the search hints.\n\nGoal:\nThe learner can encounter an unfamiliar API and figure it out independently.",
+      "units": []
+    },
+    {
+      "number": 13,
+      "title": "AI TUTOR RULES",
+      "duration": null,
+      "intro": "The tutor should not immediately generate solutions.\n\nHint ladder:\n\nHint 1:\nConceptual nudge.\n\nHint 2:\nPoint to likely location/problem.\n\nHint 3:\nPseudocode.\n\nHint 4:\nRelevant syntax/example.\n\nHint 5:\nPartial implementation.\n\nOnly after repeated failure:\nfuller solution.\n\nIf high-level AI help is used:\n- completion may count\n- mastery does not\n\nMastery requires later independent transfer.",
+      "units": []
+    },
+    {
+      "number": 14,
+      "title": "PROJECT SCAFFOLDING SHOULD FADE OVER TIME",
+      "duration": null,
+      "intro": "EARLY:\nStep 1\nCreate player_total.\n\nStep 2\nUse a while loop.\n\nStep 3\nAsk hit or stand.\n\nMID:\nBuild a simulator comparing two strategies.\n\nLATE:\nInvestigate whether Model A is more robust to missing data than Model B.\nDesign the experiment yourself.\n\nBy spring:\nThe learner should make architectural and experimental decisions independently.",
+      "units": []
+    },
+    {
+      "number": 15,
+      "title": "TIMELINE",
+      "duration": null,
+      "intro": "Weeks 1–2:\nPython gaps + one substantial program\n\nWeeks 3–4:\nNumPy + Pandas + data project\n\nWeeks 5–6:\nStatistics foundations + simulation project\n\nWeeks 7–9:\nFirst ML + regression/classification\n\nWeeks 10–12:\nEvaluation + pipelines + overfitting + leakage\n\nWeeks 13–15:\nFirst polished research-style ML project\n\nWinter → early spring:\ndeeper linear algebra + optimization + statistics\n\nSpring:\nPyTorch if useful + experiment replication\n\nLate spring:\npaper reading + reproduction\n\nSummer:\nprofessor/lab work or independent research",
+      "units": []
+    },
+    {
+      "number": 16,
+      "title": "WHAT SHOULD EXIST BY WINTER",
+      "duration": null,
+      "intro": "The learner should have:\n\n1. Card Strategy Game\n2. Text Adventure Engine\n3. Crash-Proof Data Importer\n4. Image Processing Lab\n5. Monte Carlo Business Simulator\n6. Business Investigation\n7. A/B Testing Lab\n8. First Regression Benchmark\n9. Similarity Engine\n10. Linear Regression From Scratch\n11. Classification / Failure Prediction System\n12. Overfitting Laboratory\n13. ML Crime Scene\n14. One polished research-style robustness project\n\nNot all of these need separate GitHub repositories.\n\nBetter:\n- some are curriculum projects\n- 2–4 are polished portfolio repos\n- 1 is a serious research-style project",
+      "units": []
+    },
+    {
+      "number": 17,
+      "title": "FINAL STANDARD",
+      "duration": null,
+      "intro": "The end goal is not:\n\n“I know NumPy.”\n“I know Pandas.”\n“I know PyTorch.”\n\nThe end goal is:\n\n“I can take a real question, find or clean data, formulate a hypothesis, build a reproducible experiment, train appropriate models, evaluate them correctly, detect leakage and overfitting, analyze failures, explain uncertainty, and communicate the result.”\n\nThat is the level that starts becoming useful for:\n- ML internships\n- startup work\n- research with a professor\n- serious college-portfolio projects\n\nThe curriculum should therefore optimize for:\n1. independent problem solving\n2. experimental thinking\n3. reproducibility\n4. transfer between projects\n5. depth on important concepts\n6. reaching real ML early enough to build something meaningful by winter",
+      "units": []
+    }
+  ]
+}

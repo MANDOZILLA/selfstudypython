@@ -1,35 +1,38 @@
-import { z } from "zod";
 import { deriveReviewSchedule, deriveSkillEvidence, selectToday, type SkillEvidence, type ReviewSchedule } from "./adaptive";
 import { curriculum, getMission, getTask } from "./curriculum";
 import { assistanceSchema, attemptSchema, missionRunSchema, type AttemptRecord, type AttemptSubmission, type MissionDraft, type MissionRun } from "./mission-types";
 import { aggregateResult } from "../public/grading/protocol.js";
 import { getGrader } from "../public/grading/catalog.js";
-import type { DiagnosticState } from "./diagnostic-types";
-import { normalizeDiagnostic } from "./diagnostic";
+import { classifyGradeResult, diagnosticSessionSchema, markLegacyDiagnosticSession, type DiagnosticSession } from "./diagnostic";
+import {
+  legacyPortfolioSnapshotSchema, convertLegacyPortfolioSnapshot, portfolioSnapshotSchema,
+  recordRunPortfolioSnapshots, verifyPortfolioSnapshot, type PortfolioSnapshot,
+} from "./portfolio";
+import {
+  deriveTaskRecord, deriveSkillStatus, planFocusedReviews,
+  type AssessmentTaskAttempt, type AssessmentTaskRecord, type SkillStatus,
+} from "./assessment-evidence";
 export type { AttemptRecord, AttemptSubmission, MissionDraft, MissionRun } from "./mission-types";
+export type { PortfolioSnapshot } from "./portfolio";
+export type { AssessmentTaskAttempt, AssessmentTaskRecord, SkillStatus } from "./assessment-evidence";
 
 const STORAGE_KEY = "coding-school:learner-state";
-const STATE_VERSION = 2 as const;
+export const STATE_VERSION = 3 as const;
 export type DashboardTab = "overview" | "lessons" | "learned" | "assessment" | "portfolio";
 export type ScheduledReview = ReviewSchedule;
-const portfolioSchema = z.object({
-  projectId: z.string(), title: z.string(), sourceFiles: z.record(z.string(), z.string()),
-  tests: z.array(z.object({ name: z.string(), passed: z.boolean() })), feedback: z.string(),
-  score: z.number().min(0).max(1), skillIds: z.array(z.string()), completedAt: z.string(),
-});
-export type PortfolioSnapshot = z.infer<typeof portfolioSchema>;
 export type LearningState = {
   version: typeof STATE_VERSION; dashboard: { activeTab: DashboardTab };
-  diagnostic: DiagnosticState;
+  diagnostic: { completed: boolean; completedAt: string | null };
   attempts: AttemptRecord[]; missionRuns: MissionRun[];
+  diagnosticSessions: DiagnosticSession[];
   mastery: Record<string, SkillEvidence>; reviewSchedule: Record<string, ScheduledReview>;
-  portfolio: PortfolioSnapshot[];
+  portfolio: PortfolioSnapshot[]; assessmentAttempts: AssessmentTaskRecord[];
 };
 export function createDefaultState(): LearningState {
   return { version: STATE_VERSION, dashboard: { activeTab: "overview" }, diagnostic: { completed: false, completedAt: null },
-    attempts: [], missionRuns: [], mastery: {}, reviewSchedule: {}, portfolio: [] };
+    attempts: [], missionRuns: [], diagnosticSessions: [], mastery: {}, reviewSchedule: {}, portfolio: [], assessmentAttempts: [] };
 }
-function clone<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T; }
+export function clone<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T; }
 function object(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function canonicalFiles(files: Record<string, string>) { return JSON.stringify(Object.entries(files).sort(([a], [b]) => a.localeCompare(b))); }
 /** Stable local fingerprint, not a cryptographic signature. Full snapshots are retained. */
@@ -38,9 +41,21 @@ function hash(value: string) {
   for (let i = 0; i < value.length; i++) n = Math.imul(n ^ value.charCodeAt(i), 16777619);
   return (n >>> 0).toString(16).padStart(8, "0");
 }
-function refresh(state: LearningState): LearningState {
+export function refresh(state: LearningState): LearningState {
   state.mastery = Object.fromEntries(curriculum.skills.map(s => deriveSkillEvidence(state.attempts, s.id)).filter(s => s.status !== "Not started").map(s => [s.skillId, s]));
   state.reviewSchedule = deriveReviewSchedule(state.attempts);
+  // Assessment focused repairs: failed tasks schedule repair reviews due the
+  // day after the attempt. The earliest due date wins per task.
+  for (const record of state.assessmentAttempts) {
+    for (const review of planFocusedReviews(record)) {
+      const key = `assessment:${review.skillId}:${review.taskId}`;
+      const dueAt = `${review.scheduledFor}T09:00:00.000Z`;
+      const existing = state.reviewSchedule[key];
+      if (!existing || dueAt < existing.dueAt) {
+        state.reviewSchedule[key] = { skillId: review.skillId, dueAt, reason: "repair", intervalDays: 1 };
+      }
+    }
+  }
   return state;
 }
 function locate(state: LearningState, runId: string, taskId?: string) {
@@ -58,7 +73,7 @@ function mergeAssistance(a: MissionDraft["assistance"] | undefined, b: MissionDr
   return { hintsUsed: Math.max(a?.hintsUsed ?? 0, b.hintsUsed), aiAssisted: Boolean(a?.aiAssisted || b.aiAssisted), solutionViewed: Boolean(a?.solutionViewed || b.solutionViewed) };
 }
 
-export function startOrResumeMission(state: LearningState, now = new Date(), missionId?: string): LearningState {
+export function startOrResumeMission(state: LearningState, now = new Date(), missionId?: string, forcedReviewTaskIds?: string[]): LearningState {
   const next = clone(state);
   const active = next.missionRuns.find(r => r.status !== "completed");
   if (active) { active.status = "active"; active.updatedAt = now.toISOString(); return next; }
@@ -69,10 +84,13 @@ export function startOrResumeMission(state: LearningState, now = new Date(), mis
   const completed = new Set(next.missionRuns.filter(r => r.status === "completed" && r.mode === "mission").map(r => r.missionId));
   if (mission.prerequisites.some(id => !completed.has(id))) throw new Error("Complete the prerequisite mission first.");
   const time = now.toISOString();
-  const reviewTaskIds = reviewOnly || selection.missionId === mission.id ? selection.reviewTaskIds : [];
+  // The recommendation engine may name an exact review list (e.g. a repair for
+  // a weak prerequisite); when given, that list is seated verbatim so the
+  // stated reason and the created run cannot disagree.
+  const reviewTaskIds = forcedReviewTaskIds ?? (reviewOnly || selection.missionId === mission.id ? selection.reviewTaskIds : []);
   const run: MissionRun = {
     id: crypto.randomUUID(), mode: reviewOnly ? "review" : "mission", missionId: mission.id, missionVersion: mission.version, status: "active", stageIndex: 0,
-    stages: mission.stages.map((s, i) => ({ stageId: s.id, status: i === 0 ? "active" : "pending", taskIds: i === 0 ? reviewTaskIds : s.tasks.map(t => t.id), attemptIds: [], completedAt: null })),
+    stages: mission.stages.map((s, i) => ({ stageId: s.id, status: i === 0 ? "active" : "pending", taskIds: i === 0 ? [...new Set([...reviewTaskIds, ...s.tasks.map(t => t.id)])] : s.tasks.map(t => t.id), attemptIds: [], completedAt: null })),
     drafts: {}, attemptIds: [], startedAt: time, updatedAt: time, completedAt: null,
   };
   next.missionRuns.push(run);
@@ -96,7 +114,10 @@ export function recordMissionAttempt(state: LearningState, runId: string, taskId
   const request = { type: "run", requestId: "evidence", exerciseId: variant.exerciseId, graderId: variant.graderId, files: input.sourceFiles };
   const grader = getGrader(variant.exerciseId, variant.graderId);
   const result = aggregateResult(request, input.result);
-  if (task!.kind === "code" && !result.executionOk) return state;
+  // Infrastructure noise (the lone "execution" check) is never evidence and
+  // is not recorded; genuine graded failures stay in history with an honest
+  // failed status.
+  if (task!.kind === "code" && (!input.result || classifyGradeResult(input.result) === "infra")) return state;
   if (task!.kind === "code" && input.result?.graderVersion !== grader?.version) throw new Error("Grader version does not match this task.");
   const passed = task!.kind === "code" ? result.passed : task!.kind === "instruction" ? true : response.trim().length >= 20;
   const checks: AttemptRecord["checks"] = task!.kind === "code" ? result.tests : [];
@@ -121,6 +142,23 @@ export function recordMissionAttempt(state: LearningState, runId: string, taskId
   run.updatedAt = now.toISOString();
   return refresh(next);
 }
+/** Record one checkpoint-assessment task attempt. Idempotent by attemptId: a
+ *  repeated submission returns the state unchanged, never a duplicate. */
+export function recordAssessmentAttempt(state: LearningState, attempt: AssessmentTaskAttempt, now = new Date()): LearningState {
+  if (state.assessmentAttempts.some(a => a.attemptId === attempt.attemptId)) return state;
+  const next = clone(state);
+  const result = deriveTaskRecord({
+    ...clone(attempt),
+    completedAt: attempt.completedAt || now.toISOString(),
+  });
+  next.assessmentAttempts.push(result);
+  return refresh(next);
+}
+
+/** Current cross-checkpoint status for one skill, derived from all attempts. */
+export function getAssessmentSkillStatus(state: LearningState, skillId: string): SkillStatus {
+  return deriveSkillStatus(skillId, state.assessmentAttempts.filter(a => a.skillId === skillId));
+}
 export function advanceMissionStage(state: LearningState, runId: string, now = new Date()): LearningState {
   const next = clone(state); const { run, mission, stage } = locate(next, runId);
   const rule = mission.stages[run.stageIndex].advanceRule;
@@ -132,7 +170,13 @@ export function advanceMissionStage(state: LearningState, runId: string, now = n
   });
   if (!complete) throw new Error("Complete the required tasks before advancing.");
   stage.status = "completed"; stage.completedAt = now.toISOString(); run.updatedAt = now.toISOString();
-  if (run.stageIndex === 3 || run.mode === "review") { run.status = "completed"; run.completedAt = now.toISOString(); }
+  if (run.stageIndex === 3 || run.mode === "review") {
+    run.status = "completed"; run.completedAt = now.toISOString();
+    // Seal one immutable portfolio snapshot per passed tagged build task. The
+    // reflection comes from the explain stage, which is why snapshots are
+    // created at mission completion rather than when the build checks pass.
+    return recordRunPortfolioSnapshots(next, run.id, now);
+  }
   else { run.stageIndex++; run.stages[run.stageIndex].status = "active"; }
   return next;
 }
@@ -146,16 +190,39 @@ export function migrateState(value: unknown): LearningState {
   if (["overview", "lessons", "learned", "assessment", "portfolio"].includes(String(tab))) next.dashboard.activeTab = tab as DashboardTab;
   const diagnostic = object(value.diagnostic) ? value.diagnostic : {};
   next.diagnostic = { completed: diagnostic.completed === true || value.diagnosticCompleted === true, completedAt: typeof diagnostic.completedAt === "string" ? diagnostic.completedAt : null };
-  if (diagnostic.sessions !== undefined) next.diagnostic = normalizeDiagnostic(diagnostic);
   const portfolio = Array.isArray(value.portfolio) ? value.portfolio : Array.isArray(value.completedProjects) ? value.completedProjects : [];
-  next.portfolio = portfolio.flatMap(item => { const parsed = portfolioSchema.safeParse(item); return parsed.success ? [parsed.data] : []; });
-  if (value.version !== STATE_VERSION) return next;
+  // New full snapshots must verify before they are trusted; legacy minimal
+  // snapshots are converted with their unknown fields marked, never invented.
+  next.portfolio = portfolio.flatMap(item => {
+    const full = portfolioSnapshotSchema.safeParse(item);
+    if (full.success) return verifyPortfolioSnapshot(full.data) ? [full.data] : [];
+    const legacy = legacyPortfolioSnapshotSchema.safeParse(item);
+    return legacy.success ? [convertLegacyPortfolioSnapshot(legacy.data)] : [];
+  });
+  // Version 2 payloads predate session history but remain readable; anything
+  // older is untrusted and dropped. Valid sessions are preserved verbatim;
+  // malformed sessions are dropped, never repaired into fabricated evidence.
+  if (value.version !== 2 && value.version !== STATE_VERSION) return next;
+  next.diagnosticSessions = (Array.isArray(value.diagnosticSessions) ? value.diagnosticSessions : []).flatMap(item => {
+    const parsed = diagnosticSessionSchema.safeParse(item);
+    if (!parsed.success) return [];
+    // Old-format sessions are preserved, but their responses become
+    // Legacy / unverified so they cannot shape placement or quotas.
+    return [markLegacyDiagnosticSession(parsed.data)];
+  });
+  const latestCompleted = next.diagnosticSessions
+    .filter(session => session.status === "completed")
+    .sort((a, b) => String(a.completedAt).localeCompare(String(b.completedAt)))
+    .at(-1);
+  if (latestCompleted && (!next.diagnostic.completed || String(latestCompleted.completedAt) > String(next.diagnostic.completedAt ?? ""))) {
+    next.diagnostic = { completed: true, completedAt: latestCompleted.completedAt };
+  }
   next.missionRuns = (Array.isArray(value.missionRuns) ? value.missionRuns : []).flatMap(item => {
     const parsed = missionRunSchema.safeParse(item);
     if (!parsed.success) return [];
     const run = parsed.data; const mission = getMission(run.missionId);
     if (!mission || run.missionVersion !== mission.version || run.stages.some((s, i) => s.stageId !== mission.stages[i].id ||
-      (i === 0 ? s.taskIds.length > 2 || new Set(s.taskIds).size !== s.taskIds.length || s.taskIds.some(id => !curriculum.reviewTasks.some(t => t.id === id)) :
+      (i === 0 ? s.taskIds.length > 2 + mission.stages[0].tasks.length || new Set(s.taskIds).size !== s.taskIds.length || s.taskIds.some(id => !curriculum.reviewTasks.some(t => t.id === id) && !mission.stages[0].tasks.some(t => t.id === id)) :
         s.taskIds.join() !== mission.stages[i].tasks.map(t => t.id).join()))) return [];
     return [run];
   });
@@ -174,7 +241,9 @@ export function migrateState(value: unknown): LearningState {
       if (a.graderVersion !== grader?.version) return [];
       const result = aggregateResult({ requestId: "hydrate", exerciseId: variant.exerciseId, graderId: variant.graderId }, { executionOk: a.executionOk, tests: a.checks });
       a.passed = result.passed; a.executionOk = result.executionOk; a.checks = result.tests;
-      if (!a.executionOk) return [];
+      // Runner failures (the lone "execution" check) are infrastructure
+      // noise, never evidence; genuine graded failures survive the roundtrip.
+      if (classifyGradeResult({ executionOk: a.executionOk, tests: a.checks }) === "infra") return [];
       a.skillOutcomes = task.skillIds.map(skillId => {
         const checkIds = variant.skillChecks[skillId] ?? [];
         return { skillId, checkIds, passed: a.executionOk && checkIds.length > 0 && checkIds.every(id => a.checks.some(c => c.id === id && c.passed)) };
@@ -204,7 +273,42 @@ export function migrateState(value: unknown): LearningState {
       run.stages.forEach((s, i) => { if (i >= run.stageIndex) { s.status = i === run.stageIndex ? "active" : "pending"; s.completedAt = null; } });
     }
   }
+  // Assessment attempts are re-derived from their stored results so the
+  // evidence rules stay consistent; malformed records are dropped, never repaired.
+  const seenAttempts = new Set<string>();
+  next.assessmentAttempts = (Array.isArray(value.assessmentAttempts) ? value.assessmentAttempts : []).flatMap(item => {
+    if (!object(item) || typeof item.attemptId !== "string" || seenAttempts.has(item.attemptId)) return [];
+    const result = object(item.result) ? item.result : item;
+    const parsed: AssessmentTaskAttempt = {
+      attemptId: item.attemptId,
+      taskId: typeof item.taskId === "string" ? item.taskId : "",
+      assessmentId: typeof item.assessmentId === "string" ? item.assessmentId : "",
+      skillId: typeof item.skillId === "string" ? item.skillId : "",
+      result: {
+        passed: result.passed === true,
+        hintsUsed: typeof result.hintsUsed === "number" && result.hintsUsed >= 0 ? Math.floor(result.hintsUsed) : 0,
+        aiAssisted: result.aiAssisted === true,
+        solutionViewed: result.solutionViewed === true,
+      },
+      completedAt: typeof item.completedAt === "string" ? item.completedAt : new Date(0).toISOString(),
+    };
+    if (!parsed.taskId || !parsed.assessmentId || !parsed.skillId) return [];
+    seenAttempts.add(parsed.attemptId);
+    return [deriveTaskRecord(parsed)];
+  });
   return refresh(next);
+}
+/** Upsert a diagnostic session into history. Retakes append new sessions; prior sessions are never mutated. */
+export function replaceDiagnosticSession(state: LearningState, session: DiagnosticSession): LearningState {
+  diagnosticSessionSchema.parse(session);
+  const next = clone(state);
+  const index = next.diagnosticSessions.findIndex(existing => existing.id === session.id);
+  if (index >= 0) next.diagnosticSessions[index] = clone(session);
+  else next.diagnosticSessions.push(clone(session));
+  if (session.status === "completed" && (!next.diagnostic.completed || String(session.completedAt) > String(next.diagnostic.completedAt ?? ""))) {
+    next.diagnostic = { completed: true, completedAt: session.completedAt };
+  }
+  return next;
 }
 function storage(): Storage | undefined {
   if (typeof window === "undefined") return undefined;

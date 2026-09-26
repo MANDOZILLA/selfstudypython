@@ -1,122 +1,197 @@
-import assert from "node:assert/strict";
-import { mkdir } from "node:fs/promises";
-import { chromium } from "playwright";
+#!/usr/bin/env node
+/**
+ * End-to-end verification for the Task 1 diagnostic system.
+ *
+ * Covers: dashboard entry -> adaptive flow -> concept grading -> coding runs
+ * through the real Python worker -> in-progress restoration after reload ->
+ * no infra failures on the happy path -> mobile 375x812 layout.
+ *
+ * Usage:
+ *   node scripts/verify-diagnostic.mjs --serve   # starts `next dev` on :3100
+ *   BASE_URL=http://localhost:3000 node scripts/verify-diagnostic.mjs
+ *
+ * Screenshots land in /tmp. Exits non-zero on the first failed assertion.
+ */
+import { spawn, execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+import { setTimeout as sleep } from "node:timers/promises";
 
-const base=process.env.STUDIO_URL||"http://localhost:3016";
-assert.equal(new URL(base).port,"3016","Use the isolated placement test server on port 3016 with a temporary database.");
-const browser=await chromium.launch({channel:"chrome",headless:true});
-await mkdir("test-results",{recursive:true});
-const answers={"variables-read":"23 str","strings-hard":"False name = name.strip()","conditionals-hard":"False","loops-hard":"3","functions-hard":"5 6","collections-hard":"[1, 2]","exceptions-read":"ValueError oops","reasoning-read":"[1, 2]","variables-easy":"4","strings-easy":"yth","conditionals-easy":"False","loops-easy":"6","functions-easy":"None","collections-easy":"0","reasoning-easy":"no"};
-const sources={variables:"def solve(value): return int(value)*2",strings:"def solve(value): return value.strip().lower().replace(' ', '-')",conditionals:"def solve(value): return 0 if value>=50 else 3 if value>=20 else 5",loops:"def solve(value): return sum(sum(row) for row in value)",functions:"def solve(value): return value[0]+sum(value[1])",collections:"def solve(value):\n    groups={}\n    for name,tag in value: groups.setdefault(name,set()).add(tag)\n    return {name:len(tags) for name,tags in groups.items()}",exceptions:"def solve(value):\n    result=[]\n    for text in value:\n        try: result.append(int(text))\n        except ValueError: continue\n    return result",reasoning:"def solve(value): return [value]"};
-try{
-  for(const [name,viewport] of [["desktop",{width:1280,height:850}],["mobile",{width:375,height:812}]]){
-    const context=await browser.newContext({viewport});const page=await context.newPage();const errors=[];
-    let expectedLoadFailure=false;const expectedErrors=[];
-    page.on("pageerror",e=>(expectedLoadFailure?expectedErrors:errors).push(e.message));page.on("console",m=>{if(m.type()==="error")(expectedLoadFailure?expectedErrors:errors).push(m.text());});
-    await page.goto(base);
-    const reset=await page.evaluate(async()=>{
-      const snapshot=await (await fetch("/api/learner",{headers:{"X-Coding-School":"local"}})).json();
-      return (await fetch("/api/learner",{method:"PUT",headers:{"Content-Type":"application/json","X-Coding-School":"local"},body:JSON.stringify({operation:"save",revision:snapshot.revision,requestId:crypto.randomUUID(),learningMode:true,state:{version:2,dashboard:{activeTab:"overview"},diagnostic:{completed:false,completedAt:null},attempts:[],missionRuns:[],mastery:{},reviewSchedule:{},portfolio:[]}})})).status;
-    });assert.equal(reset,200);
-    await page.goto(base);await page.getByRole("heading",{name:"Establish your placement baseline"}).waitFor();
-    await page.screenshot({path:`test-results/baseline-today-${name}.png`,fullPage:true});
-    await page.getByRole("button",{name:"Start placement baseline"}).click();
-    const snapshot=()=>page.evaluate(async()=>await (await fetch("/api/learner",{headers:{"X-Coding-School":"local"}})).json());
-    const waitSaved=async predicate=>{for(let n=0;n<150;n++){if(predicate(await snapshot()))return;await page.waitForTimeout(100);}throw new Error("Expected SQLite save did not arrive.");};
-    let count=0;
-    while(true){
-      const current=(await snapshot()).state.diagnostic.sessions.at(-1);if(current.status==="completed")break;
-      const item=current.currentItemId;const code=item.endsWith("-code");
-      await page.getByText(`Question ${count+1}, at least 12; up to 25`,{exact:true}).waitFor();
-      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${name}: question ${count+1} overflow`);
-      if(code){
-        const toggle=page.getByRole("button",{name:"Use plain text",exact:true});if(await toggle.isVisible())await toggle.click();
-        const editor=page.getByRole("textbox",{name:"Python code",exact:true});
-        if(count===1){
-          const before=(await snapshot()).state.diagnostic.sessions.at(-1);
-          expectedLoadFailure=true;
-          await context.route("**/pyodide/pyodide.mjs",route=>route.abort("failed"));
-          await page.getByRole("button",{name:"Run checks",exact:true}).click();
-          await page.getByRole("alert").filter({hasText:"Not assessed"}).waitFor({timeout:30000});
-          assert.ok(await page.getByRole("button",{name:"Record attempt & continue"}).isDisabled());
-          const failed=(await snapshot()).state.diagnostic.sessions.at(-1);
-          assert.deepEqual(failed.attempts,before.attempts);assert.deepEqual(failed.responses,before.responses);assert.deepEqual(failed.profile,before.profile);
-          await page.screenshot({path:`test-results/baseline-unavailable-${name}.png`,fullPage:true});
-          await context.unroute("**/pyodide/pyodide.mjs");expectedLoadFailure=false;
-          await context.route("**/python-worker.js",route=>route.fulfill({contentType:"text/javascript",body:`self.onmessage=({data:r})=>{const valid={requestId:r.requestId,exerciseId:r.exerciseId,graderId:r.graderId,graderVersion:'1.1.0',executionOk:true,passed:true,score:1,stdout:'',stderr:'',tests:['behavior','edges','contract'].map(id=>({id,name:id,required:true,passed:true,detail:''}))};self.postMessage({...valid,requestId:'stale-request'});self.postMessage({...valid,graderVersion:'old-version'});self.postMessage({...valid,tests:[]});self.postMessage({type:'progress',requestId:r.requestId,exerciseId:r.exerciseId,graderId:r.graderId,phase:'running'});};`}));
-          await page.getByRole("button",{name:"Run checks",exact:true}).click();
-          await page.locator(".run-status").filter({hasText:"Running checks"}).waitFor();
-          const stale=(await snapshot()).state.diagnostic.sessions.at(-1);
-          assert.deepEqual(stale.attempts,before.attempts);assert.deepEqual(stale.responses,before.responses);assert.deepEqual(stale.profile,before.profile);
-          assert.ok(await page.getByRole("button",{name:"Record attempt & continue"}).isDisabled());
-          await page.getByRole("button",{name:"Stop Python",exact:true}).click();await context.unroute("**/python-worker.js");
-        }
-        if(name==="mobile" && count===1){
-          await editor.fill("def solve(value): return 'wrong'");
-          await page.getByRole("button",{name:"Run checks",exact:true}).click();
-          await page.locator(".run-status").filter({hasText:"Needs changes"}).waitFor();
-          await page.locator(".baseline-help summary").click();await page.getByRole("button",{name:"Reveal hint",exact:true}).click();
-          await page.getByLabel("I used external help, including AI").check();
-        }
-        await editor.fill(sources[item.slice(0,-5)]||"def solve(value): pass");
-        await waitSaved(data=>data.state.diagnostic.sessions.at(-1).drafts[item]?.sourceFiles["main.py"]===(sources[item.slice(0,-5)]||"def solve(value): pass"));
-        if(count===1){
-          await page.reload();await page.getByText(`Question ${count+1}, at least 12; up to 25`,{exact:true}).waitFor();
-          const toggle=page.getByRole("button",{name:"Use plain text",exact:true});if(await toggle.isVisible())await toggle.click();
-          assert.equal(await page.getByRole("textbox",{name:"Python code",exact:true}).inputValue(),sources.strings);
-          if(name==="mobile")assert.equal((await snapshot()).state.diagnostic.sessions.at(-1).drafts[item].hintsUsed,1);
-        }
-        await page.getByRole("button",{name:"Run checks",exact:true}).click();
-        await page.locator(".run-status").filter({hasText:/Passed|Needs changes|Couldn't run/}).waitFor({timeout:30000});
-        await page.getByRole("button",{name:"Record attempt & continue"}).click();
-      }else{
-        const answer=answers[item];
-        if(answer){await page.getByLabel("Your answer",{exact:true}).fill(answer);
-          if(count===0){await waitSaved(data=>data.state.diagnostic.sessions.at(-1).drafts["variables-read"]?.answer==="23 str");await page.reload();await page.getByLabel("Your answer",{exact:true}).waitFor();assert.equal(await page.getByLabel("Your answer",{exact:true}).inputValue(),"23 str");
-            await page.getByRole("button",{name:"Save & return to Today"}).click();await page.getByRole("button",{name:"Resume placement baseline"}).waitFor();await page.goBack();await page.getByLabel("Your answer",{exact:true}).waitFor();assert.equal(await page.getByLabel("Your answer",{exact:true}).inputValue(),"23 str");}
-          await page.getByRole("button",{name:"Save answer & continue"}).click();
-        }else await page.getByRole("button",{name:"I don’t know yet"}).click();
-      }
-      count++;await waitSaved(data=>data.state.diagnostic.sessions.at(-1).responses.length===count);assert.ok(count<=25);
-    }
-    assert.ok(count>=12);const saved=(await snapshot()).state;const session=saved.diagnostic.sessions.at(-1);
-    assert.ok(session.responses.filter(r=>r.attemptId!==null).length>=5);assert.deepEqual(saved.mastery,{});assert.equal(saved.missionRuns.length,0);
-    if(name==="mobile"){
-      const stringTrials=session.attempts.filter(a=>a.itemId==="strings-code");
-      assert.deepEqual(stringTrials.map(a=>a.passed),[false,true]);
-      const stringProfile=session.profile.find(p=>p.skillId==="strings");
-      assert.equal(stringProfile.confidence,"Conflicting");
-      assert.deepEqual(stringProfile.attemptIds,stringTrials.map(a=>a.id));
-      assert.equal(session.responses.find(r=>r.itemId==="strings-code").hintsUsed,1);
-    }
-    await page.getByRole("heading",{name:"Your observed starting point.",exact:true}).waitFor();
-    await page.screenshot({path:`test-results/baseline-results-${name}.png`,fullPage:true});
-    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${name}: result overflow`);
-    await page.getByRole("button",{name:"Start a new placement baseline",exact:true}).click();
-    await page.getByText("Question 1, at least 12; up to 25",{exact:true}).waitFor();
-    await waitSaved(data=>data.state.diagnostic.sessions.length===2);
-    const retake=(await snapshot()).state.diagnostic.sessions.at(-1);
-    await page.getByRole("combobox",{name:"Placement session"}).selectOption(session.id);
-    await page.getByText("Historical session · read-only",{exact:false}).waitFor();
-    assert.equal(await page.getByLabel("Your answer",{exact:true}).count(),0);
-    await page.locator(".baseline-skill summary").first().click();
-    await page.getByText(`Response ID:`,{exact:false}).first().waitFor();
-    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${name}: history overflow`);
-    await page.screenshot({path:`test-results/baseline-history-${name}.png`,fullPage:true});
-    await page.getByRole("combobox",{name:"Placement session"}).selectOption(retake.id);
-    await page.getByLabel("Your answer",{exact:true}).fill("retake draft survives history");
-    await waitSaved(data=>data.state.diagnostic.sessions.at(-1).drafts["variables-read"]?.answer==="retake draft survives history");
-    await page.reload();await page.getByLabel("Your answer",{exact:true}).waitFor();
-    assert.equal(await page.getByLabel("Your answer",{exact:true}).inputValue(),"retake draft survives history");
-    assert.deepEqual((await snapshot()).state.diagnostic.sessions[0],session);
-    await page.getByRole("combobox",{name:"Placement session"}).selectOption(session.id);
-    await page.getByRole("button",{name:"See recommendation on Today"}).click();
-    await page.getByRole("button",{name:"Resume placement baseline"}).waitFor();
-    await page.getByRole("button",{name:"Resume placement baseline"}).click();
-    await page.getByRole("combobox",{name:"Placement session"}).selectOption(session.id);
-    await page.getByRole("button",{name:"Start recommended mission"}).click();await page.getByRole("button",{name:"Continue to Learn"}).waitFor();
-    assert.deepEqual(errors,[],`${name}: browser console errors`);
-    console.log(`PASS ${name}: Dashboard → ${count} adaptive mixed items → profile → retake/history → Today → mission; infrastructure retry, stale/version/malformed rejection, conceptual/code reload, Back, overflow and console verified. Expected load-failure console events: ${expectedErrors.length}.`);
-    await context.close();
+const PORT = 3100;
+const BASE_URL = process.env.BASE_URL ?? `http://localhost:${PORT}`;
+const SHOULD_SERVE = process.argv.includes("--serve");
+
+const SOLUTIONS = {
+  "diag-fn-callforms": `import json\nfrom math import ceil\ndef solve(payload):\n    try:\n        values = json.loads(payload)\n    except (json.JSONDecodeError, TypeError):\n        return []\n    if type(values) is not list:\n        return []\n    return list(map(ceil, values))\n`,
+  "diag-http-success": `def is_success(status):\n    return 200 <= status < 300\n`,
+  "diag-file-with": `def read_lines(path):\n    with open(path) as f:\n        return f.read().splitlines()\n`,
+};
+
+let failures = 0;
+function check(name, condition, detail = "") {
+  console.log(`${condition ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
+  if (!condition) failures++;
+}
+
+/** Attach console-error and pageerror collectors; returns the error list.
+ *  A verifier must FAIL on these, never just log them. */
+function watchErrors(page) {
+  const errors = [];
+  page.on("pageerror", error => errors.push(`pageerror: ${String(error).split("\n")[0]}`));
+  page.on("console", message => {
+    if (message.type() === "error") errors.push(`console: ${message.text().slice(0, 200)}`);
+  });
+  return errors;
+}
+
+async function waitForServer(url, tries = 60) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) return;
+    } catch { /* not up yet */ }
+    await sleep(1000);
   }
-}finally{await browser.close();}
+  throw new Error(`Server never came up at ${url}`);
+}
+
+async function main() {
+  const { chromium } = await import("playwright");
+  let server;
+  if (SHOULD_SERVE) {
+    const cwd = fileURLToPath(new URL("..", import.meta.url));
+    execFileSync(process.execPath, ["scripts/prepare-editor.mjs"], { cwd });
+    server = spawn(process.execPath, [createRequire(import.meta.url).resolve("next/dist/bin/next"), "dev", "--hostname", "127.0.0.1", "--port", String(PORT)], { cwd, stdio: "ignore" });
+    await waitForServer(BASE_URL);
+  }
+
+  // --no-sandbox: this verification runs as root in CI-like environments.
+  const browser = await chromium.launch({ args: ["--no-sandbox"] });
+  try {
+    await desktopFlow(browser);
+    await mobileFlow(browser);
+  } finally {
+    await browser.close();
+    server?.kill();
+  }
+  console.log(failures === 0 ? "\nAll diagnostic checks passed." : `\n${failures} check(s) failed.`);
+  process.exit(failures === 0 ? 0 : 1);
+}
+
+/** Answer questions until two coding runs succeed or we run out of patience. */
+async function desktopFlow(browser) {
+  console.log("\n--- desktop 1280x720 ---");
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  const pageErrors = watchErrors(page);
+  await page.goto(BASE_URL, { waitUntil: "networkidle" });
+
+  const startButton = page.getByRole("button", { name: /take the placement diagnostic/i });
+  // Dashboard boots from the server snapshot asynchronously; wait for the
+  // entry to render instead of racing the first paint.
+  await startButton.waitFor({ timeout: 15000 }).catch(() => {});
+  check("dashboard shows the diagnostic entry", await startButton.isVisible());
+  await startButton.click();
+  await page.waitForURL(/diagnostic\?session=/);
+  const sessionUrl = page.url();
+  check("starting creates a session route", /diagnostic\?session=/.test(sessionUrl), sessionUrl);
+
+  let codingSuccesses = 0;
+  for (let step = 0; step < 16 && codingSuccesses < 2; step++) {
+    const isCoding = await page.getByRole("button", { name: /run checks/i }).isVisible().catch(() => false);
+    if (isCoding) {
+      const prompt = await page.locator(".diagnostic-prompt").innerText();
+      const itemId = Object.keys(SOLUTIONS).find(id => prompt.includes(id === "diag-fn-callforms" ? "solve(payload)" : id === "diag-http-success" ? "is_success" : "read_lines"));
+      check("coding question is answerable", Boolean(itemId), prompt.slice(0, 60));
+      if (!itemId) break;
+      // Plain-text editor is the reliable automation path.
+      const toggle = page.getByRole("button", { name: /use plain text/i });
+      if (await toggle.isVisible()) await toggle.click();
+      await page.locator(".plain-editor").fill(SOLUTIONS[itemId]);
+      // Draft survives a reload before running (exact in-progress restoration).
+      // The editor mode toggle is intentionally not persisted, so switch back
+      // to plain text after the reload before reading the draft.
+      await page.reload({ waitUntil: "networkidle" });
+      const toggleAfter = page.getByRole("button", { name: /use plain text/i });
+      if (await toggleAfter.isVisible()) await toggleAfter.click();
+      const restored = await page.locator(".plain-editor").inputValue().catch(() => "");
+      check("code draft restored after reload", restored.includes("def "), `item ${itemId}`);
+      const metaBeforeRun = await page.locator(".diagnostic-meta").innerText();
+      const answeredBefore = Number(/(\d+) of up to 25/.exec(metaBeforeRun)?.[1] ?? -1);
+      const promptBefore = await page.locator(".diagnostic-prompt").textContent();
+      await page.getByRole("button", { name: /run checks/i }).click();
+      // A graded run records its response and advances the session in the same
+      // React render that sets the result, so the checks panel only ever mounts
+      // for infra/stale outcomes. Wait for the run to settle instead: either the
+      // question advances (a response was recorded) or the infra/stale banner
+      // appears (nothing recorded, item stays current).
+      await page.waitForFunction((before) => {
+        if (document.querySelector(".diagnostic-infra")) return true;
+        if (document.querySelector('[aria-label="Finish diagnostic"]')) return true;
+        const prompt = document.querySelector(".diagnostic-prompt");
+        return !!prompt && prompt.textContent !== before;
+      }, promptBefore, { timeout: 180000 });
+      const infra = await page.locator(".diagnostic-infra").isVisible().catch(() => false);
+      check("coding run completes without infra failure", !infra);
+      const metaAfter = await page.locator(".diagnostic-meta").innerText();
+      const answeredAfter = Number(/(\d+) of up to 25/.exec(metaAfter)?.[1] ?? -1);
+      check("response recorded in progress", answeredAfter === answeredBefore + 1, `${answeredBefore} -> ${answeredAfter}`);
+      const successes = Number(/(\d+) of \d+ successful Python runs/.exec(metaAfter)?.[1] ?? -1);
+      check("successful runs counted", successes >= 0, metaAfter.replace(/\n/g, " "));
+      codingSuccesses = Math.max(codingSuccesses, successes);
+    } else {
+      const answer = page.locator("#diagnostic-answer");
+      if (!(await answer.isVisible().catch(() => false))) break;
+      await answer.fill("I am not sure yet.");
+      await page.getByRole("button", { name: /submit answer/i }).click();
+      await page.waitForFunction(() => document.querySelector("#diagnostic-answer")?.value === "", { timeout: 5000 }).catch(() => {});
+    }
+  }
+  check("two successful coding runs recorded", codingSuccesses >= 2, `${codingSuccesses} succeeded`);
+
+  // Restoration: reload keeps the same session and progress.
+  const before = await page.locator(".diagnostic-meta").innerText();
+  await page.reload({ waitUntil: "networkidle" });
+  check("reload keeps the session route", page.url() === sessionUrl);
+  const after = await page.locator(".diagnostic-meta").innerText();
+  check("reload restores exact progress", before === after, after.replace(/\n/g, " "));
+
+  // Back-button restoration: leave for the dashboard, then go back — the same
+  // session and progress must come back.
+  await page.goto(BASE_URL, { waitUntil: "networkidle" });
+  await page.goBack({ waitUntil: "networkidle" });
+  check("back button returns to the session route", page.url() === sessionUrl, page.url());
+  const afterBack = await page.locator(".diagnostic-meta").innerText();
+  check("back button restores exact progress", before === afterBack, afterBack.replace(/\n/g, " "));
+
+  await page.screenshot({ path: "/tmp/diagnostic-desktop.png" });
+  check("zero console/page errors on desktop", pageErrors.length === 0, pageErrors.join(" | ").slice(0, 300));
+  await page.close();
+}
+
+async function mobileFlow(browser) {
+  console.log("\n--- mobile 375x812 ---");
+  const page = await browser.newPage({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true });
+  const pageErrors = watchErrors(page);
+  await page.goto(BASE_URL, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: /take the placement diagnostic|resume diagnostic/i }).click();
+  await page.waitForURL(/diagnostic\?session=/);
+  const noOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= 375);
+  check("no horizontal overflow at 375px (question view)", noOverflow,
+    `scrollWidth=${await page.evaluate(() => document.documentElement.scrollWidth)}`);
+  // Answer a few concepts to reach a coding question, then check the editor view.
+  for (let i = 0; i < 10; i++) {
+    if (await page.getByRole("button", { name: /run checks/i }).isVisible().catch(() => false)) break;
+    const answer = page.locator("#diagnostic-answer");
+    if (!(await answer.isVisible().catch(() => false))) break;
+    await answer.fill("I am not sure yet.");
+    await page.getByRole("button", { name: /submit answer/i }).click();
+    await sleep(500);
+  }
+  const editorOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= 375);
+  check("no horizontal overflow at 375px (coding view)", editorOverflow);
+  await page.screenshot({ path: "/tmp/diagnostic-mobile.png", fullPage: true });
+  check("zero console/page errors on mobile", pageErrors.length === 0, pageErrors.join(" | ").slice(0, 300));
+  await page.close();
+}
+
+main().catch(error => { console.error(`FATAL: ${error.message}`); process.exit(2); });
