@@ -5,10 +5,10 @@
  *
  * Rule priority (spec lines 444-486):
  *  1. Active unfinished mission always resumes first.
- *  2. A fresh learner gets the placement baseline: diagnostic first, then the
- *     first curriculum mission with the placement cited in the reason.
- *  3. Diagnostic placement evidence shapes the reason but never grants
- *     status and never blocks (placement is not attempt evidence).
+ *  2. A fresh learner gets the placement scan first, then starts at the
+ *     mission that teaches their first unknown skill (lib/placement.ts).
+ *  3. Placement moves the start point (earlier missions are "placed out"
+ *     and stay open for practice) but never grants skill evidence.
  *  4. Prerequisite readiness: a weak prerequisite of a skill the next mission
  *     *introduces* (revisiting does not reteach) blocks that mission — the
  *     action is repair, with the blocked mission named.
@@ -38,7 +38,7 @@
 import { ASSESSMENTS } from "../curriculum/assessments";
 import { deriveReviewSchedule, selectToday } from "./adaptive";
 import { curriculum, getMission, getTask } from "./curriculum";
-import { deriveDiagnosticProfile, latestCompletedDiagnosticSession } from "./diagnostic";
+import { placementPlan } from "./placement";
 import { buildSkillGraph } from "./skill-graph";
 import { clone, refresh, type LearningState } from "./state";
 
@@ -90,27 +90,26 @@ function isFresh(state: LearningState): boolean {
   return state.attempts.length === 0 && state.missionRuns.length === 0 && state.assessmentAttempts.length === 0;
 }
 
-/** Placement summary for a fresh learner: strong/weak skill names + date. Null when no completed diagnostic exists. */
+/** Placement summary for a fresh learner: known skills, first gap, date. Null when no current-format placement exists. */
 function placementSummary(state: LearningState): { date: string; text: string } | null {
-  const session = latestCompletedDiagnosticSession(state.diagnosticSessions);
-  if (!session?.completedAt) return null;
-  const { profile } = deriveDiagnosticProfile(session);
-  const strong: string[] = [];
-  const weak: string[] = [];
-  for (const [skillId, signal] of Object.entries(profile)) {
-    if (signal !== "observed") continue;
-    const evidence = session.responses.filter(r => r.skillId === skillId && !r.legacy);
-    const rate = evidence.length ? evidence.filter(r => r.correct).length / evidence.length : 0;
-    (rate >= 0.6 ? strong : weak).push(skillName(skillId));
-  }
+  const plan = placementPlan(state);
+  if (!plan) return null;
+  const { knownSkillIds, gapSkillId } = plan.placement;
   const parts: string[] = [];
-  if (strong.length) parts.push(`solid ground in ${strong.join(", ")}`);
-  if (weak.length) parts.push(`needs work on ${weak.join(", ")}`);
-  return { date: dayLabel(session.completedAt), text: parts.join("; ") || "no decisive skill evidence yet" };
+  if (knownSkillIds.length) parts.push(`you already know ${knownSkillIds.map(skillName).join(", ")}`);
+  parts.push(gapSkillId ? `first new topic: ${skillName(gapSkillId)}` : "you cleared every rung");
+  return { date: dayLabel(plan.completedAt), text: parts.join("; ") };
 }
 
+/** Learning tracks in curriculum order. Beginner missions have no checkpoint. */
+const TRACKS: { track: string; missionIds: string[] }[] = [
+  { track: "basics", missionIds: ["first-steps", "making-decisions", "loops", "lists-and-strings", "functions-first", "dictionaries"] },
+  { track: "foundations", missionIds: ["python-recovery", "validation-functions", "classes-objects"] },
+  ...CHECKPOINT_GROUPS.filter(g => g.track !== "foundations").map(g => ({ track: g.track, missionIds: g.missionIds })),
+];
+
 function trackOfMission(missionId: string): string {
-  return CHECKPOINT_GROUPS.find(g => g.missionIds.includes(missionId))?.track ?? "data";
+  return TRACKS.find(g => g.missionIds.includes(missionId))?.track ?? "data";
 }
 
 /** Review tasks covering the given skills, least-recently-attempted first. */
@@ -163,7 +162,7 @@ export function recommendNext(state: LearningState, now: Date = new Date()): Rec
     if (!summary) {
       return {
         ...base, action: "diagnostic",
-        reason: "Start with a placement scan to find a useful first mission.",
+        reason: "Take the placement scan: it starts from zero and climbs until you reach something new. Your course starts there.",
       };
     }
     const mission = selection.missionId ? getMission(selection.missionId) : null;
@@ -175,7 +174,7 @@ export function recommendNext(state: LearningState, now: Date = new Date()): Rec
       ...base, action: "start-mission", missionId: selection.missionId, reviewTaskIds,
       reason: `Placement baseline from your ${summary.date} diagnostic: ${summary.text}. ` +
         (mission
-          ? `Starting with "${mission.title}" — first in curriculum order${mission.introducedSkillIds.length ? `, teaching ${mission.introducedSkillIds.map(skillName).join(", ")}` : ""}.${seated}`
+          ? `Starting at "${mission.title}"${mission.introducedSkillIds.length ? `, teaching ${mission.introducedSkillIds.map(skillName).join(", ")}` : ""}.${seated}`
           : "No unlocked mission is available yet."),
     };
   }

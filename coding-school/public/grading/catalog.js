@@ -1,5 +1,11 @@
+import { BASICS_1_CATALOG } from "./mission-suites-basics-1.js";
+import { BASICS_2_CATALOG } from "./mission-suites-basics-2.js";
+import { REVIEW_BASICS_CATALOG } from "./review-suites-basics.js";
 export const paymentsCsv = 'id,amount,currency\n pay_101 ,12.00, usd \npay_102,,USD\npay_103,0.10,EUR\npay_101,90.00,USD\npay_104,-1.00,GBP\n';
 export const graderCatalog = Object.freeze({
+  ...BASICS_1_CATALOG,
+  ...BASICS_2_CATALOG,
+  ...REVIEW_BASICS_CATALOG,
   "payments-csv-v1": Object.freeze({ exerciseId: "messy-csv-challenge", version: "1.2.0", requiredTests: ["concept-csv", "concept-decimal", "sample", "empty", "header", "precision", "invalid", "duplicates", "quoted", "shape"] }),
   "api-normalization-v1": Object.freeze({ exerciseId: "api-normalization-challenge", version: "1.0.0", requiredTests: ["concept-json", "concept-decimal", "sample", "empty", "envelope", "malformed", "types", "mixed", "precision", "invalid", "duplicates", "shape"] }),
   "contacts-v1": Object.freeze({ exerciseId: "contacts-challenge", version: "1.0.0", requiredTests: ["sample", "empty", "invalid", "duplicates", "shape"] }),

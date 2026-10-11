@@ -88,7 +88,7 @@ const jsonProject: MissionTask = {
 
 export const missions: MissionDefinition[] = [
   {
-    id: "csv-foundations", version: "1.0.0", title: "From small functions to a clean payments CSV", summary: "Practice safe record transformations, then build a reliable CSV importer and explain its decisions.", prerequisites: [], introducedSkillIds: csvSkills, revisitedSkillIds: [], estimatedMinutes: 45,
+    id: "csv-foundations", version: "1.0.0", title: "From records to a clean payments CSV", summary: "Work with lists of records, then build a reliable CSV importer with exact money and explain its decisions.", prerequisites: ["classes-objects"], introducedSkillIds: ["data-structures", "csv-cleaning", "financial-data"], revisitedSkillIds: ["python-functions"], estimatedMinutes: 45,
     stages: [
       { id: "csv-review", kind: "review", title: "Review", estimatedMinutes: 5, advanceRule: "attempt-review", tasks: [] },
       { id: "csv-learn", kind: "learn", title: "Learn", estimatedMinutes: 10, advanceRule: "complete-tasks", tasks: [
@@ -103,7 +103,7 @@ export const missions: MissionDefinition[] = [
     ],
   },
   {
-    id: "json-api-normalization", version: "1.0.0", title: "Carry your validation skills into a JSON API", summary: "Reuse ordered transformations and exact money rules while learning to validate nested response envelopes.", prerequisites: ["csv-foundations"], introducedSkillIds: ["json-validation"], revisitedSkillIds: csvSkills, estimatedMinutes: 45,
+    id: "json-api-normalization", version: "1.0.0", title: "Carry your validation skills into a JSON API", summary: "Reuse ordered transformations and exact money rules while learning to validate nested response envelopes.", prerequisites: ["transform-records"], introducedSkillIds: ["json-validation"], revisitedSkillIds: csvSkills, estimatedMinutes: 45,
     stages: [
       { id: "json-review", kind: "review", title: "Review", estimatedMinutes: 5, advanceRule: "attempt-review", tasks: [] },
       { id: "json-learn", kind: "learn", title: "Learn", estimatedMinutes: 10, advanceRule: "complete-tasks", tasks: [

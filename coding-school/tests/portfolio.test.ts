@@ -23,6 +23,7 @@ import {
   sha256Hex,
   verifyPortfolioSnapshot,
 } from "../lib/portfolio";
+import { placedAt } from "./helpers/placement";
 
 const CSV_PROJECT_TESTS = [
   "concept-csv", "concept-decimal", "sample", "empty", "header",
@@ -44,7 +45,7 @@ const AT = "2026-09-14T12:00:00.000Z";
 
 /** Fresh csv-foundations run moved to the build stage (stage index 2). */
 function buildStageState(): { state: LearningState; runId: string } {
-  let state = startOrResumeMission(createDefaultState(), new Date(AT), "csv-foundations");
+  let state = startOrResumeMission({ ...createDefaultState(), diagnosticSessions: [placedAt("csv-foundations")] }, new Date(AT), "csv-foundations");
   const runId = state.missionRuns[0].id;
   state = {
     ...state,
@@ -237,7 +238,7 @@ describe("portfolio snapshots", () => {
   });
 
   it("creates snapshots for every passed portfolio component when a run completes", () => {
-    let state = startOrResumeMission(createDefaultState(), new Date(AT), "csv-foundations");
+    let state = startOrResumeMission({ ...createDefaultState(), diagnosticSessions: [placedAt("csv-foundations")] }, new Date(AT), "csv-foundations");
     const runId = state.missionRuns[0].id;
     // Review stage (no authored tasks here) advances immediately.
     state = advanceMissionStage(state, runId, new Date(AT));

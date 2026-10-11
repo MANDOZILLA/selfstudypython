@@ -34,22 +34,9 @@ const fail = (detail: string): DiagnosticConceptResult => ({ correct: false, det
 /** Negation tokens: when these appear, an answer cannot be affirmative. */
 const NEGATED = /\b(don'?t|do not|cannot|can'?t|won'?t|shouldn'?t|never|not|no)\b/i;
 /** Affirmative tokens. */
-const AFFIRM = /\b(yes|yeah|yep|affirmative)\b/i;
-
-/**
- * Affirmative yes/no answers with understood negation: negation anywhere
- * in the answer makes it wrong, and only an affirmative token makes it
- * right. Used where the notes require negation to be understood
- * (diag-exc-catch, diag-http-retry-after).
- */
-function affirmativeAnswer(t: string): DiagnosticConceptResult {
-  if (NEGATED.test(t)) return fail("the answer is negated");
-  if (AFFIRM.test(t)) return pass("affirmative answer");
-  return fail("expected an affirmative answer");
-}
 
 const GRADERS: Record<string, ConceptPredicate> = {
-  // ---- csp-foundations (AP CSP, adapted to Python) ----
+  // Legacy beginner item ids are retained and graded as ordinary Python concepts.
   "diag-csp-loop-count": t =>
     t === "4" ? pass("range(4) runs the body four times: total is 4") : fail("expected exactly '4' (range(4) iterates four times)"),
 
@@ -89,84 +76,17 @@ const GRADERS: Record<string, ConceptPredicate> = {
       ? pass("boundary cases around 60 give the most confidence")
       : fail("expected boundary/edge cases around 60 (e.g. 59, 60, 61)"),
 
-  // ---- csp-data-systems (AP CSP Big Ideas 2, 4 & 5) ----
-  "diag-csp-binary": t =>
-    (/\b0\b/.test(t) && /\b1\b/.test(t)) || /\bbinary\b/i.test(t) || /\bbase\s*2\b/i.test(t) ||
-    /\bzeros?\b.*\bones?\b/i.test(t)
-      ? pass("everything is stored as sequences of 0 and 1 (binary)")
-      : fail("expected the two digits 0 and 1 (binary)"),
-
-  "diag-csp-unicode": t =>
-    /unicode/i.test(t) && !/^ascii/i.test(t)
-      ? pass("Unicode covers ASCII letters and emoji; ASCII does not")
-      : fail("expected Unicode (ASCII alone cannot represent emoji)"),
-
-  "diag-csp-compression": t =>
-    /lossy/i.test(t) && !/lossless/i.test(t)
-      ? pass("discarding detail is lossy compression")
-      : fail("expected 'lossy' (discarded detail cannot be restored)"),
-
-  "diag-csp-packets": t =>
-    /\bpackets?\b/i.test(t)
-      ? pass("internet traffic travels in packets")
-      : fail("expected 'packets'"),
-
-  "diag-csp-fault-tolerance": t =>
-    /fault/i.test(t) || /rerout/i.test(t)
-      ? pass("rerouting around a failed link is fault tolerance")
-      : fail("expected fault tolerance (traffic reroutes around the failure)"),
-
-  "diag-csp-digital-divide": t =>
-    /\bdivide\b/i.test(t)
-      ? pass("the gap in technology access is the digital divide")
-      : fail("expected the 'digital divide'"),
-
-  "diag-csp-privacy": t =>
-    /privacy/i.test(t)
-      ? pass("selling personal location data is a privacy concern")
-      : fail("expected 'privacy' (personal data collected and sold without consent)"),
-
-  "diag-csp-open-source": t =>
-    /open[-\s]?source/i.test(t) || /\boss\b/i.test(t)
-      ? pass("source code anyone may read, modify, and share is open source")
-      : fail("expected 'open source'"),
-
   // ---- python-functions ----
-  "diag-fn-isqrt-output": t =>
-    t === "9" ? pass("exact printed output") : fail("expected exactly '9', the exact printed output"),
+  "diag-fn-return": t => /^['\"]?4['\"]?$/.test(t) ? pass("the helper returns 4") : fail("expected exactly 4"),
 
-  "diag-fn-loop-var": t =>
-    t === "x" ? pass("loop variable is 'x'") : fail("expected exactly 'x', the loop variable name"),
-
-  "diag-fn-return": t =>
-    (/\btotal\b/i.test(t) || /\bvalue\b/i.test(t)) && !/\b(print|printed|printing)\b/i.test(t)
-      ? pass("caller receives the value of total")
-      : fail("expected the value of total, not printed text"),
-
-  "diag-fn-default-arg": t =>
-    /(evaluated|created)\s+once/i.test(t) ||
-    /\bshared\b/i.test(t) ||
-    /\bsame\s+(list|object|default)/i.test(t) ||
-    /\bmutable\s+default/i.test(t) ||
-    /\bpersist/i.test(t)
-      ? pass("default created once and shared across calls")
-      : fail("expected the shared mutable default: created once, reused across calls"),
+  "diag-fn-default-arg": t => /^['\"]?5['\"]?$/.test(t) ? pass("twice calls add twice to return 5") : fail("expected exactly 5"),
 
   // ---- python-exceptions ----
-  "diag-exc-catch": t => affirmativeAnswer(t),
+  "diag-exc-catch": t => /^0$/.test(t) ? pass("ValueError is caught and age becomes zero") : fail("expected exactly 0"),
 
-  "diag-exc-bare": t =>
-    /\beverything\b/i.test(t) ||
-    /\bcatch-?all\b/i.test(t) ||
-    (/(hid|mask|swallow)/i.test(t) && /\b(error|bug)/i.test(t)) ||
-    /\b(keyboardinterrupt|systemexit)\b/i.test(t)
-      ? pass("bare except catches everything, hiding real errors")
-      : fail("expected: bare except catches everything, hiding real errors"),
+  "diag-exc-bare": t => /^['\"]?caught['\"]?$/.test(t) ? pass("bare except catches ValueError") : fail("expected caught"),
 
-  "diag-exc-finally": t =>
-    /\bfinally\b/i.test(t) && !/\bexcept\b/i.test(t)
-      ? pass("finally always runs")
-      : fail("expected 'finally'"),
+  "diag-exc-finally": t => /^3$/.test(t) ? pass("finally prints the assigned value 3") : fail("expected exactly 3"),
 
   "diag-exc-raise": t => {
     // A negation that rejects the sentinel ("don't return -1") while the
@@ -222,27 +142,16 @@ const GRADERS: Record<string, ConceptPredicate> = {
       : fail("expected sorted()/sort with a key on 'amount' and reverse=True"),
 
   // ---- csv-cleaning ----
-  "diag-csv-header": t =>
-    (/\bheader(s)?\b/i.test(t) || /\bfirst\s+row\b/i.test(t)) && !/\bposition\b/i.test(t)
-      ? pass("DictReader keys rows by the header row")
-      : fail("expected the header row"),
+  "diag-csv-header": t => /^['\"]?ada['\"]?$/i.test(t) ? pass("the first data row has name Ada") : fail("expected Ada"),
 
-  "diag-csv-strip": t =>
-    /\bstrip\b/i.test(t)
-      ? pass("strip whitespace before Decimal")
-      : fail("expected 'strip'"),
+  "diag-csv-strip": t => /^['\"]?ada['\"]?$/i.test(t) ? pass("strip removes surrounding spaces") : fail("expected Ada"),
 
   "diag-csv-quoted": t =>
     /\bone\s+field\b/i.test(t) && !/\btwo\b/i.test(t)
       ? pass("quotes protect the comma: one field")
       : fail("expected 'one field'"),
 
-  "diag-csv-empty": t =>
-    NEGATED.test(t)
-      ? fail("negated answers are wrong")
-      : /\breject/i.test(t) && !/\bkeep\b/i.test(t)
-        ? pass("missing amounts are invalid; never invent 0")
-        : fail("expected 'rejected'"),
+  "diag-csv-empty": t => /^['\"]?ada['\"]?$/i.test(t) ? pass("the first data cell is Ada") : fail("expected Ada"),
 
   // ---- json-validation ----
   "diag-json-loads": t =>
@@ -272,22 +181,12 @@ const GRADERS: Record<string, ConceptPredicate> = {
       : fail("expected 'string'"),
 
   // ---- financial-data ----
-  "diag-money-decimal": t =>
-    /\bfloat/i.test(t) && (/inexact/i.test(t) || /rounding/i.test(t) || /binary/i.test(t) || /0\.1\s*\+\s*0\.2/.test(t))
-      ? pass("binary floating point is inexact for money")
-      : fail("expected binary floating-point inexactness (e.g. 0.1 + 0.2)"),
+  "diag-money-decimal": t => /^['\"]?0\.30['\"]?$/.test(t) ? pass("Decimal adds exactly to 0.30") : fail("expected exactly 0.30"),
 
   "diag-money-quantize": t =>
-    /\bquantize\b/i.test(t)
-      ? pass("quantize to Decimal('0.01')")
-      : fail("expected 'quantize'"),
+    /^['\"]?1\.24['\"]?$/.test(t) ? pass("quantize rounds to 1.24") : fail("expected 1.24"),
 
-  "diag-money-negative": t =>
-    NEGATED.test(t)
-      ? fail("negated answers are wrong")
-      : /\breject/i.test(t) && !/\b(accept|convert)/i.test(t)
-        ? pass("negative payment amounts are rejected")
-        : fail("expected 'rejected'"),
+  "diag-money-negative": t => /^true$/i.test(t) ? pass("negative amount is less than zero") : fail("expected True"),
 
   "diag-money-currency": t =>
     (/\bupper\b/i.test(t) || /\buppercase\b/i.test(t)) && !/\blower\b/i.test(t)
@@ -295,12 +194,9 @@ const GRADERS: Record<string, ConceptPredicate> = {
       : fail("expected 'upper()'"),
 
   // ---- http-reliability ----
-  "diag-http-retry-after": t => affirmativeAnswer(t),
+  "diag-http-retry-after": t => /^true$/i.test(t) ? pass("the retry delay is positive") : fail("expected True"),
 
-  "diag-http-2xx": t =>
-    /\b2xx\b/i.test(t) && !/\b[13]xx\b/i.test(t)
-      ? pass("2xx is the success family")
-      : fail("expected '2xx'"),
+  "diag-http-2xx": t => /^true$/i.test(t) ? pass("201 is in the 2xx range") : fail("expected True"),
 
   "diag-http-429": t =>
     /\b(no|wait|back\s*off)\b/i.test(t) && !/\byes\b/i.test(t)
@@ -313,15 +209,9 @@ const GRADERS: Record<string, ConceptPredicate> = {
       : fail("expected 'timeout'"),
 
   // ---- file-io ----
-  "diag-file-close": t =>
-    /\bclose[sd]?\b/i.test(t)
-      ? pass("with guarantees the file is closed")
-      : fail("expected the file to be closed"),
+  "diag-file-close": t => /^['\"]?ok['\"]?$/.test(t) ? pass("the file-like object contains ok") : fail("expected ok"),
 
-  "diag-file-modes": t =>
-    /\b(overwrite|truncate)/i.test(t) && !/\b(append|raise)/i.test(t)
-      ? pass("'w' overwrites the existing file")
-      : fail("expected 'overwrites'"),
+  "diag-file-modes": t => /^['\"]?new['\"]?$/.test(t) ? pass("writing at the start replaces the old contents") : fail("expected new"),
 
   "diag-file-readlines": t =>
     /\blist\b/i.test(t) && !/\bstring\b/i.test(t)
@@ -335,19 +225,48 @@ const GRADERS: Record<string, ConceptPredicate> = {
 
   // ---- llm-output-validation ----
   "diag-llm-schema": t =>
-    /\bparse\b/i.test(t) && /\bvalidat/i.test(t)
-      ? pass("parse, then validate against a schema")
-      : fail("expected parse and validate"),
+    /^['\"]?int['\"]?$/.test(t) ? pass("the parsed age has type int") : fail("expected int"),
 
   "diag-llm-deterministic": t =>
-    /\bnon-?deterministic\b/i.test(t) || /\bdifferent\s+(shapes?|results?|outputs?)\b/i.test(t) || /\bvar(y|ies|iable)\b/i.test(t)
-      ? pass("output shape is nondeterministic across calls")
-      : fail("expected nondeterminism across calls"),
+    /^false$/i.test(t) ? pass("the two outputs differ") : fail("expected False"),
 
   "diag-llm-fallback": t =>
     /\bfallback\b/i.test(t) && !/\b(guess|crash)\b/i.test(t)
       ? pass("use a deterministic fallback")
       : fail("expected the deterministic fallback"),
+
+  "diag-values-type": t => /\b(float|decimal number)\b/i.test(t) ? pass("4.5 is a float") : fail("expected float"),
+  "diag-values-reassign": t => /^6(?:\.0)?$/.test(t) ? pass("x is reassigned to 2 times 3") : fail("expected 6"),
+  "diag-values-print": t => /^['\"]?hello['\"]?$/.test(t) ? pass("print displays hello") : fail("expected hello"),
+  "diag-values-add": t => /^10(?:\.0)?$/.test(t) ? pass("7 plus 3 is 10") : fail("expected 10"),
+  "diag-if-elif": t => /^['\"]?mid['\"]?$/.test(t) ? pass("the elif branch runs") : fail("expected mid"),
+  "diag-conditionals-compare": t => /\btrue\b/i.test(t) && !/\bfalse\b/i.test(t) ? pass("4 is less than 9") : fail("expected True"),
+  "diag-conditionals-branch": t => /\byes\b/i.test(t) && !/\bno\b/i.test(t) ? pass("the true branch prints yes") : fail("expected yes"),
+  "diag-loops-sum": t => /^12$/.test(t) ? pass("2 plus 4 plus 6 is 12") : fail("expected 12"),
+  "diag-loops-range": t => /^3$/.test(t) ? pass("range(3) has three values") : fail("expected 3"),
+  "diag-loops-final": t => /^5$/.test(t) ? pass("the body adds 2 twice") : fail("expected 5"),
+  "diag-lists-length": t => /^3$/.test(t) ? pass("the list has three items") : fail("expected 3"),
+  "diag-lists-slice": t => /\[\s*20\s*,\s*30\s*\]/.test(t) ? pass("slice includes indexes 1 and 2") : fail("expected [20, 30]"),
+  "diag-lists-first": t => /^\[\s*['\"]blue['\"]\s*,\s*['\"]green['\"]\s*\]$/.test(t) ? pass("the slice contains blue and green") : fail("expected ['blue', 'green']"),
+  "diag-lists-string": t => /^['\"]?red\|blue['\"]?$/.test(t) ? pass("split and join produce red|blue") : fail("expected red|blue"),
+  "diag-dicts-get": t => /^2$/.test(t) ? pass("a occurs twice") : fail("expected exactly 2"),
+  "diag-dicts-length": t => /^0$/.test(t) ? pass("get returns its default for a missing key") : fail("expected exactly 0"),
+  "diag-dicts-membership": t => /^\{\s*['\"]x['\"]\s*:\s*2\s*,\s*['\"]y['\"]\s*:\s*1\s*\}$/.test(t) ? pass("the loop counts x twice and y once") : fail("expected {'x': 2, 'y': 1}"),
+  "diag-classes-init": t => /^['\"]?Dog:\s*Rex['\"]?$/.test(t) ? pass("describe returns Dog: Rex") : fail("expected Dog: Rex"),
+  "diag-classes-self": t => /^['\"]?blue['\"]?$/.test(t) ? pass("b remains blue when a changes") : fail("expected blue"),
+  "diag-classes-instance": t => /^2$/.test(t) ? pass("the counter was incremented twice") : fail("expected exactly 2"),
+  "diag-pandas-missing": t => /^\{\s*['\"]age['\"]\s*:\s*1\s*\}$/.test(t) ? pass("one age value is missing") : fail("expected {'age': 1}"),
+  "diag-pandas-dropna": t => /^\[\s*10(?:\.0)?\s*,\s*0(?:\.0)?\s*,\s*12(?:\.0)?\s*\]$/.test(t) ? pass("fillna replaces the missing value with zero") : fail("expected [10, 0, 12]"),
+  "diag-pandas-fillna": t => /^\[\s*10(?:\.0)?\s*,\s*0(?:\.0)?\s*,\s*12(?:\.0)?\s*\]$/.test(t) ? pass("fillna replaces the missing value with zero") : fail("expected [10, 0, 12]"),
+  "diag-sqlite-select": t => /^blue\s*[,;:]\s*1\s*;?\s*red\s*[,;:]\s*2$/i.test(t) ? pass("GROUP BY counts one blue and two red rows") : fail("expected blue, 1; red, 2"),
+  "diag-sqlite-where": t => /^6$/.test(t) ? pass("the red quantities sum to six") : fail("expected exactly 6"),
+  "diag-sqlite-count": t => /^blue\s*[,;:]\s*1\s*;?\s*red\s*[,;:]\s*2$/i.test(t) ? pass("GROUP BY counts one blue and two red rows") : fail("expected blue, 1; red, 2"),
+  "diag-csv-dictreader": t => /^['\"]?7['\"]?$/.test(t) ? pass("DictReader values are text, so age is '7'") : fail("expected 7"),
+  "diag-json-nested": t => /^['\"]?ada['\"]?$/i.test(t) ? pass("the nested name is Ada") : fail("expected Ada"),
+  "diag-money-round": t => /\bdecimal\b/i.test(t) && !/\bfloat\b/i.test(t) ? pass("Decimal represents decimal money exactly") : fail("expected Decimal"),
+  "diag-http-retry": t => /(back.?off|reduce.*load|less.*load|wait)/i.test(t) && !/\b(immediately|no wait)\b/i.test(t) ? pass("backoff reduces load") : fail("expected backoff or reduced load"),
+  "diag-file-write": t => /\bappend(ing)?\b/i.test(t) && !/\boverwrite/i.test(t) ? pass("append mode adds to the end") : fail("expected append"),
+  "diag-llm-shape": t => /(expected|correct|required)\s+(type|schema)|(type|schema).{0,30}(expected|correct|required)/i.test(t) ? pass("validate the expected type or schema") : fail("expected the type or schema check"),
 };
 
 /**

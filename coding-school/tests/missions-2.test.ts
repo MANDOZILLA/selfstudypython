@@ -10,7 +10,7 @@ const codeTasks = tasks.filter((t) => t.kind === "code");
 describe("task 2 mission arc", () => {
   it("validates the composed ten-mission curriculum", () => {
     expect(validateCurriculum(curriculum).success).toBe(true);
-    expect(missions).toHaveLength(10);
+    expect(missions).toHaveLength(17);
   });
 
   it("keeps every mission inside a coherent 30-60 minute budget", () => {
@@ -110,7 +110,7 @@ describe("task 2 mission arc", () => {
     for (const mission of missions) {
       expect(mission.stages.map((s) => s.kind)).toEqual(["review", "learn", "build", "explain"]);
       for (const stage of mission.stages) {
-        if (["csv-foundations", "json-api-normalization"].includes(mission.id) && stage.kind === "review") continue;
+        if (["first-steps", "csv-foundations", "json-api-normalization"].includes(mission.id) && stage.kind === "review") continue;
         expect(stage.tasks.length, `${mission.id} ${stage.kind}`).toBeGreaterThan(0);
       }
       const purposes = mission.stages.flatMap((s) => s.tasks.map((t) => t.purpose));

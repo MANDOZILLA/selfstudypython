@@ -6,7 +6,7 @@ import { decideBoot, fetchSnapshot, pushState } from "../../lib/state-sync";
 import { getWorkbenchModel, persistAttempt, runStatus, type Destination, type RunStatus } from "../../lib/studio";
 import { startGradingRun, type GradeResult } from "../../lib/runner";
 import { ideRequestExtras, resolveEntrypoint, sanitizeProjectFiles, type IdeVariantExtras } from "../../lib/ide";
-import { answerConcept, classifyGradeResult, completeDiagnosticSession, createDiagnosticSession, markUnknown, recordCodingOutcome, saveDiagnosticDraft, type DiagnosticSession } from "../../lib/diagnostic";
+import { answerConcept, classifyGradeResult, createDiagnosticSession, finishPlacementEarly, markUnknown, recordCodingOutcome, saveDiagnosticDraft, type DiagnosticSession } from "../../lib/diagnostic";
 import { gradeDiagnosticConcept } from "../../lib/diagnostic-grading";
 import { DIAGNOSTIC_ITEMS } from "../../curriculum";
 import { readRoute, routeHash, type Route } from "../../lib/route";
@@ -545,7 +545,8 @@ export function useStudio() {  const [state, setState] = useState(createDefaultS
   function finishDiagnostic() {
     const session = diagnosticSession();
     if (!session || session.status !== "in-progress") return;
-    try { commitDiagnosticSession(completeDiagnosticSession(session)); }
+    // Finishing is always allowed: an undecided current step becomes the starting point.
+    try { commitDiagnosticSession(finishPlacementEarly(session)); }
     catch (error) { setStorageError(error instanceof Error ? error.message : String(error)); }
   }
   /** Destructive, confirmed in the UI first. Clears diagnostic sessions and

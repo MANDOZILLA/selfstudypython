@@ -1,64 +1,16 @@
 import { z } from "zod";
+import { skills } from "./skills";
+
+// The curriculum registry is the single source of truth for placement order.
 
 /**
- * Official College Board AP Computer Science Principles course framework
- * (https://apcentral.collegeboard.org/courses/ap-computer-science-principles).
- * The diagnostic's foundation tier is scoped to these big ideas and
- * computational thinking practices, adapted into Python beginner questions.
- * Advanced skills then branch past the AP CSP scope.
+ * Stable skill IDs probed by the placement diagnostic in curriculum order.
  */
-export const AP_CSP_FRAMEWORK = {
-  bigIdeas: [
-    "Big Idea 1: Creative Development",
-    "Big Idea 2: Data",
-    "Big Idea 3: Algorithms and Programming",
-    "Big Idea 4: Computer Systems and Networks",
-    "Big Idea 5: Impact of Computing",
-  ],
-  practices: [
-    "Computational Solution Design",
-    "Algorithms and Program Development",
-    "Abstraction in Program Development",
-    "Code Analysis",
-    "Computing Innovations",
-    "Responsible Computing",
-  ],
-} as const;
-
-/**
- * Stable skill IDs probed by the adaptive placement diagnostic.
- * Placement starts at the AP CSP foundation tier (first two entries) and
- * then branches into the current advanced Python skills.
- */
-export const DIAGNOSTIC_CORE_SKILLS = [
-  "csp-foundations",
-  "csp-data-systems",
-  "python-functions",
-  "python-exceptions",
-  "data-structures",
-  "csv-cleaning",
-  "json-validation",
-  "financial-data",
-  "http-reliability",
-  "file-io",
-  "llm-output-validation",
-] as const;
-export type DiagnosticSkillId = (typeof DIAGNOSTIC_CORE_SKILLS)[number];
+export const DIAGNOSTIC_CORE_SKILLS = skills.map(skill => skill.id) as string[];
+export type DiagnosticSkillId = string;
 
 /** Display metadata for the probed skills. Titles are learner-facing. */
-export const DIAGNOSTIC_SKILLS: { id: DiagnosticSkillId; title: string }[] = [
-  { id: "csp-foundations", title: "Programs and algorithms" },
-  { id: "csp-data-systems", title: "Data, systems, and impacts" },
-  { id: "python-functions", title: "Functions and return contracts" },
-  { id: "python-exceptions", title: "Exceptions and error handling" },
-  { id: "data-structures", title: "Ordered record transformations" },
-  { id: "csv-cleaning", title: "CSV parsing and row validation" },
-  { id: "json-validation", title: "JSON envelopes and nested validation" },
-  { id: "financial-data", title: "Exact money validation" },
-  { id: "http-reliability", title: "HTTP reliability and retries" },
-  { id: "file-io", title: "File I/O with context managers" },
-  { id: "llm-output-validation", title: "Validating LLM output" },
-];
+export const DIAGNOSTIC_SKILLS: { id: DiagnosticSkillId; title: string }[] = skills.map(({ id, title }) => ({ id, title }));
 
 export const diagnosticItemSchema = z.object({
   id: z.string().min(1),
@@ -67,11 +19,6 @@ export const diagnosticItemSchema = z.object({
   kind: z.enum(["concept", "coding"]),
   prompt: z.string().min(10),
   hints: z.array(z.string().min(5)).min(2),
-  /** AP CSP provenance for foundation-tier items; optional on advanced items. */
-  framework: z.object({
-    bigIdea: z.enum(AP_CSP_FRAMEWORK.bigIdeas),
-    practice: z.enum(AP_CSP_FRAMEWORK.practices).optional(),
-  }).optional(),
   coding: z.object({
     exerciseId: z.string().min(1),
     graderId: z.string().min(1),
@@ -88,133 +35,66 @@ export const diagnosticItemSchema = z.object({
   if (item.kind === "coding" && item.coding && !item.coding.starterCode.includes(item.coding.entryFunction)) {
     ctx.addIssue({ code: "custom", message: `starter code for ${item.id} must mention ${item.coding.entryFunction}` });
   }
-  if (item.skillId.startsWith("csp-") && !item.framework) {
-    ctx.addIssue({ code: "custom", message: `AP CSP foundation item ${item.id} must declare its framework big idea` });
-  }
 });
 export type DiagnosticItem = z.infer<typeof diagnosticItemSchema>;
 
-type FrameworkRef = NonNullable<DiagnosticItem["framework"]>;
-
 const concept = (
   id: string, skillId: string, difficulty: 1 | 2 | 3, prompt: string, hints: string[], gradingNotes: string,
-  framework?: FrameworkRef,
-): DiagnosticItem => ({ id, skillId, difficulty, kind: "concept", prompt, hints, framework, concept: { graderId: `diagnostic-concept-${id}`, gradingNotes } });
+): DiagnosticItem => ({ id, skillId, difficulty, kind: "concept", prompt, hints, concept: { graderId: `diagnostic-concept-${id}`, gradingNotes } });
 const coding = (
   id: string, skillId: string, difficulty: 1 | 2 | 3, prompt: string, hints: string[],
   exerciseId: string, graderId: string, starterCode: string, entryFunction: string,
 ): DiagnosticItem => ({ id, skillId, difficulty, kind: "coding", prompt, hints, coding: { exerciseId, graderId, starterCode, entryFunction } });
 
-export const DIAGNOSTIC_ITEMS: DiagnosticItem[] = [
-  // ---- csp-foundations (AP CSP Big Ideas 1 & 3, adapted to Python) ----
-  // Bank order within a skill is the serving order: placement starts at the
-  // easiest AP CSP-level question.
-  concept("diag-csp-loop-count", "csp-foundations", 1,
+const RAW_DIAGNOSTIC_ITEMS: DiagnosticItem[] = [
+  // Legacy ids are kept for stored response history.
+  concept("diag-csp-loop-count", "py-loops", 1,
     "`total = 0` then `for i in range(4): total = total + 1`. What is the final value of `total`?",
     ["The loop body runs once per value of `i`.", "range(4) produces 0, 1, 2, 3 — four values.", "total starts at 0 and gains 1 four times."],
-    "Correct iff the trimmed answer is exactly '4'. 'range(4)', '0', and '4.0' fail.",
-    { bigIdea: "Big Idea 3: Algorithms and Programming", practice: "Algorithms and Program Development" }),
-  concept("diag-csp-boolean", "csp-foundations", 1,
+    "Correct iff the trimmed answer is exactly '4'. 'range(4)', '0', and '4.0' fail."),
+  concept("diag-csp-boolean", "py-conditionals", 1,
     "In Python, `not (3 > 5)` evaluates to what — True or False?",
     ["First evaluate the comparison inside the parentheses.", "3 is not greater than 5.", "`not` flips a boolean value."],
-    "Correct iff the answer is True (accept 'true'). False fails.",
-    { bigIdea: "Big Idea 3: Algorithms and Programming", practice: "Algorithms and Program Development" }),
-  concept("diag-csp-branch", "csp-foundations", 1,
+    "Correct iff the answer is True (accept 'true'). False fails."),
+  concept("diag-csp-branch", "py-conditionals", 2,
     "`score = 72`, then `if score >= 60: print('pass')` / `else: print('fail')`. What appears on screen?",
     ["Compare 72 against 60.", "72 >= 60 is True, so the if-branch runs.", "Type only the word that gets printed."],
-    "Correct iff the trimmed answer is exactly 'pass' (quotes allowed). 'fail' fails.",
-    { bigIdea: "Big Idea 3: Algorithms and Programming", practice: "Algorithms and Program Development" }),
-  concept("diag-csp-variable", "csp-foundations", 1,
+    "Correct iff the trimmed answer is exactly 'pass' (quotes allowed). 'fail' fails."),
+  concept("diag-csp-variable", "py-values", 1,
     "`count = 1` then `count = count + 5`. What is the exact output of `print(count)`?",
     ["The second line reassigns `count`.", "The right side reads the current value first.", "1 + 5 = 6."],
-    "Correct iff the trimmed answer is exactly '6'.",
-    { bigIdea: "Big Idea 3: Algorithms and Programming", practice: "Algorithms and Program Development" }),
-  concept("diag-csp-call", "csp-foundations", 1,
+    "Correct iff the trimmed answer is exactly '6'."),
+  concept("diag-csp-call", "python-functions", 1,
     "`def double(n): return n * 2` — after `result = double(3)`, what is the value of `result`?",
     ["The function is called with 3 as the argument.", "Inside one call, `n` holds 3.", "`n * 2` is returned to the caller."],
-    "Correct iff the trimmed answer is exactly '6'.",
-    { bigIdea: "Big Idea 3: Algorithms and Programming", practice: "Algorithms and Program Development" }),
-  concept("diag-csp-index", "csp-foundations", 1,
+    "Correct iff the trimmed answer is exactly '6'."),
+  concept("diag-csp-index", "py-lists-strings", 1,
     "`items = ['ant', 'bee', 'cat']`. What is the value of `items[1]`?",
     ["List positions start at 0, not 1.", "Position 0 is 'ant'.", "Position 1 is the second element."],
-    "Correct iff the answer is 'bee' (quotes allowed). 'cat' and 'ant' fail.",
-    { bigIdea: "Big Idea 3: Algorithms and Programming", practice: "Algorithms and Program Development" }),
-  concept("diag-csp-abstraction", "csp-foundations", 2,
+    "Correct iff the answer is 'bee' (quotes allowed). 'cat' and 'ant' fail."),
+  concept("diag-csp-abstraction", "python-functions", 2,
     "The same ten lines of code appear in four places in your program. What programming idea lets you name those lines once and run them from anywhere?",
     ["You need a named, reusable block of code.", "In Python you define one with `def`.", "Naming it once removes the duplication — what is that block called?"],
-    "Correct iff the answer names a function/procedure (accept 'function', 'def', 'procedure', 'method'). 'copy-paste' and 'loop' fail.",
-    { bigIdea: "Big Idea 1: Creative Development", practice: "Abstraction in Program Development" }),
-  concept("diag-csp-nested", "csp-foundations", 2,
+    "Correct iff the answer names a function/procedure (accept 'function', 'def', 'procedure', 'method'). 'copy-paste' and 'loop' fail."),
+  concept("diag-csp-nested", "py-loops", 2,
     "`count = 0`; then `for row in range(3): for col in range(2): count = count + 1`. What is the final value of `count`?",
     ["The inner loop runs fully once per outer iteration.", "range(2) increments twice; range(3) triples that.", "3 outer iterations × 2 inner iterations = ?"],
-    "Correct iff the trimmed answer is exactly '6'. '5' and '2' fail.",
-    { bigIdea: "Big Idea 3: Algorithms and Programming", practice: "Algorithms and Program Development" }),
-  concept("diag-csp-testing", "csp-foundations", 2,
+    "Correct iff the trimmed answer is exactly '6'. '5' and '2' fail."),
+  concept("diag-csp-testing", "python-functions", 3,
     "`def is_passing(score)` returns True when `score >= 60`. Which test set gives the most confidence that it works?",
     ["Think about where the function's behavior changes.", "The boundary is at 60.", "The strongest sets probe just below, at, and just above that boundary."],
-    "Correct iff the answer points at boundary/edge cases (accept 'boundary', 'edge cases', '59, 60, 61', 'just below and above 60'). 'only 100' fails.",
-    { bigIdea: "Big Idea 3: Algorithms and Programming", practice: "Code Analysis" }),
-
-  // ---- csp-data-systems (AP CSP Big Ideas 2, 4 & 5, adapted to Python) ----
-  concept("diag-csp-binary", "csp-data-systems", 1,
-    "At the lowest level, every file, image, and program is stored as a sequence of which two symbols?",
-    ["Computers store everything as two electrical states.", "Two states map to two digits.", "Answer with the two digits, or the name of this number system."],
-    "Correct iff the answer conveys 0 and 1 or binary (accept '0s and 1s', 'zeros and ones', 'binary', 'base 2').",
-    { bigIdea: "Big Idea 2: Data" }),
-  concept("diag-csp-unicode", "csp-data-systems", 1,
-    "Which text encoding covers ASCII letters *and* emoji like '😀' — ASCII or Unicode?",
-    ["ASCII was designed for English characters only.", "Emoji need code points far beyond ASCII's range.", "One of these was built to include every script."],
-    "Correct iff the answer is Unicode. A bare 'ASCII' answer fails; 'not ASCII, Unicode' passes.",
-    { bigIdea: "Big Idea 2: Data", practice: "Computing Innovations" }),
-  concept("diag-csp-compression", "csp-data-systems", 1,
-    "A photo's file size is reduced by permanently discarding visual detail. Is that lossy or lossless compression?",
-    ["Discarded detail means information is genuinely lost.", "Lossless lets you restore the original exactly.", "Answer with one of the two words."],
-    "Correct iff the answer is 'lossy'. 'lossless' fails.",
-    { bigIdea: "Big Idea 2: Data" }),
-  concept("diag-csp-packets", "csp-data-systems", 1,
-    "When you load a web page, your request travels across the internet in small numbered pieces called what?",
-    ["The internet breaks messages into chunks.", "Each chunk carries an address and a sequence number.", "The word starts with 'p'."],
-    "Correct iff the answer is 'packets' (accept 'packet').",
-    { bigIdea: "Big Idea 4: Computer Systems and Networks", practice: "Computing Innovations" }),
-  concept("diag-csp-fault-tolerance", "csp-data-systems", 2,
-    "An undersea cable is cut, yet the internet keeps working because traffic reroutes through other paths. Which property of the internet does this show?",
-    ["The network survives partial failures.", "Traffic finds another route automatically.", "The term literally contains the word 'fault'."],
-    "Correct iff the answer conveys fault tolerance (accept 'fault tolerance', 'fault-tolerant', 'rerouting').",
-    { bigIdea: "Big Idea 4: Computer Systems and Networks", practice: "Computing Innovations" }),
-  concept("diag-csp-digital-divide", "csp-data-systems", 2,
-    "People without reliable internet can't join online classes or apply for jobs online. What is this gap called?",
-    ["It is a socioeconomic gap in technology access.", "The name pairs a kind of gap with the technology.", "It starts with 'digital'."],
-    "Correct iff the answer is 'digital divide' (accept 'the digital divide', 'divide').",
-    { bigIdea: "Big Idea 5: Impact of Computing", practice: "Responsible Computing" }),
-  concept("diag-csp-privacy", "csp-data-systems", 2,
-    "An app collects your location history and sells it to advertisers without asking. Which computing concern does this raise?",
-    ["It is about what personal data is collected and with whom it is shared.", "The data describes you personally and moves without consent.", "Name the concern: data _____."],
-    "Correct iff the answer is privacy (accept 'privacy', 'data privacy', 'invasion of privacy'). 'security' alone fails.",
-    { bigIdea: "Big Idea 5: Impact of Computing", practice: "Responsible Computing" }),
-  concept("diag-csp-open-source", "csp-data-systems", 2,
-    "Software whose source code anyone may read, modify, and share is called what?",
-    ["The name describes how the code is licensed.", "It contrasts with proprietary, closed software.", "Two words; the first is a synonym of 'open'."],
-    "Correct iff the answer is 'open source' (accept 'open-source', 'open source software', 'OSS').",
-    { bigIdea: "Big Idea 1: Creative Development", practice: "Responsible Computing" }),
+    "Correct iff the answer points at boundary/edge cases (accept 'boundary', 'edge cases', '59, 60, 61', 'just below and above 60'). 'only 100' fails."),
 
   // ---- python-functions ----
-  concept("diag-fn-isqrt-output", "python-functions", 1,
-    "What is the exact output of this line? `print(math.isqrt(81))` — type exactly what appears on screen.",
-    ["isqrt returns an integer square root, not a string.", "81 = 9 × 9.", "The printed value has no extra words or formatting."],
-    "Correct iff the trimmed answer is exactly '9'. Case and surrounding words matter: 'ROOT(81)' and any other text fail."),
-  concept("diag-fn-loop-var", "python-functions", 1,
-    "In the loop `for x in items:`, what is the name of the loop variable?",
-    ["Read the word between `for` and `in`.", "It is a single lowercase letter.", "Type only the variable name."],
-    "Correct iff the trimmed answer is exactly 'x'. Any other identifier — including 'YTH', 'y', or 'X' — fails."),
   concept("diag-fn-return", "python-functions", 1,
-    "A function ends with `return total`. When the caller writes `result = f()`, does `result` hold printed text or the value of `total`?",
-    ["`return` hands a value back; `print` shows text.", "The caller never sees printed output in `result`.", "Answer with what `result` holds."],
-    "Correct iff the answer states the caller receives the value of total (accept 'total', 'the value of total', 'returns total'). Answers about printed text fail."),
+    "What does this print? `def add_one(n): return n + 1` then `def show(): return add_one(3)` then `print(show())`.",
+    ["Follow the call from `show` to `add_one`.", "`add_one(3)` returns 3 + 1.", "Give the exact printed value."],
+    "Correct iff the trimmed answer is exactly 4."),
   concept("diag-fn-default-arg", "python-functions", 2,
-    "`def f(items=[]):` — why can this default surprise callers who append to `items`?",
-    ["When is a default value created: at definition or at each call?", "Think about what happens on the second call.", "Mutable defaults keep state between calls."],
-    "Correct iff the answer conveys the default list is created once and shared across calls (accept 'evaluated once', 'shared', 'same list', 'mutable default persists')."),
-  coding("diag-fn-callforms", "python-functions", 2,
+    "What does this print? `def add(n): return n + 2` then `def twice(n): return add(add(n))` then `print(twice(1))`.",
+    ["The helper `add` is called twice.", "Start with 1 and add 2 each time.", "Give the exact printed value."],
+    "Correct iff the trimmed answer is exactly 5."),
+  coding("diag-fn-callforms", "python-functions", 3,
     "Write `solve(payload)`: `payload` is a JSON list of numbers like `'[1.2, 2.7]'`. Parse it with `json.loads`, round every number up with `map` and `math.ceil`, and return a plain list.",
     ["Parse first: `json.loads(payload)` gives you the list.", "Round up each value: `map(ceil, values)` then `list(...)`.", "Keyword forms like `json.loads(s=payload)` are fine as long as the call result is used."],
     "diagnostic-call-forms", "diagnostic-call-forms-v1",
@@ -223,17 +103,17 @@ export const DIAGNOSTIC_ITEMS: DiagnosticItem[] = [
 
   // ---- python-exceptions ----
   concept("diag-exc-catch", "python-exceptions", 1,
-    "`int(text)` raises ValueError on bad input. Should the calling code catch ValueError? Answer yes or no.",
-    ["What happens to the program if nobody catches it?", "Catching lets you recover with a message or a default.", "A one-word answer is enough."],
-    "Correct iff the answer is affirmative ('yes', 'yes, catch it'). 'no', \"don't catch ValueError\", and 'do not catch' fail — negation must be understood."),
+    "What does this print? `try: age = int('bad')\nexcept ValueError: age = 0\nprint(age)`",
+    ["Converting 'bad' to an integer raises ValueError.", "The except block sets age to zero.", "Give the printed value."],
+    "Correct iff the answer is 0."),
   concept("diag-exc-bare", "python-exceptions", 2,
-    "Why is a bare `except:` risky around file-reading code?",
-    ["What does a bare `except:` catch?", "Think about KeyboardInterrupt and real bugs.", "Hiding which errors is the danger?"],
-    "Correct iff the answer conveys it catches everything — including unexpected bugs, KeyboardInterrupt, and SystemExit — hiding real errors."),
-  concept("diag-exc-finally", "python-exceptions", 1,
-    "A file is opened, then an error may occur before `close()`. Which block guarantees the file is closed: `except` or `finally`?",
-    ["`except` only runs when an error happens.", "One of these blocks always runs.", "Answer with the block name."],
-    "Correct iff the answer is 'finally'."),
+    "What does this print? `try: raise ValueError('bad')\nexcept: print('caught')`",
+    ["The try block raises ValueError.", "A bare except catches that error.", "Give the exact printed text."],
+    "Correct iff the answer is caught."),
+  concept("diag-exc-finally", "python-exceptions", 2,
+    "What does this print? `try: value = 3\nfinally: print(value)`",
+    ["The finally block runs after the try block.", "The try block assigns 3 first.", "Give the exact printed value."],
+    "Correct iff the answer is 3."),
   concept("diag-exc-raise", "python-exceptions", 2,
     "Validating an age: is it better to `return -1` or `raise ValueError` on bad input? Answer in a few words.",
     ["What does -1 mean to a caller: an error or a valid age?", "Sentinel values can be mistaken for real data.", "Which option makes the failure impossible to ignore?"],
@@ -249,9 +129,9 @@ export const DIAGNOSTIC_ITEMS: DiagnosticItem[] = [
     ["Compare the raw string to 'Ada' first — are they equal?", "`clean` is True or False; there is no maybe.", "The cleaned name comes from stripping whitespace."],
     "Correct iff the compound answer parses: the first part is False (accept 'False'/'false'), and the second part calls name.strip() (accept 'name.strip()' or 'name = name.strip()'). 'False; name = name.strip()' passes."),
   concept("diag-ds-dict-get", "data-structures", 1,
-    "A row dict may lack the 'id' key. Which avoids a KeyError: `row['id']` or `row.get('id')`?",
-    ["One of these raises KeyError on a missing key.", "The safe one returns None instead.", "Answer with the safe expression."],
-    "Correct iff the answer names `row.get('id')` (accept 'row.get')."),
+    "What does this print? `row = {'id': 7}; records = [row]; print(records[0].get('id'))`",
+    ["The list contains one dictionary.", "The dictionary's id value is 7.", "Give the exact printed value."],
+    "Correct iff the answer is 7."),
   concept("diag-ds-comprehension", "data-structures", 2,
     "What does `[s.strip() for s in names]` build: a list, a generator, or None?",
     ["Square brackets build one kind of collection.", "Parentheses would make it lazy.", "Answer with the collection type."],
@@ -267,21 +147,25 @@ export const DIAGNOSTIC_ITEMS: DiagnosticItem[] = [
 
   // ---- csv-cleaning ----
   concept("diag-csv-header", "csv-cleaning", 1,
-    "csv.DictReader turns each row into a dict keyed by what: column position or the header row?",
-    ["DictReader reads the first line specially.", "The keys of each row dict come from somewhere.", "Answer: position or header row?"],
-    "Correct iff the answer is the header row (accept 'header row', 'headers', 'first row')."),
-  concept("diag-csv-strip", "csv-cleaning", 1,
-    "A cell reads `' 12.00 '`. What must you do to the text before `Decimal(cell)`?",
-    ["Decimal is strict about surrounding characters.", "One string method removes surrounding whitespace.", "Answer with the method name."],
-    "Correct iff the answer is strip (accept 'strip', 'strip whitespace', '.strip()')."),
+    "Given `name,age\\nAda,7\\n`, what is `next(csv.DictReader(file))['name']`?",
+    ["The first line names the columns.", "The next line is the first data row.", "Look up its `name` value."],
+    "Correct iff the trimmed answer is Ada, with optional matching quotes."),
+  concept("diag-csv-strip", "csv-cleaning", 2,
+    "Given `row = {'name': ' Ada '}`, what does `row['name'].strip()` return?",
+    ["`strip()` removes whitespace at the ends.", "The spaces inside the quotes are at the ends.", "Give the exact resulting text."],
+    "Correct iff the trimmed answer is Ada, with optional matching quotes."),
   concept("diag-csv-quoted", "csv-cleaning", 2,
     'How does the csv module read a field written as `"a,b"` — as one field or two?',
     ["The quotes are there for a reason.", "Without them the comma would split the field.", "Answer: one field or two?"],
     "Correct iff the answer is one field (quotes protect the comma)."),
-  concept("diag-csv-empty", "csv-cleaning", 2,
-    "An amount cell is empty (`''`). In this school's cleaning rules, should the row be kept with amount 0 or rejected?",
-    ["Is an empty cell the same as zero?", "Inventing 0 would fabricate money.", "Answer: kept or rejected?"],
-    "Correct iff the answer is rejected (missing amounts are invalid; never invent 0)."),
+  concept("diag-csv-empty", "csv-cleaning", 3,
+    "Given `rows = list(csv.reader(io.StringIO('name,age\\nAda,7\\n')))` what is `rows[1][0]`?",
+    ["`rows[0]` is the header.", "`rows[1]` is the data row.", "Read its first field."],
+    "Correct iff the trimmed answer is Ada, with optional matching quotes."),
+  concept("diag-csv-dictreader", "csv-cleaning", 3,
+    "Given `row = next(csv.DictReader(io.StringIO('name,age\\nAda,7\\n')))`, what is `row['age']`?",
+    ["DictReader uses the header names as keys.", "The age value is read as text.", "Give the exact value."],
+    "Correct iff the answer is the string 7, optionally with matching quotes."),
 
   // ---- json-validation ----
   concept("diag-json-loads", "json-validation", 1,
@@ -304,40 +188,42 @@ export const DIAGNOSTIC_ITEMS: DiagnosticItem[] = [
     "What does `json.dumps({'a': 1})` return: a dict, a string, or bytes?",
     ["`dumps` serializes to text.", "The result can be written to a file directly.", "Answer with the type."],
     "Correct iff the answer is a string (accept 'string', 'str')."),
+  concept("diag-json-nested", "json-validation", 3, "For `data = json.loads('{\"user\": {\"name\": \"Ada\"}}')`, what is `data['user']['name']`?", ["The outer dict has a user key.", "The nested dict has a name key.", "Give the exact value."], "Correct answer is Ada."),
 
   // ---- financial-data ----
   concept("diag-money-decimal", "financial-data", 1,
-    "Why is `Decimal('0.10')` safer than `0.1` for money arithmetic?",
-    ["How does a computer store 0.1 in binary?", "Try 0.1 + 0.2 in your head — is it exactly 0.3?", "Name the problem with binary floating point."],
-    "Correct iff the answer mentions binary floating-point inexactness (accept 'float rounding', '0.1 + 0.2', 'inexact')."),
+    "What does this print? `from decimal import Decimal; print(Decimal('0.10') + Decimal('0.20'))`",
+    ["Decimal keeps these decimal values exact.", "Add ten hundredths and twenty hundredths.", "Give the exact printed value."],
+    "Correct iff the answer is 0.30."),
   concept("diag-money-quantize", "financial-data", 2,
-    "How do you force a Decimal amount to exactly two decimal places?",
-    ["The Decimal method name starts with 'q'.", "You pass the target precision as Decimal('0.01').", "Answer with the method call."],
-    "Correct iff the answer names quantize(Decimal('0.01')) (accept 'quantize')."),
-  concept("diag-money-negative", "financial-data", 1,
-    "A payment amount of `-5.00` should be accepted, rejected, or converted to `5.00`?",
-    ["Can a payment be negative?", "Silently flipping the sign invents money.", "Answer with one of the three options."],
-    "Correct iff the answer is rejected."),
+    "What does this print? `amount = Decimal('1.236'); print(amount.quantize(Decimal('0.01')))`",
+    ["quantize sets the number of decimal places.", "The value is rounded to hundredths.", "Give the exact printed value."],
+    "Correct iff the answer is 1.24."),
+  concept("diag-money-negative", "financial-data", 2,
+    "What does this print? `amount = Decimal('-5.00'); print(amount < 0)`",
+    ["Compare the negative amount with zero.", "A negative number is less than zero.", "Give True or False."],
+    "Correct iff the answer is True."),
   concept("diag-money-currency", "financial-data", 2,
     "How should a currency code like `'usd'` be normalized before comparing to `'USD'`?",
     ["String case must match exactly to compare.", "One method uppercases the whole string.", "Answer with the method name."],
     "Correct iff the answer is upper() (accept 'uppercase', '.upper()')."),
+  concept("diag-money-round", "financial-data", 3, "What Python type should represent 0.10 exactly in money calculations?", ["Binary float can have rounding surprises.", "Python has a decimal arithmetic type.", "Name the type."], "Correct answer is Decimal."),
 
   // ---- http-reliability ----
   concept("diag-http-retry-after", "http-reliability", 1,
-    "An API answers 429 with `Retry-After: 30`. Should your client wait before retrying? Answer yes or no.",
-    ["429 means you are being rate limited.", "The header tells you how long to wait.", "A one-word answer is enough."],
-    "Correct iff the answer is affirmative ('yes', 'yes, wait 30s'). 'no', \"don't wait for Retry-After\", and 'do not wait' fail — negation must be understood."),
-  coding("diag-http-success", "http-reliability", 2,
+    "What does this print? `retry_after = 30; print(retry_after > 0)`",
+    ["The value is positive.", "A positive retry delay means wait.", "Give the exact printed value."],
+    "Correct iff the answer is True."),
+  coding("diag-http-success", "http-reliability", 3,
     "Write `is_success(status)`: return True when `status` is an HTTP success code, False otherwise. Remember which family of codes counts as success, and test the edges: 199, 200, 299, 300.",
     ["Success codes are the 2xx family.", "199 is not success; 300 is not success.", "A range check like 200 <= status < 300 handles every edge."],
     "diagnostic-http", "diagnostic-http-v1",
     "def is_success(status):\n    # Return True when status is an HTTP success code, else False.\n    return False\n",
     "is_success"),
-  concept("diag-http-2xx", "http-reliability", 1,
-    "Which status-code family means HTTP success: 1xx, 2xx, or 3xx?",
-    ["1xx is informational.", "3xx means redirection.", "Answer with the family."],
-    "Correct iff the answer is '2xx'."),
+  concept("diag-http-2xx", "http-reliability", 2,
+    "What does this print? `status = 201; print(200 <= status < 300)`",
+    ["Check that 201 is at least 200.", "Also check that it is below 300.", "Give True or False."],
+    "Correct iff the answer is True."),
   concept("diag-http-429", "http-reliability", 2,
     "Your client receives 429 Too Many Requests. Is retrying immediately the right move?",
     ["What does 429 ask you to do?", "Hammering the server makes it worse.", "Name the correct strategy in a few words."],
@@ -346,6 +232,7 @@ export const DIAGNOSTIC_ITEMS: DiagnosticItem[] = [
     "A request can hang forever. What client setting bounds how long you wait?",
     ["It is a per-request limit in seconds.", "Without it one slow server stalls your program.", "Answer with the setting name."],
     "Correct iff the answer is 'timeout'."),
+  concept("diag-http-retry", "http-reliability", 3, "Why should a client wait briefly between repeated requests after a server error?", ["Rapid retries add load.", "A pause can help a recovering service.", "Name the approach."], "Correct answer mentions backoff or reducing load."),
 
   // ---- file-io ----
   coding("diag-file-with", "file-io", 2,
@@ -355,13 +242,13 @@ export const DIAGNOSTIC_ITEMS: DiagnosticItem[] = [
     "def read_lines(path):\n    # Open path with a with-statement; return lines without trailing newlines.\n    return []\n",
     "read_lines"),
   concept("diag-file-close", "file-io", 1,
-    "What does a `with open(path) as f:` block guarantee about the file, even if an error occurs inside?",
-    ["The `with` block has cleanup behavior.", "It runs whether or not the body raises.", "Answer in a few words."],
-    "Correct iff the answer conveys the file is closed (accept 'closes the file', 'closed even on error')."),
+    "What does this print? `from io import StringIO; with StringIO('ok') as f: text = f.read(); print(text)`",
+    ["The with block reads the text from the file-like object.", "The original text is ok.", "Give the exact printed text."],
+    "Correct iff the answer is ok."),
   concept("diag-file-modes", "file-io", 1,
-    "`open(path, 'w')` on an existing file: appends to it, overwrites it, or raises an error?",
-    ["'w' stands for one of these behaviors.", "'a' would be the other one.", "Answer with one of the three options."],
-    "Correct iff the answer is overwrites (accept 'truncates')."),
+    "What does this print? `from io import StringIO; f = StringIO('old'); f.write('new'); print(f.getvalue())`",
+    ["The write starts at the current position, which is the beginning.", "The new text replaces the old text.", "Give the exact printed text."],
+    "Correct iff the answer is new."),
   concept("diag-file-readlines", "file-io", 2,
     "What type does `f.readlines()` return?",
     ["It reads every remaining line.", "The result supports indexing and len().", "Answer with the type name."],
@@ -370,18 +257,48 @@ export const DIAGNOSTIC_ITEMS: DiagnosticItem[] = [
     "Lines read from a text file end with which character, and how do you remove it?",
     ["The line ending is an escape sequence.", "One string method strips trailing whitespace.", "Name both the character and the method."],
     "Correct iff the answer mentions '\\n' and strip/rstrip."),
+  concept("diag-file-write", "file-io", 3, "What does `with open(path, 'a') as f:` do when you write text?", ["The mode letter is a clue.", "It adds new text after existing contents.", "Name the write mode."], "Correct answer is append."),
 
   // ---- llm-output-validation ----
   concept("diag-llm-schema", "llm-output-validation", 1,
-    "An LLM returns JSON text. What must you do before reading its fields?",
-    ["The text might not even be valid JSON.", "Fields might be missing or the wrong type.", "Name the two steps: parse, then …?"],
-    "Correct iff the answer conveys parsing and validating against a schema (accept 'parse and validate')."),
+    "What does this print? `data = json.loads('{\"age\": 7}'); print(type(data['age']).__name__)`",
+    ["json.loads parses the text into Python data.", "The age value is a whole number.", "Give the type name that prints."],
+    "Correct iff the answer is int."),
   concept("diag-llm-deterministic", "llm-output-validation", 2,
-    "Why must you validate an LLM's output shape on every call, not just once?",
-    ["Is model output deterministic?", "The same prompt can produce different shapes.", "Name the property that forces repeated validation."],
-    "Correct iff the answer conveys nondeterminism — the model may return different shapes on different calls."),
+    "What does this print? `outputs = [{'ok': True}, {'ok': False}]; print(outputs[0] == outputs[1])`",
+    ["Compare the two result dictionaries.", "Their ok values differ.", "Give True or False."],
+    "Correct iff the answer is False."),
   concept("diag-llm-fallback", "llm-output-validation", 2,
     "The model returns malformed JSON in production. Should the code crash, guess the fields, or use a deterministic fallback?",
     ["Guessing invents data.", "Crashing may be worse than a safe default.", "Answer with one of the three options."],
     "Correct iff the answer chooses the deterministic fallback (accept 'fallback'). Never guess."),
+  concept("diag-llm-shape", "llm-output-validation", 3, "A model returns a number where your app needs a string. What should a validator check?", ["Check the returned field itself.", "Values can have different types.", "Name what must match."], "Correct answer is the expected type or schema."),
+
+  // Direct value tracing keeps the first four rungs welcoming and concrete.
+  concept("diag-values-print", "py-values", 2, "What does `print('hello')` display?", ["The quoted text is a string.", "print displays its value.", "Type the displayed word."], "Answer: hello."),
+  concept("diag-values-add", "py-values", 3, "What is the value of `7 + 3`?", ["Add the two numbers.", "This is numeric addition.", "Give the result."], "Answer: 10."),
+  concept("diag-conditionals-compare", "py-conditionals", 1, "What is the value of `4 < 9`?", ["Compare the two numbers.", "4 is smaller than 9.", "Answer True or False."], "Answer: True."),
+  concept("diag-conditionals-branch", "py-conditionals", 3, "`x = 2`; `if x == 2: print('yes')` else print('no'). What prints?", ["Check whether x equals 2.", "The true branch runs.", "Give the printed word."], "Answer: yes."),
+  concept("diag-loops-range", "py-loops", 2, "What does this print? `n = 0; while n < 3: n += 1; print(n)` (the print runs after the loop).", ["The loop stops when n is no longer less than 3.", "It adds one on each pass.", "Give the exact printed value."], "Answer: 3."),
+  concept("diag-loops-final", "py-loops", 3, "`x = 1`; `for n in range(2): x += 2`. What is x afterward?", ["The body runs twice.", "Each run adds two.", "Start at one and add four."], "Answer: 5."),
+  concept("diag-lists-first", "py-lists-strings", 2, "What is `['red', 'blue', 'green'][1:3]`?", ["A slice starts at index 1.", "The end index 3 is not included.", "Give the exact list."], "Answer: ['blue', 'green']."),
+  concept("diag-lists-string", "py-lists-strings", 3, "What does this print? `parts = 'red,blue'.split(','); print('|'.join(parts))`", ["`split` makes two strings.", "`join` puts a bar between them.", "Give the exact printed text."], "Answer: red|blue."),
+  concept("diag-dicts-get", "py-dicts", 1, "What does this print? `counts = {}; words = ['a', 'b', 'a'];\nfor word in words: counts[word] = counts.get(word, 0) + 1\nprint(counts['a'])`", ["`.get(word, 0)` starts a missing count at zero.", "The loop sees `a` twice.", "Give the exact printed value."], "Answer: 2."),
+  concept("diag-dicts-length", "py-dicts", 2, "What does this print? `scores = {'Ada': 4}; print(scores.get('Bo', 0))`", ["The key Bo is not in the dictionary.", "`.get` uses its second argument when the key is missing.", "Give the exact printed value."], "Answer: 0."),
+  concept("diag-dicts-membership", "py-dicts", 3, "What does this print? `counts = {}; for word in ['x', 'y', 'x']: counts[word] = counts.get(word, 0) + 1; print(counts)`", ["The loop counts each word.", "A missing count starts at zero.", "Give the exact dictionary."], "Answer: {'x': 2, 'y': 1}."),
+  concept("diag-classes-init", "py-classes", 1, "What does this print? `class Dog:\n def __init__(self, name): self.name = name\n def describe(self): return 'Dog: ' + self.name\nd = Dog('Rex')\nprint(d.describe())`", ["Creating `d` stores Rex in `d.name`.", "`describe` joins the label and the stored name.", "Give the exact printed text."], "Answer: Dog: Rex."),
+  concept("diag-classes-self", "py-classes", 2, "What does this print? `class Tag:\n def __init__(self, value): self.value = value\na = Tag('red'); b = Tag('blue'); a.value = 'green'; print(b.value)`", ["Each Tag call creates a separate object.", "Changing `a.value` does not change `b.value`.", "Give the exact printed text."], "Answer: blue."),
+  concept("diag-classes-instance", "py-classes", 3, "What does this print? `class Counter:\n def __init__(self): self.n = 0\n def add(self): self.n += 1\nc = Counter(); c.add(); c.add(); print(c.n)`", ["`add` changes this object's stored n.", "The method runs twice.", "Give the exact printed value."], "Answer: 2."),
+  concept("diag-pandas-missing", "pandas-data-quality", 1, "For `df = pd.DataFrame({'age': [10, None, 12]})`, what does `df.isna().sum().to_dict()` return?", ["`isna` marks the missing cell True.", "`sum` counts True values in each column.", "Give the exact dictionary."], "Answer: {'age': 1}."),
+  concept("diag-pandas-dropna", "pandas-data-quality", 2, "For `df = pd.DataFrame({'age': [10, None, 12]})`, what is `df['age'].fillna(0).tolist()`?", ["Only the missing age changes.", "The other values stay in order.", "Give the exact list."], "Answer: [10.0, 0.0, 12.0] (also accept [10, 0, 12])."),
+  concept("diag-pandas-fillna", "pandas-data-quality", 3, "For `df = pd.DataFrame({'age': [10, None, 12]})`, what is `df['age'].fillna(0).tolist()`?", ["Only the missing age changes.", "The other values stay in order.", "Give the exact list."], "Answer: [10.0, 0.0, 12.0] (also accept [10, 0, 12])."),
+  concept("diag-sqlite-select", "sqlite-analytics", 1, "For rows `(red, 2)`, `(blue, 3)`, `(red, 4)` in `sales(color, qty)`, what does `SELECT color, COUNT(*) FROM sales GROUP BY color ORDER BY color` return?", ["Group rows with the same color.", "Count rows in each group.", "Write both result rows in order."], "Answer: blue, 1; red, 2."),
+  concept("diag-sqlite-where", "sqlite-analytics", 2, "For rows `(red, 2)`, `(blue, 3)`, `(red, 4)` in `sales(color, qty)`, what does `SELECT SUM(qty) FROM sales WHERE color='red'` return?", ["WHERE keeps only red rows.", "Add their qty values.", "Give the exact value."], "Answer: 6."),
+  concept("diag-sqlite-count", "sqlite-analytics", 3, "For rows `(red, 2)`, `(blue, 3)`, `(red, 4)` in `sales(color, qty)`, what does `SELECT color, COUNT(*) FROM sales GROUP BY color ORDER BY color` return?", ["Group rows with the same color.", "Count rows in each group.", "Write both result rows in order."], "Answer: blue, 1; red, 2."),
 ];
+
+const ladderOrder = new Map(skills.map((skill, index) => [skill.id, index]));
+export const DIAGNOSTIC_ITEMS: DiagnosticItem[] = [...RAW_DIAGNOSTIC_ITEMS].sort((a, b) =>
+  (ladderOrder.get(a.skillId) ?? Number.MAX_SAFE_INTEGER) - (ladderOrder.get(b.skillId) ?? Number.MAX_SAFE_INTEGER) ||
+  a.difficulty - b.difficulty,
+);

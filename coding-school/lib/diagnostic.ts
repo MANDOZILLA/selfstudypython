@@ -1,20 +1,22 @@
 import { z } from "zod";
 import { DIAGNOSTIC_CORE_SKILLS, DIAGNOSTIC_ITEMS, DIAGNOSTIC_SKILLS, type DiagnosticItem } from "../curriculum/diagnostic-items";
+import { skills } from "../curriculum/skills";
 import { getGrader } from "../public/grading/catalog.js";
 
 /** Bump when the item bank or a diagnostic grader changes meaningfully.
- *  v2.0.0: AP CSP foundation tier added, explicit "I do not know" evidence
- *  introduced. Sessions stored under an older format version keep their
- *  history but their responses count as Legacy / unverified. */
-export const DIAGNOSTIC_SESSION_VERSION = "2.0.0";
-export const DIAGNOSTIC_MIN_ITEMS = 12;
-export const DIAGNOSTIC_MAX_ITEMS = 25;
-/** Honest completion requires this many successful Python executions OR this
- *  many distinct coding items the learner explicitly declared "I do not know".
- *  Never zero: silently finishing without either would fake mastery; requiring
- *  runs from a learner who genuinely cannot code yet would make the quota
- *  impossible. A declaration is recorded as a knowledge gap, never as mastery. */
-export const DIAGNOSTIC_CODING_QUOTA = 2;
+ *  v3.0.0: linear beginner-to-advanced ladder placement. */
+export const DIAGNOSTIC_SESSION_VERSION = "3.0.0";
+// Retained for older callers. Placement no longer has a minimum or coding quota.
+export const DIAGNOSTIC_MIN_ITEMS = 0;
+export const DIAGNOSTIC_MAX_ITEMS = 100;
+export const DIAGNOSTIC_CODING_QUOTA = 0;
+export const PLACEMENT_LADDER: readonly string[] = skills.map(skill => skill.id);
+
+export interface PlacementResult {
+  knownSkillIds: string[];
+  gapSkillId: string | null;
+  testedSkillIds: string[];
+}
 /** Canonical learner-facing declaration of a knowledge gap. */
 export const DIAGNOSTIC_UNKNOWN_ANSWER = "I do not know";
 
@@ -88,20 +90,35 @@ function randomId(): string {
   return `diag-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
 }
 
-/** Only current-format evidence counts toward placement confidence and coding quotas. */
+/** Only current-format evidence counts toward placement. */
 const validResponses = (session: DiagnosticSession, skillId: string) =>
   session.responses.filter(r => r.skillId === skillId && !r.legacy);
 
-function decisive(responses: DiagnosticResponse[]): boolean {
-  const correct = responses.filter(r => r.correct);
-  const incorrect = responses.filter(r => !r.correct);
-  return correct.some(r => r.kind === "coding") || correct.length >= 2 || incorrect.length >= 2;
+export function derivePlacement(session: DiagnosticSession): PlacementResult {
+  const testedSkillIds = PLACEMENT_LADDER.filter(id => validResponses(session, id).length > 0);
+  const knownSkillIds: string[] = [];
+  for (const skillId of PLACEMENT_LADDER) {
+    const responses = validResponses(session, skillId);
+    if (!responses.length) return { knownSkillIds, gapSkillId: skillId, testedSkillIds };
+    if (responses.some(r => r.dontKnow === true)) return { knownSkillIds, gapSkillId: skillId, testedSkillIds };
+    const correct = responses.filter(r => r.correct);
+    const incorrect = responses.filter(r => !r.correct);
+    if (correct.some(r => r.kind === "coding") || correct.length >= 2) {
+      knownSkillIds.push(skillId);
+      continue;
+    }
+    if (incorrect.length >= 2 || responses.length >= DIAGNOSTIC_ITEMS.filter(i => i.skillId === skillId).length) {
+      return { knownSkillIds, gapSkillId: skillId, testedSkillIds };
+    }
+    return { knownSkillIds, gapSkillId: skillId, testedSkillIds };
+  }
+  return { knownSkillIds, gapSkillId: null, testedSkillIds };
 }
 
 export function diagnosticSkillState(session: DiagnosticSession, skillId: string): DiagnosticProfileState {
   const evidence = validResponses(session, skillId);
   if (!evidence.length) return "untested";
-  return decisive(evidence) ? "observed" : "uncertain";
+  return "observed";
 }
 
 /** Sessions stored under an older format version keep their history, but every
@@ -129,50 +146,17 @@ export function createDiagnosticSession(now?: Date): DiagnosticSession {
 
 export function nextDiagnosticItem(session: DiagnosticSession, items: DiagnosticItem[] = DIAGNOSTIC_ITEMS): DiagnosticItem | null {
   if (session.status === "completed") return null;
-  if (session.responses.length >= DIAGNOSTIC_MAX_ITEMS) return null;
   if (canCompleteDiagnostic(session).ok) return null;
-  const answered = new Set(session.responses.map(r => r.itemId));
-  const pool = items.filter(i => !answered.has(i.id));
-  if (!pool.length) return null;
-  // Focus: stay on one skill until it is observed before moving on. While a
-  // skill is still being probed, prefer its coding item when the coding quota
-  // is unmet and the skill has no coding evidence yet, so successful Python
-  // executions (or an honest declaration) arrive naturally instead of being
-  // bolted on afterwards.
-  for (const skillId of DIAGNOSTIC_CORE_SKILLS) {
-    if (diagnosticSkillState(session, skillId) === "observed") continue;
-    const skillPool = pool.filter(i => i.skillId === skillId);
-    if (!skillPool.length) continue;
-    const touched = session.responses.some(r => r.skillId === skillId);
-    if (touched && codingEvidenceCount(session) < DIAGNOSTIC_CODING_QUOTA &&
-        !session.responses.some(r => r.skillId === skillId && r.kind === "coding")) {
-      const codingItem = skillPool.find(i => i.kind === "coding");
-      if (codingItem) return codingItem;
-    }
-    return skillPool.find(i => i.kind === "concept") ?? skillPool[0];
-  }
-  // Coding-quota repair: the bank holds only a few coding items against the
-  // quota, and a graded failure consumes its item. When the quota is still
-  // unmet and the adaptive engine has nothing fresher to probe:
-  //   1. serve a fresh coding item first — a real attempt is the honest path.
-  //   2. otherwise re-offer a graded failure (the learner has feedback now).
-  //   3. never re-serve a coding item the learner declared "I do not know" —
-  //      re-punishing an honest declaration would push learners toward
-  //      guessing; declared items instead feed the declaration escape hatch
-  //      in canCompleteDiagnostic. Without this, failing the available coding
-  //      items soft-locks the session at the item cap.
-  // Once two pieces of coding evidence exist (runs and declarations mixing),
-  // no coding item is forced: the pressure exists to satisfy the gate, not to
-  // keep testing a learner who has already shown where they stand.
-  if (codingEvidenceCount(session) < DIAGNOSTIC_CODING_QUOTA) {
-    const freshCoding = pool.find(item => item.kind === "coding");
-    if (freshCoding) return freshCoding;
-    const retry = items.find(item => item.kind === "coding" &&
-      session.responses.some(r => r.itemId === item.id && r.kind === "coding" && !r.correct && !r.legacy && !r.dontKnow) &&
-      !session.responses.some(r => r.itemId === item.id && r.kind === "coding" && r.correct));
-    if (retry) return retry;
-  }
-  return pool[0] ?? null;
+  const placement = derivePlacement(session);
+  if (placement.gapSkillId === null) return null;
+  const rung = validResponses(session, placement.gapSkillId);
+  if (rung.some(r => r.dontKnow) || rung.filter(r => !r.correct).length >= 2 ||
+      rung.some(r => r.kind === "coding" && r.correct) || rung.filter(r => r.correct).length >= 2) return null;
+  const rungAnswered = new Set(rung.map(r => r.itemId));
+  const nextRungItem = items.filter(i => i.skillId === placement.gapSkillId && !rungAnswered.has(i.id))
+    .sort((a, b) => a.difficulty - b.difficulty)[0];
+  if (nextRungItem) return nextRungItem;
+  return null;
 }
 
 function assertActive(session: DiagnosticSession, item: DiagnosticItem) {
@@ -310,38 +294,19 @@ export function classifyGradeResult(result: { executionOk: boolean; tests: { id:
 
 export function canCompleteDiagnostic(session: DiagnosticSession): { ok: boolean; reasons: string[] } {
   if (session.status === "completed") return { ok: true, reasons: [] };
-  const reasons: string[] = [];
-  const count = session.responses.length;
-  if (count < DIAGNOSTIC_MIN_ITEMS) reasons.push(`Answer a few more questions (${count} answered).`);
-  if (count < DIAGNOSTIC_MAX_ITEMS) {
-    // Early stopping: the diagnostic ends while the evidence is fresh, not by
-    // grinding every skill to certainty. A probed skill is one with
-    // current-format responses; a skill with a single correct answer is still
-    // genuinely uncertain, and the profile should say so honestly instead of
-    // over-testing it into observed or leaving it untouched.
-    const probed = DIAGNOSTIC_CORE_SKILLS.filter(skillId =>
-      session.responses.some(r => r.skillId === skillId && !r.legacy));
-    const observed = probed.filter(skillId => diagnosticSkillState(session, skillId) === "observed");
-    const uncertain = probed.filter(skillId => diagnosticSkillState(session, skillId) === "uncertain");
-    if (probed.length < 6) reasons.push(`Answer questions across a few more skill areas (${probed.length} so far).`);
-    if (observed.length < 5) reasons.push(`Show a clear signal in more skill areas (${observed.length} so far).`);
-    if (uncertain.length < 1) reasons.push(`Leave one area uncertain so your starting point stays realistic (${observed.length} clear so far).`);
-  }
-  // The coding gate is absolute but never impossible: the diagnostic may not
-  // complete with zero honest coding evidence. Two distinct coding questions
-  // must each carry evidence — a working Python execution or an explicit "I do
-  // not know" declaration — and the two kinds mix (one of each is two pieces).
-  // A declaration is a knowledge gap recorded as such, never as mastery.
-  // Graded failures, legacy runs, and hints satisfy neither side, so a learner
-  // who attempted and failed keeps getting honest retries instead of a
-  // rubber-stamped finish.
-  const codingEvidence = codingEvidenceCount(session);
-  if (codingEvidence < DIAGNOSTIC_CODING_QUOTA) {
-    const runs = session.codingSuccessCount;
-    const declarations = codingUnknownCount(session);
-    reasons.push(`Answer ${DIAGNOSTIC_CODING_QUOTA} coding questions: run working code or choose “${DIAGNOSTIC_UNKNOWN_ANSWER}” (${runs} successful runs, ${declarations} unknown answers so far).`);
-  }
-  return { ok: reasons.length === 0, reasons };
+  const placement = derivePlacement(session);
+  if (placement.gapSkillId === null) return { ok: true, reasons: [] };
+  const rung = validResponses(session, placement.gapSkillId);
+  const exhausted = rung.length >= DIAGNOSTIC_ITEMS.filter(i => i.skillId === placement.gapSkillId).length;
+  const decided = rung.some(r => r.dontKnow) || rung.filter(r => !r.correct).length >= 2 ||
+    rung.some(r => r.kind === "coding" && r.correct) || rung.filter(r => r.correct).length >= 2 || exhausted;
+  return decided ? { ok: true, reasons: [] } : { ok: false, reasons: ["Answer one more question on this step, or start learning here."] };
+}
+
+/** Finish at the current rung without requiring more answers. */
+export function finishPlacementEarly(session: DiagnosticSession, now?: Date): DiagnosticSession {
+  if (session.status === "completed") return clone(session);
+  return finalizeSession(session, derivePlacement(session).gapSkillId, now);
 }
 
 export function deriveDiagnosticProfile(session: DiagnosticSession): {
@@ -425,11 +390,18 @@ export function completeDiagnosticSession(session: DiagnosticSession, now?: Date
   if (session.status === "completed") return clone(session);
   const check = canCompleteDiagnostic(session);
   if (!check.ok) throw new Error(`Diagnostic cannot complete yet: ${check.reasons.join("; ")}`);
+  return finalizeSession(session, derivePlacement(session).gapSkillId, now);
+}
+
+function finalizeSession(session: DiagnosticSession, gapSkillId: string | null, now?: Date): DiagnosticSession {
   const { profile, recommendation } = deriveDiagnosticProfile(session);
+  if (gapSkillId && profile[gapSkillId] === "untested") profile[gapSkillId] = "observed";
   return {
     ...clone(session), status: "completed", completedAt: nowIso(now),
     currentItemId: null, draftAnswer: "", draftCode: "", draftHints: 0, infraError: null,
-    profile, recommendation,
+    profile, recommendation: gapSkillId
+      ? `${recommendation} Course starting point: ${DIAGNOSTIC_SKILLS.find(skill => skill.id === gapSkillId)?.title ?? gapSkillId}.`
+      : `${recommendation} You passed every placement step.`,
   };
 }
 

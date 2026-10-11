@@ -1,6 +1,7 @@
 import type { AttemptRecord, LearningState } from "./state";
 import { curriculum } from "./curriculum";
 import { deriveDiagnosticProfile, latestCompletedDiagnosticSession } from "./diagnostic";
+import { placedOutMissionIds } from "./placement";
 
 export type EvidenceStatus = "Not started" | "Practicing" | "Demonstrated in project" | "Demonstrated again later" | "Mastered";
 export type SkillEvidence = {
@@ -101,8 +102,13 @@ export type TodaySelection = { kind: "resume" | "mission" | "review" | "complete
 export function selectToday(state: LearningState, now: Date): TodaySelection {
   const active = state.missionRuns.find(r => r.status !== "completed");
   if (active) return { kind: "resume", missionId: active.missionId, runId: active.id, reviewTaskIds: active.stages[0].taskIds.filter(id => curriculum.reviewTasks.some(t => t.id === id)) };
-  const completed = new Set(state.missionRuns.filter(r => r.status === "completed" && r.mode === "mission").map(r => r.missionId));
-  const mission = curriculum.missions.find(m => !completed.has(m.id) && m.prerequisites.every(id => completed.has(id)));
+  // Placed-out missions (before the placement start point) count as satisfied
+  // for ordering and unlocks only — never as completed evidence.
+  const satisfied = new Set([
+    ...state.missionRuns.filter(r => r.status === "completed" && r.mode === "mission").map(r => r.missionId),
+    ...placedOutMissionIds(state),
+  ]);
+  const mission = curriculum.missions.find(m => !satisfied.has(m.id) && m.prerequisites.every(id => satisfied.has(id)));
   const relevant = new Set(mission ? [...mission.revisitedSkillIds, ...mission.introducedSkillIds] : curriculum.skills.map(s => s.id));
   const due = Object.values(deriveReviewSchedule(state.attempts)).filter(s => relevant.has(s.skillId) && s.dueAt <= now.toISOString())
     .sort((a, b) => Number(b.reason === "repair") - Number(a.reason === "repair") || a.dueAt.localeCompare(b.dueAt) || a.skillId.localeCompare(b.skillId));

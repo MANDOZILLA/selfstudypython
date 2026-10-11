@@ -1,3 +1,6 @@
+import { BASICS_1_SUITES } from "../public/grading/mission-suites-basics-1.js";
+import { BASICS_2_SUITES } from "../public/grading/mission-suites-basics-2.js";
+import { REVIEW_BASICS_SUITES } from "../public/grading/review-suites-basics.js";
 import { beforeAll, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -17,8 +20,8 @@ let runtime: Awaited<ReturnType<typeof loadPyodide>>;
 beforeAll(async () => { runtime = await loadPyodide({ indexURL: resolve("public/pyodide") }); }, 120000);
 
 describe("curriculum validation", () => {
-  it("ships exactly ten missions", () => {
-    expect(missions).toHaveLength(10);
+  it("ships the seventeen-mission course", () => {
+    expect(missions).toHaveLength(17);
   });
 
   it("ships exactly four portfolio projects", () => {
@@ -87,7 +90,7 @@ describe("curriculum validation", () => {
     const runnerSource = readFileSync(resolve("public/grading/runner.js"), "utf8");
     const suitesBlock = /const suites = \{([^}]*)\}/.exec(runnerSource);
     expect(suitesBlock, "runner.js must declare a suites map").not.toBeNull();
-    const implemented = new Set([...suitesBlock![1].matchAll(/"([^"]+)":/g)].map(m => m[1]));
+    const implemented = new Set([...[...suitesBlock![1].matchAll(/"([^"]+)":/g)].map(m => m[1]), ...Object.keys(BASICS_1_SUITES), ...Object.keys(BASICS_2_SUITES), ...Object.keys(REVIEW_BASICS_SUITES)]);
     for (const [graderId, entry] of Object.entries(graderCatalog) as [string, { exerciseId: string; requiredTests: string[] }][]) {
       if (implemented.has(graderId)) continue;
       // Read/explain tasks are graded semantically, not by the Python worker:

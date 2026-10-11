@@ -3,6 +3,7 @@ import { curriculum, getMission, getTask } from "./curriculum";
 import { PORTFOLIO_PROJECT_DEFINITIONS } from "../curriculum/portfolio-projects";
 import { recordMissionAttempt, type AttemptSubmission, type LearningState, type MissionDraft } from "./state";
 import { classifyGradeResult } from "./diagnostic";
+import { placedOutMissionIds } from "./placement";
 import type { GradeResult } from "./runner";
 
 export type Destination = "today" | "lessons" | "learned" | "assessment" | "portfolio";
@@ -35,9 +36,10 @@ export function getDashboardModel(state: LearningState, now = new Date()) {
 export function getLibraryRows(state: LearningState) {
   const active = state.missionRuns.find(r => r.mode === "mission" && r.status !== "completed");
   const completed = new Set(state.missionRuns.filter(r => r.mode === "mission" && r.status === "completed").map(r => r.missionId));
+  const placedOut = placedOutMissionIds(state);
   return curriculum.missions.map(mission => {
-    const status = active?.missionId === mission.id ? "In progress" : completed.has(mission.id) ? "Completed" : "Not started";
-    const prerequisite = mission.prerequisites.find(id => !completed.has(id));
+    const status = active?.missionId === mission.id ? "In progress" : completed.has(mission.id) ? "Completed" : placedOut.has(mission.id) ? "Placed out" : "Not started";
+    const prerequisite = mission.prerequisites.find(id => !completed.has(id) && !placedOut.has(id));
     const blockedReason = prerequisite ? `Complete ${getMission(prerequisite)?.title} first.` : active && active.missionId !== mission.id ? "Finish your current mission before starting another." : null;
     const xp = mission.stages.flatMap(stage => stage.tasks).reduce((sum, task) => {
       return sum + (task?.purpose === "project" ? 150 : task?.purpose === "guided-practice" ? 40 : task?.purpose === "retrieval" ? 30 : task?.purpose === "reflection" ? 15 : 5);

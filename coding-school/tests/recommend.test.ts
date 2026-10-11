@@ -7,8 +7,9 @@ import {
   type LearningState,
   type MissionRun,
 } from "../lib/state";
-import { createDiagnosticSession, type DiagnosticSession } from "../lib/diagnostic";
+import type { DiagnosticSession } from "../lib/diagnostic";
 import { deriveReviewSchedule } from "../lib/adaptive";
+import { placedAt } from "./helpers/placement";
 
 let serial = 0;
 function attempt(overrides: Partial<AttemptRecord> = {}): AttemptRecord {
@@ -41,29 +42,17 @@ function attempt(overrides: Partial<AttemptRecord> = {}): AttemptRecord {
   };
 }
 
-function diagnosedSession(weakSkill: string): DiagnosticSession {
-  const at = "2026-09-09T12:00:00.000Z";
-  const response = (itemId: string, skillId: string, correct: boolean) => ({
-    itemId, skillId, kind: "concept" as const, correct, answer: "x", code: "",
-    hintsUsed: 0, graderId: `diagnostic-concept-${itemId}`, graderVersion: "1.0.0",
-    legacy: false, respondedAt: at,
-  });
-  const base = createDiagnosticSession(new Date(at));
-  return {
-    ...base, status: "completed", completedAt: at, currentItemId: null,
-    responses: [
-      response("d1", "python-functions", true),
-      response("d2", "python-functions", true),
-      response("d3", weakSkill, false),
-      response("d4", weakSkill, false),
-    ],
-    profile: null, recommendation: null,
-  };
+function diagnosedSession(): DiagnosticSession {
+  // Placement follows the ordered ladder; this mission is the intended start.
+  return placedAt("csv-foundations");
 }
 
 const NOW = new Date("2026-09-14T12:00:00.000Z");
 
 function completedMission(state: LearningState, missionId: string): LearningState {
+  // These unit scenarios target downstream behavior. Place the learner at
+  // that mission so its earlier prerequisites are legitimately placed out.
+  state = { ...state, diagnosticSessions: [placedAt(missionId)] };
   const started = startOrResumeMission(state, NOW, missionId);
   const run = started.missionRuns.at(-1) as MissionRun;
   return {
@@ -82,30 +71,32 @@ describe("recommendNext", () => {
   });
 
   it("gives a fresh diagnosed learner the placement baseline and the first mission", () => {
-    const state = { ...createDefaultState(), diagnosticSessions: [diagnosedSession("data-structures")] };
+    const state = { ...createDefaultState(), diagnosticSessions: [diagnosedSession()] };
     const rec = recommendNext(state, NOW);
     expect(rec.action).toBe("start-mission");
     expect(rec.missionId).toBe("csv-foundations");
-    expect(rec.reason).toMatch(/diagnostic/i);
+    expect(rec.reason).toMatch(/already know/i);
+    expect(rec.reason).toMatch(/first new topic/i);
     expect(rec.reason).toMatch(/placement/i);
     expect(rec.reason).not.toMatch(/blocked/i);
   });
 
   it("always resumes the active unfinished mission first", () => {
-    const state = startOrResumeMission(createDefaultState(), NOW, "csv-foundations");
+    const state = startOrResumeMission({ ...createDefaultState(), diagnosticSessions: [placedAt("csv-foundations")] }, NOW, "csv-foundations");
     const rec = recommendNext(state, NOW);
     expect(rec.action).toBe("resume");
     expect(rec.runId).toBe(state.missionRuns[0].id);
     expect(rec.missionId).toBe("csv-foundations");
     expect(rec.reason).toMatch(/resume/i);
-    expect(rec.reason).toMatch(/From small functions to a clean payments CSV/);
+    expect(rec.reason).toMatch(/From records to a clean payments CSV/);
   });
 
   it("blocks a dependent mission when a prerequisite skill is weak", () => {
     // Learner scraped through data-structures with heavy assistance, then
     // completed csv-foundations. json-api-normalization introduces
     // json-validation, whose prerequisite data-structures is weak.
-    let state = completedMission(createDefaultState(), "csv-foundations");
+    let state = completedMission(createDefaultState(), "transform-records");
+    state = completedMission(state, "csv-foundations");
     state = {
       ...state,
       attempts: [
@@ -118,7 +109,7 @@ describe("recommendNext", () => {
     const rec = recommendNext(state, NOW);
     expect(rec.action).toBe("repair");
     expect(rec.blockedMissionId).toBe("json-api-normalization");
-    expect(rec.reason).toMatch(/ordered record transformations/i);
+    expect(rec.reason).toMatch(/records: lists of dicts/i);
     expect(rec.reason).toMatch(/blocked/i);
     expect(rec.reason).toMatch(/2026-09-12/);
   });
@@ -142,7 +133,7 @@ describe("recommendNext", () => {
     };
     const rec = recommendNext(state, NOW);
     expect(rec.action).toBe("repair");
-    expect(rec.reason).toMatch(/exact money validation/i);
+    expect(rec.reason).toMatch(/exact money with Decimal/i);
     expect(rec.reason).toMatch(/2026-09-13/);
     expect(rec.reviewTaskIds.length).toBeGreaterThan(0);
   });
@@ -164,7 +155,7 @@ describe("recommendNext", () => {
     };
     const rec = recommendNext(state, NOW);
     expect(rec.action).toBe("retrieval");
-    expect(rec.reason).toMatch(/CSV parsing and row validation/i);
+    expect(rec.reason).toMatch(/functions and return values/i);
     expect(rec.reason).toMatch(/review/i);
     expect(rec.reviewTaskIds.length).toBeGreaterThan(0);
     expect(rec.reviewTaskIds.length).toBeLessThanOrEqual(REVIEW_TASK_CAP);
@@ -211,24 +202,25 @@ describe("recommendNext", () => {
     state = completedMission(state, "python-recovery");
     state = completedMission(state, "validation-functions");
     // Completed review-mode runs must not count as mission completion.
-    const template = startOrResumeMission(createDefaultState(), NOW, "csv-foundations").missionRuns[0];
+    const template = startOrResumeMission({ ...createDefaultState(), diagnosticSessions: [placedAt("csv-foundations")] }, NOW, "csv-foundations").missionRuns[0];
     const reviewRuns = ["transform-records", "csv-foundations", "json-api-normalization", "pandas-missing-data", "sqlite-transactions"]
       .map((missionId, i) => ({ ...template, id: `review-run-${i}`, mode: "review" as const, missionId, status: "completed" as const, completedAt: NOW.toISOString() }));
-    state = { ...state, missionRuns: [...state.missionRuns, ...reviewRuns] };
+    state = { ...state, diagnosticSessions: [placedAt("csv-foundations")], missionRuns: [...state.missionRuns, ...reviewRuns] };
     const rec = recommendNext(state, NOW);
     expect(rec.action).toBe("assessment");
     expect(rec.assessmentId).toBe("foundations-checkpoint");
   });
 
   it("never calls an untested skill weak in its reason", () => {
-    const state = { ...createDefaultState(), diagnosticSessions: [diagnosedSession("data-structures")] };
+    const state = { ...createDefaultState(), diagnosticSessions: [diagnosedSession()] };
     const rec = recommendNext(state, NOW);
     expect(rec.reason).not.toMatch(/needs practice/);
     expect(rec.reason).not.toMatch(/weak/);
   });
 
   it("keeps every reason traceable to concrete evidence", () => {
-    let state = completedMission(createDefaultState(), "csv-foundations");
+    let state = completedMission(createDefaultState(), "transform-records");
+    state = completedMission(state, "csv-foundations");
     state = {
       ...state,
       attempts: [
@@ -239,7 +231,7 @@ describe("recommendNext", () => {
       ],
     };
     const rec = recommendNext(state, NOW);
-    expect(rec.reason).toContain("Ordered record transformations");
+    expect(rec.reason).toMatch(/records: lists of dicts/i);
     expect(rec.reason).toContain("2026-09-12");
     expect(rec.reason).not.toMatch(/\d+%/);
   });

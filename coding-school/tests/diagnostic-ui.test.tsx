@@ -19,8 +19,7 @@ import { executedResult, validRequest, verifyWorkerResult } from "../public/grad
  *    evidence, never a graded answer.
  * 2. The coding view is instructions | editor | checks on desktop, split by
  *    two labelled keyboard-operable separators, with the mobile tab flow.
- * 3. Placement copy names the AP CSP starting point and the flexible coding
- *    evidence (runs or declarations).
+ * 3. Placement copy names the current ladder step and the flexible stop point.
  * 4. The Monaco theme comes from useTheme()/monacoThemeFor, never a hardcoded
  *    "light" theme.
  * 5. The concept workspace puts directions/hints on top, the written answer on
@@ -72,8 +71,9 @@ const runButtonTag = (html: string) => html.match(/<button[^>]*id="diagnostic-ru
 describe("I do not know actions", () => {
   it("offers a visible declaration button on concept questions", () => {
     const html = render(studioFor(sessionOn(conceptItem.id)));
-    expect(html).toContain(`>${DIAGNOSTIC_UNKNOWN_ANSWER}</button>`);
-    expect(html).toContain("Submit answer");
+    expect(html).toContain(">I don&#x27;t know this</button>");
+    expect(html).toContain(">Submit</button>");
+    expect(html).toContain(">Start teaching me here</button>");
     expect(html).toContain("recorded as a knowledge gap");
     // The declaration must not pre-fill the typed answer box.
     expect(html).toContain('id="diagnostic-answer"');
@@ -81,7 +81,8 @@ describe("I do not know actions", () => {
 
   it("offers the same declaration on coding questions, beside the run action", () => {
     const html = render(studioFor(sessionOn(codingItem.id)));
-    expect(html).toContain(`>${DIAGNOSTIC_UNKNOWN_ANSWER}</button>`);
+    expect(html).toContain(">I don&#x27;t know this</button>");
+    expect(html).toContain(">Start teaching me here</button>");
     expect(html).toContain('id="diagnostic-run-checks"');
     expect(html).toContain("knowledge gap");
     expect(html).toContain("never counts as a successful run");
@@ -194,15 +195,15 @@ describe("placement copy", () => {
   });
 
   it("shows question number, skill chip, and accessible progress", () => {
-    expect(html).toContain('class="chip chip-cyan">Q 1');
+    expect(html).toContain("Step 1 of 17 - Values, variables, and printing");
     expect(html).toContain('class="chip chip-violet"');
-    expect(html).toContain('role="progressbar"');
+    expect(html).toContain('aria-label="Placement ladder progress"');
     expect(html).not.toContain("of up to");
   });
 
   it("explains the honest unknown path and wires the shared answer constant to its button", () => {
     expect(html).toContain(`title="Record a knowledge gap instead of answering. It is never graded."`);
-    expect(html).toContain(`>${DIAGNOSTIC_UNKNOWN_ANSWER}</button>`);
+    expect(html).toContain(">I don&#x27;t know this</button>");
     expect(html).toContain(`Choose “${DIAGNOSTIC_UNKNOWN_ANSWER}”`);
   });
 });
@@ -328,8 +329,8 @@ describe("concept workspace layout", () => {
 
   it("keeps the original written actions beside the answer box", () => {
     const answer = html.indexOf('id="diagnostic-answer"');
-    const submit = html.indexOf(">Submit answer");
-    const unknown = html.indexOf(`>${DIAGNOSTIC_UNKNOWN_ANSWER}</button>`);
+    const submit = html.indexOf(">Submit</button>");
+    const unknown = html.indexOf(">I don&#x27;t know this</button>");
     expect(answer).toBeGreaterThanOrEqual(0);
     expect(submit).toBeGreaterThan(answer);
     expect(unknown).toBeGreaterThan(submit);

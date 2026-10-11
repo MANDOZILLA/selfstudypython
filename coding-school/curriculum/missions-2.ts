@@ -1,10 +1,9 @@
 import type { MissionDefinition, MissionTask, TaskVariant } from "../lib/mission-types";
 
 /**
- * Missions 3-10 of the ten-mission arc (Task 2). Missions 1-2
- * (csv-foundations, json-api-normalization) live in ./missions and are
- * preserved unchanged. Every code task below is bound to a real fail-closed
- * grader in public/grading/mission-suites-2.js, and the task copy
+ * Intermediate and applied missions (python-recovery onward). Course order
+ * lives in ../curriculum/index.ts. Every code task below is bound to a real
+ * fail-closed grader in public/grading/mission-suites-2.js, and the task copy
  * (signatures, outputs, validation rules, examples) matches the grader
  * contract exactly. Retrieval variants reuse graders under new contextIds,
  * following the established pattern in ./missions.
@@ -41,7 +40,7 @@ export const MISSIONS_2: MissionDefinition[] = [
     version: "1.0.0",
     title: "Crash Course: Reading Tracebacks",
     summary: "Turn cryptic stack traces into exact bug locations, then build a crash-log scanner that never crashes on bad input.",
-    prerequisites: ["json-api-normalization"],
+    prerequisites: ["dictionaries"],
     introducedSkillIds: ["python-exceptions", "file-io"],
     revisitedSkillIds: ["python-functions"],
     estimatedMinutes: 30,
@@ -316,7 +315,7 @@ export const MISSIONS_2: MissionDefinition[] = [
     version: "1.0.0",
     title: "Transform Nested Records",
     summary: "Flatten nested catalogs and aggregate orders with comprehensions, exact decimals, and strict item validation.",
-    prerequisites: ["validation-functions"],
+    prerequisites: ["csv-foundations"],
     introducedSkillIds: [],
     revisitedSkillIds: ["python-functions", "data-structures", "python-exceptions"],
     estimatedMinutes: 45,
@@ -442,7 +441,7 @@ export const MISSIONS_2: MissionDefinition[] = [
     version: "1.0.0",
     title: "Missing Data, Found Data",
     summary: "Clean messy CSVs with pandas: fill gaps with medians, quarantine bad rows, and summarize quality per region.",
-    prerequisites: ["transform-records"],
+    prerequisites: ["json-api-normalization"],
     introducedSkillIds: ["pandas-data-quality"],
     revisitedSkillIds: ["python-functions", "csv-cleaning", "data-structures"],
     estimatedMinutes: 60,

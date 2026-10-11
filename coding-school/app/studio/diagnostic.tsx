@@ -4,12 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import type { Studio } from "./use-studio";
 import { DIAGNOSTIC_ITEMS, DIAGNOSTIC_SKILLS, type DiagnosticItem } from "../../curriculum";
 import {
-  DIAGNOSTIC_CODING_QUOTA,
-  DIAGNOSTIC_MAX_ITEMS,
+  PLACEMENT_LADDER,
+  derivePlacement,
   DIAGNOSTIC_UNKNOWN_ANSWER,
   canCompleteDiagnostic,
-  codingUnknownCount,
-  deriveDiagnosticProfile,
   type DiagnosticSession,
 } from "../../lib/diagnostic";
 import { startGradingRun, type GradeResult, type GradeRequest } from "../../lib/runner";
@@ -26,12 +24,7 @@ import {
 loader.config({ paths: { vs: "/monaco/vs" } });
 
 const formatDate = (value: string) => new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-const SKILL_TITLE_OVERRIDES: Record<string, string> = {
-  "csp-foundations": "Programs and algorithms",
-  "csp-data-systems": "Data and systems",
-};
-const skillTitle = (skillId: string) => SKILL_TITLE_OVERRIDES[skillId] ?? DIAGNOSTIC_SKILLS.find(s => s.id === skillId)?.title ?? "Skill";
-const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+const skillTitle = (skillId: string) => DIAGNOSTIC_SKILLS.find(s => s.id === skillId)?.title ?? "Skill";
 
 /** Mobile tab order for the coding view: instructions, code, checks. */
 const CODING_PANELS = ["instructions", "code", "checks"] as const;
@@ -47,9 +40,12 @@ export function nextDiagnosticPanel(current: DiagnosticCodingPanel, key: string)
   return current;
 }
 
-function ProgressBar({ answered }: { answered: number }) {
-  return <div className={styles.segmentedProgress} role="progressbar" aria-valuenow={answered} aria-valuemin={0} aria-valuemax={DIAGNOSTIC_MAX_ITEMS} aria-label="Placement scan progress">
-    {Array.from({ length: DIAGNOSTIC_MAX_ITEMS }, (_, index) => <span key={index} className={index < answered ? styles.segmentFilled : undefined} />)}
+function ProgressBar({ session }: { session: DiagnosticSession }) {
+  const placement = derivePlacement(session);
+  const index = placement.gapSkillId ? PLACEMENT_LADDER.indexOf(placement.gapSkillId) : PLACEMENT_LADDER.length;
+  const currentTitle = placement.gapSkillId ? skillTitle(placement.gapSkillId) : "Complete";
+  return <div className={styles.segmentedProgress} role="status" aria-label="Placement ladder progress">
+    <span>Step {Math.min(index + 1, PLACEMENT_LADDER.length)} of {PLACEMENT_LADDER.length} - {currentTitle}</span>
   </div>;
 }
 
@@ -212,8 +208,9 @@ function ConceptItem({ studio, session, item }: { studio: Studio; session: Diagn
         onChange={event => studio.updateDiagnosticDraft({ answer: event.target.value })}
         placeholder="Explain in your own words…" />
       <div className="button-row">
-        <button className="primary" onClick={studio.answerDiagnosticConcept} disabled={!session.draftAnswer.trim()}>Submit answer →</button>
-        <button className={`secondary ${styles.unknownOption}`} onClick={studio.markDiagnosticUnknown} title="Record a knowledge gap instead of answering. It is never graded.">{DIAGNOSTIC_UNKNOWN_ANSWER}</button>
+        <button className="primary" onClick={studio.answerDiagnosticConcept} disabled={!session.draftAnswer.trim()}>Submit</button>
+        <button className={`secondary ${styles.unknownOption}`} onClick={studio.markDiagnosticUnknown} title="Record a knowledge gap instead of answering. It is never graded.">I don&apos;t know this</button>
+        <button className="secondary" onClick={studio.finishDiagnostic}>Start teaching me here</button>
       </div>
       <p className="muted">Your answer is saved as you type. It never affects your grade — it only calibrates your starting point. Stuck? Choose “{DIAGNOSTIC_UNKNOWN_ANSWER}”: it is recorded as a knowledge gap, never graded.</p>
     </div>
@@ -427,7 +424,8 @@ function CodingItem({ studio, session, item }: { studio: Studio; session: Diagno
           {studio.diagnosticBusy ? studio.diagnosticStatus : "Run checks"}<span aria-hidden="true"> ▷</span>
         </button>
         {studio.diagnosticBusy && <button className="secondary" onClick={studio.stopDiagnosticRun}>Stop run</button>}
-        <button className={`secondary ${styles.unknownOption}`} onClick={studio.markDiagnosticUnknown} title="Record a knowledge gap. Any running check is cancelled and no result is graded.">{DIAGNOSTIC_UNKNOWN_ANSWER}</button>
+        <button className={`secondary ${styles.unknownOption}`} onClick={studio.markDiagnosticUnknown} title="Record a knowledge gap. Any running check is cancelled and no result is graded.">I don&apos;t know this</button>
+        <button className="secondary" onClick={studio.finishDiagnostic}>Start teaching me here</button>
         <span className="save-indicator" role="status">{studio.storageError ? "Not saved" : "Draft saved locally"}</span>
       </div>
     </section>
@@ -442,50 +440,39 @@ function FinishPanel({ studio, session }: { studio: Studio; session: DiagnosticS
   const completion = canCompleteDiagnostic(session);
   if (completion.ok) return <section className="document" aria-label="Finish placement scan">
     <span className="eyebrow">SCAN COMPLETE</span>
-    <h2>You’ve answered enough questions.</h2>
-    <p>Finishing locks this session and produces your placement. You can take another scan any time.</p>
-    <button className="primary" onClick={studio.finishDiagnostic}>See my placement →</button>
+    <h2>Your place is ready.</h2>
+    <p>Finish to see the concepts you already know and where your course starts.</p>
+    <button className="primary" onClick={studio.finishDiagnostic}>See my placement</button>
   </section>;
-  const declarations = codingUnknownCount(session);
-  const quotaBlocked = session.codingSuccessCount < DIAGNOSTIC_CODING_QUOTA && declarations < DIAGNOSTIC_CODING_QUOTA;
   return <section className="document" aria-label="Placement scan in progress">
-    <span className="eyebrow">NOT QUITE FINISHED</span>
-    <h2>{quotaBlocked
-      ? `Answer ${DIAGNOSTIC_CODING_QUOTA} coding questions to continue.`
-      : "A few more questions to go."}</h2>
+    <span className="eyebrow">YOUR NEXT STEP</span>
+    <h2>Ready to start learning?</h2>
     <ul>{completion.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>
-    {quotaBlocked
-      ? <p className="muted">Run working code or choose “{DIAGNOSTIC_UNKNOWN_ANSWER}” for each question. You have {plural(session.codingSuccessCount, "successful run")} and {plural(declarations, "unknown answer")}. Your code is saved.</p>
-      : <p className="muted">Keep answering questions so every skill area gets a clear read before placement.</p>}
-    <div className="button-row"><button className="secondary" onClick={studio.retakeDiagnostic}>Start a fresh scan</button></div>
+    <p className="muted">You can answer one more question or start your course at this concept now.</p>
+    <div className="button-row">
+      <button className="primary" onClick={studio.finishDiagnostic}>Start teaching me here</button>
+      <button className="secondary" onClick={studio.retakeDiagnostic}>Start over</button>
+    </div>
   </section>;
 }
 
 function CompletedSession({ studio, session }: { studio: Studio; session: DiagnosticSession }) {
-  const { profile, evidence } = deriveDiagnosticProfile(session);
+  const { knownSkillIds, gapSkillId } = derivePlacement(session);
   return <>
     <section className="document" aria-label="Placement scan results">
       <span className="eyebrow">PLACEMENT · {formatDate(session.completedAt ?? session.startedAt).toUpperCase()}</span>
-      <h2>Your starting point</h2>
-      <p>Here’s what your answers suggest so far.</p>
-      <p className="muted">Your answers help choose a useful place to begin. You can change direction any time.</p>
+      <h2>Your course starts at: {gapSkillId ? skillTitle(gapSkillId) : "the next new concept"}</h2>
+      <p>{gapSkillId ? "This is the first concept to practice." : "You passed every placement step."}</p>
+      <p className="muted">You can change direction any time.</p>
       <div className="button-row">
-        <button className="primary" onClick={() => studio.navigate("today")}>Start here · Home →</button>
+        <button className="primary" onClick={() => studio.navigate("today")}>Start learning</button>
         <button className="secondary" onClick={studio.retakeDiagnostic}>Retake scan</button>
       </div>
     </section>
-    <section className="document"><div className="section-heading"><h2>Skill signals</h2></div>
-      <ul className="skill-list">{DIAGNOSTIC_SKILLS.map(skill => <li key={skill.id}>
-        <span>{skillTitle(skill.id)}</span>
-        {(() => {
-          const counts = evidence[skill.id];
-          const total = counts.independent + counts.hinted + counts.wrong + counts.unknown;
-          const rate = total ? (counts.independent + counts.hinted) / total : 0;
-          const signal = profile[skill.id] === "untested" ? "Untested" : profile[skill.id] === "uncertain" ? "Uncertain" : rate >= 0.6 && counts.independent > 0 ? "Strong" : "Needs practice";
-          const chip = signal === "Strong" ? "chip-lime" : signal === "Needs practice" ? "chip-magenta" : signal === "Uncertain" ? "chip-amber" : styles.untestedChip;
-          return <span className={`chip ${chip}`}>{signal}</span>;
-        })()}
-      </li>)}</ul>
+    <section className="document"><div className="section-heading"><h2>Concepts you already know</h2></div>
+      {knownSkillIds.length
+        ? <ul className="skill-list">{knownSkillIds.map(id => <li key={id}><span>{skillTitle(id)}</span><span className="chip chip-lime">Known</span></li>)}</ul>
+        : <p className="muted">No earlier concepts were marked as known yet. That is a good place to begin.</p>}
       <p className="muted">Placement is a starting point. Your skill tree tracks learning over time.</p>
     </section>
   </>;
@@ -529,10 +516,8 @@ function DiagnosticBody({ studio }: { studio: Studio }) {
       <p>Answer a few questions to find a useful place to begin. Your results guide practice and never limit what you can try.</p>
     </div>
     <section className="document" aria-label="Placement scan progress">
-      <div className="diagnostic-meta">
-        <span className="chip chip-cyan">Q {Math.min(session.responses.length + 1, DIAGNOSTIC_MAX_ITEMS)}</span>
-      </div>
-      <ProgressBar answered={session.responses.length} />
+      <div className="diagnostic-meta"><span className="chip chip-cyan">{session.responses.length} answered</span></div>
+      <ProgressBar session={session} />
       {session.status === "in-progress" && !interactive && <p className="muted">A newer session exists, so this one is read-only. Open the latest session to continue.</p>}
     </section>
     {session.status === "completed" && <CompletedSession studio={studio} session={session} />}

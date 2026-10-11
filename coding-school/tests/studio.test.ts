@@ -4,10 +4,11 @@ import { createDefaultState, startOrResumeMission, advanceMissionStage, recordMi
 import { getTask, curriculum } from "../lib/curriculum";
 import { getGrader } from "../public/grading/catalog.js";
 import { aggregateResult, failureResult } from "../public/grading/protocol.js";
+import { placedAt } from "./helpers/placement";
 
 const now = new Date("2026-09-11T12:00:00.000Z");
 const assistance = { hintsUsed: 0, aiAssisted: false, solutionViewed: false };
-const start = () => startOrResumeMission(createDefaultState(), now);
+const start = () => startOrResumeMission({ ...createDefaultState(), diagnosticSessions: [placedAt("csv-foundations")] }, now, "csv-foundations");
 function submission(taskId: string, passed = true) {
   const variant = getTask(taskId)!.variants[0];
   const grader = getGrader(variant.exerciseId, variant.graderId);
@@ -44,10 +45,13 @@ describe("persisted studio views", () => {
   });
   it("review-only activity never downgrades a completed library mission", () => {
     const state = start();
+    const csvIndex = curriculum.missions.findIndex(m => m.id === "csv-foundations");
     state.missionRuns[0].status = "completed";
     state.missionRuns.push({ ...structuredClone(state.missionRuns[0]), id: "review", mode: "review", status: "active" });
-    expect(getLibraryRows(state)[0].status).toBe("Completed");
-    expect(getLibraryRows(state)[1].blockedReason).toBeNull();
+    const rows = getLibraryRows(state);
+    expect(rows[csvIndex].status).toBe("Completed");
+    expect(rows.slice(0, csvIndex).every(row => row.status === "Placed out")).toBe(true);
+    expect(rows[csvIndex + 1].blockedReason).toBeNull();
   });
   it("moves keyboard focus through mobile panels with wrapping and Home/End", () => {
     expect(nextWorkbenchPanel("instructions", "ArrowRight")).toBe("code");
@@ -63,7 +67,7 @@ describe("persisted studio views", () => {
     expect(model.reviews).toEqual([]);
     expect(model.completedMissions).toBe(0);
     expect(model.selection.kind).toBe("mission");
-    expect(model.mission?.id).toBe("csv-foundations");
+    expect(model.mission?.id).toBe("first-steps");
   });
   it("resumes the current stage and begins Learn with instruction before practice", () => {
     const state = learn();
@@ -100,11 +104,13 @@ describe("persisted studio views", () => {
     expect(getWorkbenchModel(state, state.missionRuns[0].id)?.stageComplete).toBe(false);
   });
   it("derives library status and evidence rows from real attempts", () => {
-    const restNotStarted = () => curriculum.missions.slice(1).map(() => "Not started");
-    expect(getLibraryRows(createDefaultState()).map(r => r.status)).toEqual(["Not started", ...restNotStarted()]);
+    const csvIndex = curriculum.missions.findIndex(m => m.id === "csv-foundations");
+    const placedStatuses = curriculum.missions.map((_, index) => index < csvIndex ? "Placed out" : "Not started");
+    const expectedWith = (index: number, status: string) => placedStatuses.map((value, row) => row === index ? status : value);
+    expect(getLibraryRows(start()).map(r => r.status)).toEqual(expectedWith(csvIndex, "In progress"));
     expect(getEvidenceRows(createDefaultState())).toEqual([]);
     let state = submit(submit(learn(), "csv-instruction"), "csv-guided");
-    expect(getLibraryRows(state).map(r => r.status)).toEqual(["In progress", ...restNotStarted()]);
+    expect(getLibraryRows(state).map(r => r.status)).toEqual(expectedWith(csvIndex, "In progress"));
     const rows = getEvidenceRows(state);
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({ title: "Guided practice: clean a contact list", attempt: { passed: true }, assistance: "Independent", nextReview: "2026-09-12T12:00:00.000Z" });
@@ -113,7 +119,7 @@ describe("persisted studio views", () => {
     state = advanceMissionStage(state, state.missionRuns[0].id, now);
     state = submit(state, "csv-explain");
     state = advanceMissionStage(state, state.missionRuns[0].id, now);
-    expect(getLibraryRows(state).map(r => r.status)).toEqual(["Completed", ...restNotStarted()]);
+    expect(getLibraryRows(state).map(r => r.status)).toEqual(expectedWith(csvIndex, "Completed"));
   });
   it("captures hints and external assistance on persisted attempts", () => {
     const state = submit(learn(), "csv-instruction");

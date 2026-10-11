@@ -1,9 +1,26 @@
 import { missions as missions1, reviewTasks as reviewTasks1 } from "./missions";
 import { MISSIONS_2, MISSION_2_REVIEW_TASKS } from "./missions-2";
+import { MISSIONS_BASICS_1, BASICS_1_REVIEW_TASKS } from "./missions-basics-1";
+import { MISSIONS_BASICS_2, BASICS_2_REVIEW_TASKS } from "./missions-basics-2";
+import { BASICS_REVIEW_TASKS } from "./review-basics";
 import { skills as skillRegistry } from "./skills";
 
-export const missions = [...missions1, ...MISSIONS_2];
-export const reviewTasks = [...reviewTasks1, ...MISSION_2_REVIEW_TASKS];
+/** Course order: zero-to-programs basics, robust Python, then applied data work. */
+export const MISSION_ORDER = [
+  "first-steps", "making-decisions", "loops", "lists-and-strings", "functions-first", "dictionaries",
+  "python-recovery", "validation-functions", "classes-objects",
+  "csv-foundations", "transform-records", "json-api-normalization",
+  "pandas-missing-data", "sqlite-transactions", "money-reconciliation", "http-resilience", "llm-guardrails",
+] as const;
+
+const authored = [...MISSIONS_BASICS_1, ...MISSIONS_BASICS_2, ...missions1, ...MISSIONS_2];
+export const missions = MISSION_ORDER.map(id => {
+  const mission = authored.find(m => m.id === id);
+  if (!mission) throw new Error(`Mission ${id} is in MISSION_ORDER but not authored.`);
+  return mission;
+});
+if (authored.length !== missions.length) throw new Error("Every authored mission must appear in MISSION_ORDER.");
+export const reviewTasks = [...BASICS_REVIEW_TASKS, ...BASICS_1_REVIEW_TASKS, ...BASICS_2_REVIEW_TASKS, ...reviewTasks1, ...MISSION_2_REVIEW_TASKS];
 export { DIAGNOSTIC_CORE_SKILLS, DIAGNOSTIC_ITEMS, DIAGNOSTIC_SKILLS } from "./diagnostic-items";
 export type { DiagnosticItem, DiagnosticSkillId } from "./diagnostic-items";
 export { PORTFOLIO_PROJECTS } from "./skills";

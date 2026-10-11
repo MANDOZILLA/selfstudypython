@@ -3,12 +3,13 @@ import * as engine from "../lib/state";
 import * as adaptive from "../lib/adaptive";
 import * as authored from "../lib/curriculum";
 import { getGrader } from "../public/grading/catalog.js";
+import { placedAt } from "./helpers/placement";
 
 const day = (n: number) => new Date(`2026-09-${String(n).padStart(2, "0")}T12:00:00.000Z`);
 const assistance = { hintsUsed: 0, aiAssisted: false, solutionViewed: false };
 
 function start() {
-  return engine.startOrResumeMission(engine.createDefaultState(), day(11));
+  return engine.startOrResumeMission({ ...engine.createDefaultState(), diagnosticSessions: [placedAt("csv-foundations")] }, day(11), "csv-foundations");
 }
 function submit(state: engine.LearningState, taskId: string, pass = true, assisted = false, now = day(11), source = "learner source") {
   const run = state.missionRuns.at(-1)!;
@@ -33,7 +34,7 @@ function toBuild() {
 }
 
 function completeAuthoredMissions() {
-  let state = start();
+  let state = engine.startOrResumeMission({ ...engine.createDefaultState(), diagnosticSessions: [placedAt("first-steps")] }, day(11), "first-steps");
   for (let mission = 0; mission < authored.curriculum.missions.length; mission++) {
     if (mission) state = engine.startOrResumeMission(state, day(11));
     const runId = state.missionRuns.at(-1)!.id;
@@ -93,7 +94,7 @@ describe("continuous missions and honest evidence", () => {
     expect(state.missionRuns).toEqual([]);
     expect(adaptive.deriveSkillEvidence(state.attempts, "csv-cleaning").status).toBe("Not started");
     expect(adaptive.deriveReviewSchedule(state.attempts)).toEqual({});
-    expect(adaptive.selectToday(state, day(11))).toMatchObject({ kind: "mission", missionId: "csv-foundations" });
+    expect(adaptive.selectToday(state, day(11))).toMatchObject({ kind: "mission", missionId: "first-steps" });
   });
   it("resumes the same run and draft after serialization and a date change", () => {
     let state = start();
@@ -176,7 +177,7 @@ describe("continuous missions and honest evidence", () => {
     state = submit(state, "csv-explain");
     state = engine.advanceMissionStage(state, state.missionRuns[0].id, day(11));
     const next = adaptive.selectToday(state, day(15));
-    expect(next).toMatchObject({ kind: "mission", missionId: "json-api-normalization" });
+    expect(next).toMatchObject({ kind: "mission", missionId: "transform-records" });
     expect(next.reviewTaskIds.length).toBeGreaterThan(0);
     expect(next.reviewTaskIds.length).toBeLessThanOrEqual(2);
   });
@@ -220,9 +221,9 @@ describe("continuous missions and honest evidence", () => {
     expect(engine.migrateState(broken).missionRuns[0].status).not.toBe("completed");
   });
   it("seats the mission's authored review tasks in the review stage of a new run", () => {
-    let state = start();
-    for (const missionId of ["csv-foundations", "json-api-normalization"]) {
-      if (missionId !== "csv-foundations") state = engine.startOrResumeMission(state, day(11), missionId);
+    let state = engine.startOrResumeMission({ ...engine.createDefaultState(), diagnosticSessions: [placedAt("first-steps")] }, day(11), "first-steps");
+    for (const missionId of authored.curriculum.missions.slice(0, authored.curriculum.missions.findIndex(m => m.id === "csv-foundations") + 2).map(m => m.id)) {
+      if (missionId !== "first-steps") state = engine.startOrResumeMission(state, day(11), missionId);
       const runId = state.missionRuns.at(-1)!.id;
       for (let stage = 0; stage < 4; stage++) {
         for (const taskId of state.missionRuns.at(-1)!.stages[stage].taskIds) state = submit(state, taskId);
@@ -236,7 +237,7 @@ describe("continuous missions and honest evidence", () => {
     expect(migrated.missionRuns.at(-1)!.stages[0].taskIds).toContain("recovery-review-functions");
   });
   it("offers a resumable short review after the authored missions are complete", () => {
-    let state = start();
+    let state = engine.startOrResumeMission({ ...engine.createDefaultState(), diagnosticSessions: [placedAt("first-steps")] }, day(11), "first-steps");
     for (let mission = 0; mission < authored.curriculum.missions.length; mission++) {
       if (mission) state = engine.startOrResumeMission(state, day(11));
       const runId = state.missionRuns.at(-1)!.id;

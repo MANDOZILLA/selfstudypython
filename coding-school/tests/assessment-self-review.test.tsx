@@ -7,6 +7,7 @@ import {
 } from "../lib/state";
 import { getMission, getTask } from "../lib/curriculum";
 import { getGrader } from "../public/grading/catalog.js";
+import { placedAt } from "./helpers/placement";
 
 const day = (n: number) => new Date(`2026-09-${String(n).padStart(2, "0")}T12:00:00.000Z`);
 const assistance = { hintsUsed: 0, aiAssisted: false, solutionViewed: false };
@@ -69,7 +70,7 @@ function submitReflection(state: LearningState, response: string): LearningState
 /** Builds a genuinely completed mission run: an older failing project attempt,
  *  then a passing re-attempt, plus a saved reflection. */
 function completeFirstMission(): LearningState {
-  let state = startOrResumeMission(createDefaultState(), day(11));
+  let state = startOrResumeMission({ ...createDefaultState(), diagnosticSessions: [placedAt("csv-foundations")] }, day(11), "csv-foundations");
   const runId = state.missionRuns.at(-1)!.id;
   for (let stage = 0; stage < 4; stage++) {
     for (const taskId of state.missionRuns.at(-1)!.stages[stage].taskIds) {

@@ -6,9 +6,10 @@ import {
   type LearningState,
 } from "../lib/state";
 import {
-  createDiagnosticSession,
   type DiagnosticSession,
 } from "../lib/diagnostic";
+import { curriculum } from "../lib/curriculum";
+import { placedAt } from "./helpers/placement";
 
 let serial = 0;
 function attempt(overrides: Partial<AttemptRecord> = {}): AttemptRecord {
@@ -53,39 +54,14 @@ function nodeFor(state: LearningState, skillId: string) {
 }
 
 function diagnosedSession(weakSkill: string): DiagnosticSession {
-  const at = "2026-09-09T12:00:00.000Z";
-  const response = (itemId: string, skillId: string, correct: boolean, kind: "concept" | "coding" = "concept") => ({
-    itemId, skillId, kind, correct, answer: "x", code: "",
-    hintsUsed: 0, graderId: `diagnostic-concept-${itemId}`, graderVersion: "1.0.0",
-    legacy: false, respondedAt: at,
-  });
-  const base = createDiagnosticSession(new Date(at));
-  return {
-    ...base,
-    status: "completed",
-    completedAt: at,
-    currentItemId: null,
-    responses: [
-      // Two correct concept answers make python-functions observed-strong.
-      response("d1", "python-functions", true),
-      response("d2", "python-functions", true),
-      // Two incorrect answers make the weak skill observed-weak.
-      response("d3", weakSkill, false),
-      response("d4", weakSkill, false),
-    ],
-    profile: null,
-    recommendation: null,
-  };
+  void weakSkill;
+  return placedAt("csv-foundations");
 }
 
 describe("skill graph", () => {
   it("covers every curriculum skill with qualitative statuses and no percentages", () => {
     const graph = buildSkillGraph(createDefaultState());
-    expect(graph.map(n => n.skillId)).toEqual([
-      "python-functions", "python-exceptions", "data-structures", "file-io",
-      "csv-cleaning", "financial-data", "json-validation", "pandas-data-quality",
-      "sqlite-analytics", "http-reliability", "llm-output-validation",
-    ]);
+    expect(graph.map(n => n.skillId)).toEqual(curriculum.skills.map(skill => skill.id));
     const allowed: GraphSkillStatus[] = ["untested", "needs-practice", "working-evidence",
       "demonstrated-in-project", "demonstrated-again-later", "mastered"];
     for (const node of graph) {
@@ -99,8 +75,12 @@ describe("skill graph", () => {
 
   it("lists prerequisites with names for every skill", () => {
     const node = nodeFor(createDefaultState(), "csv-cleaning");
-    expect(node.prerequisites).toEqual([{ skillId: "data-structures", name: "Ordered record transformations" }]);
-    expect(nodeFor(createDefaultState(), "python-functions").prerequisites).toEqual([]);
+    const csvSkill = curriculum.skills.find(skill => skill.id === "csv-cleaning")!;
+    expect(node.prerequisites).toEqual(csvSkill.prerequisites.map(skillId => ({
+      skillId, name: curriculum.skills.find(skill => skill.id === skillId)!.title,
+    })));
+    const firstSkill = curriculum.skills[0];
+    expect(nodeFor(createDefaultState(), firstSkill.id).prerequisites).toEqual([]);
   });
 
   it("marks untested skills as untested, never weak", () => {

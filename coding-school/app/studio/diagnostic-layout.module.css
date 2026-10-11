@@ -30,11 +30,17 @@
 }
 
 .segmentedProgress {
-  display: grid;
-  grid-template-columns: repeat(25, minmax(0, 1fr));
-  gap: 3px;
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   margin-top: 12px;
+  color: var(--neon-cyan);
+  font: 600 12px/1.5 var(--mono);
+  letter-spacing: .3px;
 }
+
+:global(.button-row) { flex-wrap: wrap; }
 
 .segmentedProgress > span {
   height: 7px;

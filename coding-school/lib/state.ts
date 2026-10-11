@@ -3,6 +3,7 @@ import { curriculum, getMission, getTask } from "./curriculum";
 import { assistanceSchema, attemptSchema, missionRunSchema, type AttemptRecord, type AttemptSubmission, type MissionDraft, type MissionRun } from "./mission-types";
 import { aggregateResult } from "../public/grading/protocol.js";
 import { getGrader } from "../public/grading/catalog.js";
+import { placedOutMissionIds } from "./placement";
 import { classifyGradeResult, diagnosticSessionSchema, markLegacyDiagnosticSession, type DiagnosticSession } from "./diagnostic";
 import {
   legacyPortfolioSnapshotSchema, convertLegacyPortfolioSnapshot, portfolioSnapshotSchema,
@@ -81,7 +82,8 @@ export function startOrResumeMission(state: LearningState, now = new Date(), mis
   const reviewOnly = !missionId && selection.kind === "review";
   const mission = getMission(missionId ?? selection.missionId ?? (reviewOnly ? next.missionRuns.at(-1)?.missionId ?? "" : ""));
   if (!mission) throw new Error("No unlocked mission is available.");
-  const completed = new Set(next.missionRuns.filter(r => r.status === "completed" && r.mode === "mission").map(r => r.missionId));
+  // Placed-out missions satisfy prerequisites (lib/placement.ts) without counting as completed.
+  const completed = new Set([...next.missionRuns.filter(r => r.status === "completed" && r.mode === "mission").map(r => r.missionId), ...placedOutMissionIds(next)]);
   if (mission.prerequisites.some(id => !completed.has(id))) throw new Error("Complete the prerequisite mission first.");
   const time = now.toISOString();
   // The recommendation engine may name an exact review list (e.g. a repair for

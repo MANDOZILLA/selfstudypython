@@ -11,7 +11,7 @@ import {
 } from "../lib/diagnostic";
 import { DIAGNOSTIC_ITEMS } from "../curriculum/diagnostic-items";
 import { createDefaultState, replaceDiagnosticSession } from "../lib/state";
-import { curriculum } from "../lib/curriculum";
+import { placedAt } from "./helpers/placement";
 
 describe("diagnostic selection", () => {
   const prompts: DiagnosticPrompt[] = [
@@ -44,30 +44,6 @@ describe("placement evidence", () => {
   let flips = 0;
   const flaky: ConceptGrader = () => ({ correct: flips++ % 2 === 0, detail: "stub" });
 
-  function completedSessionWithUncertain(skillId: string): DiagnosticSession {
-    const at = "2026-09-14T12:00:00.000Z";
-    const concept = (itemId: string, forSkill: string, correct: boolean) => ({
-      itemId, skillId: forSkill, kind: "concept" as const, correct, answer: "x", code: "",
-      hintsUsed: 0, graderId: `diagnostic-concept-${itemId}`, graderVersion: "1.0.0",
-      legacy: false, respondedAt: at,
-    });
-    const base = createDiagnosticSession();
-    return {
-      ...base, status: "completed", completedAt: at, currentItemId: null,
-      responses: [
-        // Split evidence → uncertain.
-        concept("diag-uncertain-1", skillId, true),
-        concept("diag-uncertain-2", skillId, false),
-        // Decisive evidence → observed.
-        concept("diag-observed-1", "python-functions", true),
-        concept("diag-observed-2", "python-functions", true),
-        concept("diag-observed-3", "data-structures", false),
-        concept("diag-observed-4", "data-structures", false),
-      ],
-      profile: null, recommendation: null,
-    };
-  }
-
   function completeFlakySession(): DiagnosticSession {
     flips = 0;
     let session = createDiagnosticSession();
@@ -87,10 +63,10 @@ describe("placement evidence", () => {
     expect(placementReviewSkills(inProgress)).toEqual([]);
   });
 
-  it("flags the skills a completed diagnostic left uncertain", () => {
-    const completed = completedSessionWithUncertain("csv-cleaning");
+  it("keeps placement as a starting point and flags no invented review skills", () => {
+    const completed = placedAt("csv-foundations");
     const state = replaceDiagnosticSession(createDefaultState(), completed);
-    expect(placementReviewSkills(state)).toEqual(["csv-cleaning"]);
+    expect(placementReviewSkills(state)).toEqual([]);
   });
 
   it("ignores legacy/unverified responses for placement", () => {
@@ -101,15 +77,12 @@ describe("placement evidence", () => {
   });
 
   it("adds placement review tasks to today's selection", () => {
-    const state = replaceDiagnosticSession(createDefaultState(), completedSessionWithUncertain("csv-cleaning"));
+    const state = replaceDiagnosticSession(createDefaultState(), placedAt("csv-foundations"));
     const flagged = placementReviewSkills(state);
-    expect(flagged).toEqual(["csv-cleaning"]);
+    expect(flagged).toEqual([]);
     const selection = selectToday(state, new Date("2026-09-14T12:00:00.000Z"));
     expect(selection.kind).toBe("mission");
-    // csv-cleaning has review tasks and was probed, so placement yields review work.
-    expect(selection.reviewTaskIds.length).toBeGreaterThan(0);
-    const covered = selection.reviewTaskIds.flatMap(id => curriculum.reviewTasks.find(t => t.id === id)?.skillIds ?? []);
-    expect(covered).toContain("csv-cleaning");
+    expect(selection.missionId).toBe("csv-foundations");
     expect(selection.reviewTaskIds.length).toBeLessThanOrEqual(2);
   });
 });

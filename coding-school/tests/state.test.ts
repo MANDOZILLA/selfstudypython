@@ -23,6 +23,7 @@ import {
 } from "../lib/diagnostic";
 import { gradeDiagnosticConcept } from "../lib/diagnostic-grading";
 import { DIAGNOSTIC_ITEMS } from "../curriculum/diagnostic-items";
+import { placementSession } from "./helpers/placement";
 
 const storageKey = "coding-school:learner-state";
 
@@ -119,11 +120,11 @@ describe("learner state", () => {
     let state = startOrResumeMission(getState(), new Date("2026-09-11T12:00:00.000Z"));
     const runId = state.missionRuns[0].id;
     state = advanceMissionStage(state, runId);
-    state = saveMissionDraft(state, runId, "csv-guided", { sourceFiles: { "main.py": "def solve(records):\n    return records" }, response: "my note", assistance: { hintsUsed: 1, aiAssisted: false, solutionViewed: false } });
+    state = saveMissionDraft(state, runId, "first-steps-guided", { sourceFiles: { "main.py": "def solve(name, age):\n    return f'Hi {name}, next year you will be {age + 1}'" }, response: "my note", assistance: { hintsUsed: 1, aiAssisted: false, solutionViewed: false } });
     saveState(state);
     const resumed = startOrResumeMission(getState(), new Date("2026-09-12T12:00:00.000Z"));
     expect(resumed.missionRuns[0].id).toBe(runId);
-    expect(resumed.missionRuns[0].drafts["csv-guided"].sourceFiles["main.py"]).toBe("def solve(records):\n    return records");
+    expect(resumed.missionRuns[0].drafts["first-steps-guided"].sourceFiles["main.py"]).toBe("def solve(name, age):\n    return f'Hi {name}, next year you will be {age + 1}'");
   });
   it("surfaces unavailable persistence so the UI cannot claim a draft was saved", () => {
     Object.defineProperty(globalThis, "window", { configurable: true, value: { get localStorage() { throw new Error("blocked"); } } });
@@ -248,7 +249,10 @@ describe("diagnostic session history", () => {
     expect(state.diagnosticSessions[0].responses).toHaveLength(1);
   });
 
-  it("requires a positive coding quota constant", () => {
-    expect(DIAGNOSTIC_CODING_QUOTA).toBeGreaterThan(0);
+  it("completes a placement ladder without requiring coding evidence", () => {
+    const session = placementSession(null);
+    expect(DIAGNOSTIC_CODING_QUOTA).toBe(0);
+    expect(session.status).toBe("completed");
+    expect(session.responses.some(response => response.kind === "coding")).toBe(false);
   });
 });
