@@ -664,7 +664,7 @@ export function TaskRunner({ studio, assessment, task, draft, setDraft, layout: 
         {!draft.grading && !draft.gradeResult && <p className="muted">Run your code to see its checks, standard output, and standard error here.</p>}
         {draft.gradeResult && <div className="term" aria-label="Check results">
           {draft.gradeResult.tests.map(check => <p key={check.id} className={check.passed ? "neon-text-lime" : "neon-text-magenta"}>
-            <strong>[{check.passed ? "PASS" : "FAIL"}]</strong> {check.name}{check.detail && <> — {check.detail}</>}
+            <strong><span className="visually-hidden">{check.passed ? "Passed:" : "Failed:"} </span>[{check.passed ? "PASS" : "FAIL"}]</strong> {check.name}{check.detail && <> — {check.detail}</>}
           </p>)}
         </div>}
         {draft.gradeResult && <>
@@ -863,11 +863,11 @@ export function AssessmentWorkbench({ studio }: { studio: Studio }) {
         const attempts = a.tasks.map(task => studio.state.assessmentAttempts.filter(item => item.taskId === task.id).at(-1));
         const cleared = attempts.every(attempt => attempt?.passed);
         const started = attempts.some(Boolean);
-        const previousCleared = index === 0 || ASSESSMENTS[index - 1].tasks.every(task =>
-          studio.state.assessmentAttempts.filter(item => item.taskId === task.id).at(-1)?.passed);
-        const locked = !previousCleared;
-        const state = cleared ? "Cleared" : started ? "In progress" : locked ? "Locked" : "Ready";
-        const stateClass = cleared ? "chip-lime" : started ? "chip-cyan" : locked ? "chip-magenta" : "chip-amber";
+        const firstNotCleared = ASSESSMENTS.findIndex(candidate =>
+          !candidate.tasks.every(task => studio.state.assessmentAttempts.filter(item => item.taskId === task.id).at(-1)?.passed));
+        const recommended = !cleared && !started && index === firstNotCleared;
+        const state = cleared ? "Cleared" : started ? "In progress" : recommended ? "Recommended" : "Ready";
+        const stateClass = cleared ? "chip-lime" : started || recommended ? "chip-cyan" : "chip-amber";
         return <article key={a.id} className="assessment-card">
         <span className={`chip ${stateClass}`}>{state}</span>
         <h2>{a.title}</h2>
@@ -875,7 +875,7 @@ export function AssessmentWorkbench({ studio }: { studio: Studio }) {
         <div className="skill-chips">
           {[...new Set(a.tasks.map(t => t.skillId))].map(skillId => <SkillChip key={skillId} studio={studio} skillId={skillId} />)}
         </div>
-        <button className="primary" disabled={locked} onClick={() => setSelectedId(a.id)}>{started ? "Continue checkpoint" : "Start checkpoint"} →</button>
+        <button className="primary" onClick={() => setSelectedId(a.id)}>{started ? "Continue checkpoint" : "Start checkpoint"} →</button>
       </article>;
       })}
     </div>

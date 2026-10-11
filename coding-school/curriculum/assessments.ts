@@ -422,7 +422,7 @@ export const ASSESSMENTS: Assessment[] = [
     title: "Data checkpoint",
     description:
       "Reading, debugging, and building data pipelines with the CSV, JSON, " +
-      "record-transform, and SQLite skills from the data missions.",
+      "record-transform, and data-storage skills from the data missions.",
     tasks: DATA_TASKS,
   },
   {

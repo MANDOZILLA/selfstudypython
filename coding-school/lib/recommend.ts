@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Adaptive recommendation engine: one ordered rule chain that turns learner
  * state into a single next action plus a human-readable, evidence-traceable
  * reason. Pure TypeScript — no DOM, no I/O, no state mutation.
@@ -195,16 +195,16 @@ export function recommendNext(state: LearningState, now: Date = new Date()): Rec
       );
       const blockers = [...prereqIds].filter(id => weakById.get(id) && !introduced.has(id));
       if (blockers.length) {
-        const cites = blockers.map(id => {
-          const evidence = latestFailedEvidence(fresh, id);
-          return `${skillName(id)} (${id})${evidence ? ` — failed "${evidence.title}" on ${evidence.date}` : ""}`;
+          const cites = blockers.map(id => {
+            const evidence = latestFailedEvidence(fresh, id);
+            return `${skillName(id)}${evidence ? ` — failed "${evidence.title}" on ${evidence.date}` : ""}`;
         });
         const reviewTaskIds = capReviews([...repairTasksFor(fresh, blockers), ...selection.reviewTaskIds]);
         return {
           ...base, action: "repair", missionId: selection.missionId,
           blockedMissionId: selection.missionId, reviewTaskIds,
           reason: `"${mission.title}" is blocked: prerequisite ${cites.join("; ")} needs practice first. ` +
-            `The repair ${reviewTaskIds.length === 1 ? "task is" : "tasks are"} seated first in the run — the mission's build stage stays out of reach until ${blockers.length === 1 ? "it is" : "they are"} done.`,
+            `The warm-up ${reviewTaskIds.length === 1 ? "task is" : "tasks are"} first in the run.`,
         };
       }
     }
@@ -217,16 +217,16 @@ export function recommendNext(state: LearningState, now: Date = new Date()): Rec
   if (dueRepairSkills.length) {
     const cites = dueRepairSkills.map(id => {
       const evidence = latestFailedEvidence(fresh, id);
-      return `${skillName(id)} (${id})${evidence ? ` — failed "${evidence.title}" on ${evidence.date}` : ""}`;
+      return `${skillName(id)}${evidence ? ` — failed "${evidence.title}" on ${evidence.date}` : ""}`;
     });
     const reviewTaskIds = capReviews([...repairTasksFor(fresh, dueRepairSkills), ...selection.reviewTaskIds]);
     const mission = selection.missionId ? getMission(selection.missionId) : null;
     return {
       ...base, action: "repair", missionId: selection.missionId, reviewTaskIds,
-      reason: `Targeted repair before new material: ${cites.join("; ")}. ` +
+      reason: `Targeted warm-up before new material: ${cites.join("; ")}. ` +
         (mission
-          ? `The repair ${reviewTaskIds.length === 1 ? "task is" : "tasks are"} seated first in "${mission.title}" (the first stage).`
-          : "No unlocked mission — running the repair as a review session."),
+          ? `The warm-up ${reviewTaskIds.length === 1 ? "task is" : "tasks are"} first in "${mission.title}".`
+          : "No unlocked mission — running a warm-up session."),
     };
   }
 
@@ -239,15 +239,15 @@ export function recommendNext(state: LearningState, now: Date = new Date()): Rec
       const skillId = task?.skillIds.find(s => dueEntries.some(e => e.skillId === s));
       const node = skillId ? nodeById.get(skillId) : undefined;
       const last = node?.lastDemonstratedAt;
-      return `"${task?.title ?? id}"${skillId ? ` for ${skillName(skillId)} (${skillId})` : ""}${last ? ` — last demonstrated ${dayLabel(last)} (${daysAgo(last, now)} days ago)` : ""}`;
+      return `"${task?.title ?? id}"${skillId ? ` for ${skillName(skillId)}` : ""}${last ? ` — last demonstrated ${dayLabel(last)} (${daysAgo(last, now)} days ago)` : ""}`;
     });
     const mission = selection.missionId ? getMission(selection.missionId) : null;
     return {
       ...base, action: "retrieval", missionId: selection.missionId,
       reviewTaskIds: capReviews(selection.reviewTaskIds),
       reason: `Review due: ${cites.join("; ")}. ` +
-        (dueCount > REVIEW_TASK_CAP ? `${dueCount} reviews are due; capped at ${REVIEW_TASK_CAP} so the backlog never consumes the mission. ` : "") +
-        (mission ? `Seated first in "${mission.title}" (the first stage).` : "Running as a review session."),
+        (dueCount > REVIEW_TASK_CAP ? `${dueCount} reviews are due; limited to ${REVIEW_TASK_CAP} so the run has room for new work. ` : "") +
+        (mission ? `First in "${mission.title}".` : "Running as a review session."),
     };
   }
 
@@ -281,6 +281,6 @@ export function recommendNext(state: LearningState, now: Date = new Date()): Rec
     };
   }
 
-  return { ...base, action: "complete", reason: "Every mission is complete and no reviews are due. The skill graph in What I Learned shows where each skill stands." };
+  return { ...base, action: "complete", reason: "Every mission is complete and no reviews are due. Your Skill Tree shows where each skill stands." };
 }
 

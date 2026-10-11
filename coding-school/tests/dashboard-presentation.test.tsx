@@ -23,16 +23,15 @@ describe("checkpoint assessment presentation", () => {
     expect(markup).toContain("Applied checkpoint");
     expect(markup).toContain("Prove it in a new context.");
     // Skill chips render for the cross-cutting skills.
-    expect(markup).toContain("code-reading");
-    expect(markup).toContain("debugging");
+    expect(markup).toContain("Code reading");
+    expect(markup).toContain("Debugging");
     // The hub states the no-solutions policy explicitly.
     expect(markup).toContain("No solutions are shown");
   });
 
   it("explains the completion/mastery separation", () => {
     const markup = assessmentMarkup();
-    expect(markup).toContain("completed");
-    expect(markup).toContain("mastered");
-    expect(markup).toContain("Assisted success is practice");
+    expect(markup).toContain("Complete a mission");
+    expect(markup).toContain("mastery claim");
   });
 });

@@ -78,7 +78,7 @@ describe("recommendNext", () => {
     const rec = recommendNext(createDefaultState(), NOW);
     expect(rec.action).toBe("diagnostic");
     expect(rec.missionId).toBeNull();
-    expect(rec.reason).toMatch(/placement baseline/i);
+    expect(rec.reason).toMatch(/placement scan/i);
   });
 
   it("gives a fresh diagnosed learner the placement baseline and the first mission", () => {
@@ -118,7 +118,7 @@ describe("recommendNext", () => {
     const rec = recommendNext(state, NOW);
     expect(rec.action).toBe("repair");
     expect(rec.blockedMissionId).toBe("json-api-normalization");
-    expect(rec.reason).toMatch(/data-structures/i);
+    expect(rec.reason).toMatch(/ordered record transformations/i);
     expect(rec.reason).toMatch(/blocked/i);
     expect(rec.reason).toMatch(/2026-09-12/);
   });
@@ -142,7 +142,7 @@ describe("recommendNext", () => {
     };
     const rec = recommendNext(state, NOW);
     expect(rec.action).toBe("repair");
-    expect(rec.reason).toMatch(/financial-data/i);
+    expect(rec.reason).toMatch(/exact money validation/i);
     expect(rec.reason).toMatch(/2026-09-13/);
     expect(rec.reviewTaskIds.length).toBeGreaterThan(0);
   });
@@ -164,8 +164,8 @@ describe("recommendNext", () => {
     };
     const rec = recommendNext(state, NOW);
     expect(rec.action).toBe("retrieval");
-    expect(rec.reason).toMatch(/csv-cleaning/i);
-    expect(rec.reason).toMatch(/retrieval/i);
+    expect(rec.reason).toMatch(/CSV parsing and row validation/i);
+    expect(rec.reason).toMatch(/review/i);
     expect(rec.reviewTaskIds.length).toBeGreaterThan(0);
     expect(rec.reviewTaskIds.length).toBeLessThanOrEqual(REVIEW_TASK_CAP);
   });
@@ -189,7 +189,7 @@ describe("recommendNext", () => {
     const rec = recommendNext(state, NOW);
     expect(rec.action).toBe("retrieval");
     expect(rec.reviewTaskIds.length).toBeLessThanOrEqual(REVIEW_TASK_CAP);
-    expect(rec.reason).toMatch(/cap/i);
+    expect(rec.reason).toMatch(/limited to 2/i);
   });
 
   it("recommends the checkpoint assessment once its mission group is complete", () => {
@@ -239,7 +239,7 @@ describe("recommendNext", () => {
       ],
     };
     const rec = recommendNext(state, NOW);
-    expect(rec.reason).toContain("data-structures");
+    expect(rec.reason).toContain("Ordered record transformations");
     expect(rec.reason).toContain("2026-09-12");
     expect(rec.reason).not.toMatch(/\d+%/);
   });

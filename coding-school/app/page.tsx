@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { Dashboard } from "./studio/dashboard";
 import { DiagnosticStudio } from "./studio/diagnostic";

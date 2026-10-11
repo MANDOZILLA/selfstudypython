@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Dashboard } from "../app/studio/dashboard";
 import type { Studio } from "../app/studio/use-studio";
-import { DIAGNOSTIC_UNKNOWN_ANSWER, DIAGNOSTIC_SESSION_VERSION, type DiagnosticSession } from "../lib/diagnostic";
+import { DIAGNOSTIC_SESSION_VERSION, type DiagnosticSession } from "../lib/diagnostic";
 import { convertLegacyPortfolioSnapshot } from "../lib/portfolio";
 import {
   createDefaultState,
@@ -247,11 +247,10 @@ describe("resetPlacement state", () => {
 });
 
 describe("reset placement presentation", () => {
-  it("states the AP CSP framing and flexible coding evidence up front", () => {
+  it("introduces the placement scan in plain language", () => {
     const markup = todayMarkup(createDefaultState());
-    expect(markup).toContain("AP Computer Science Principles (AP CSP) foundation tier");
-    expect(markup).toContain("Coding evidence is flexible");
-    expect(markup).toContain(DIAGNOSTIC_UNKNOWN_ANSWER);
+    expect(markup).toContain("A short adaptive scan finds a useful starting point.");
+    expect(markup).toContain("Wrong answers only guide you to easier material");
     expect(markup).toContain("never block you");
   });
 
@@ -263,7 +262,7 @@ describe("reset placement presentation", () => {
     const markup = todayMarkup(placementState());
     expect(markup).toContain("Reset placement");
     expect(markup).toContain("Clears your diagnostic sessions and placement summary");
-    expect(markup).toContain("Missions, checkpoint assessments, your evidence log, and portfolio snapshots are kept.");
+    expect(markup).toContain("Missions, checkpoints, your evidence log, and portfolio snapshots are kept.");
     expect(markup).toContain("START OVER");
     expect(markup).toContain('aria-label="Reset placement"');
   });

@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import { destinations } from "../../lib/studio";
 import { getProgressSummary } from "../../lib/progress";
 import type { Studio } from "./use-studio";
