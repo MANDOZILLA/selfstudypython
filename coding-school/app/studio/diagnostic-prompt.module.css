@@ -1,0 +1,45 @@
+/* Diagnostic prompt: prose plus inline (single backtick) and fenced (triple
+   backtick) code fragments. Inline code wraps; fenced blocks scroll
+   horizontally. Surfaces and fonts come from the shared design tokens in
+   app/globals.css; the token palette is fixed per theme for contrast. */
+
+.inlineCode {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  color: var(--ink);
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.fenced {
+  max-width: 100%;
+  margin: 10px 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink);
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--action);
+  border-radius: 6px;
+  padding: 12px 14px;
+  white-space: pre;
+  overflow-x: auto;
+  tab-size: 4;
+}
+
+.keyword { color: #005cc5; font-weight: 600; }
+.function { color: #6f42c1; }
+.string { color: #116329; }
+.number { color: #8a4600; }
+.comment { color: #526574; font-style: italic; }
+
+:global(html[data-theme="dark"]) .keyword { color: #80bfff; }
+:global(html[data-theme="dark"]) .function { color: #d8a8f7; }
+:global(html[data-theme="dark"]) .string { color: #a6d895; }
+:global(html[data-theme="dark"]) .number { color: #ffbf87; }
+:global(html[data-theme="dark"]) .comment { color: #a9bccb; }

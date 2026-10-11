@@ -1,7 +1,38 @@
 import { z } from "zod";
 
-/** Stable skill IDs probed by the adaptive placement diagnostic. */
+/**
+ * Official College Board AP Computer Science Principles course framework
+ * (https://apcentral.collegeboard.org/courses/ap-computer-science-principles).
+ * The diagnostic's foundation tier is scoped to these big ideas and
+ * computational thinking practices, adapted into Python beginner questions.
+ * Advanced skills then branch past the AP CSP scope.
+ */
+export const AP_CSP_FRAMEWORK = {
+  bigIdeas: [
+    "Big Idea 1: Creative Development",
+    "Big Idea 2: Data",
+    "Big Idea 3: Algorithms and Programming",
+    "Big Idea 4: Computer Systems and Networks",
+    "Big Idea 5: Impact of Computing",
+  ],
+  practices: [
+    "Computational Solution Design",
+    "Algorithms and Program Development",
+    "Abstraction in Program Development",
+    "Code Analysis",
+    "Computing Innovations",
+    "Responsible Computing",
+  ],
+} as const;
+
+/**
+ * Stable skill IDs probed by the adaptive placement diagnostic.
+ * Placement starts at the AP CSP foundation tier (first two entries) and
+ * then branches into the current advanced Python skills.
+ */
 export const DIAGNOSTIC_CORE_SKILLS = [
+  "csp-foundations",
+  "csp-data-systems",
   "python-functions",
   "python-exceptions",
   "data-structures",
@@ -14,8 +45,10 @@ export const DIAGNOSTIC_CORE_SKILLS = [
 ] as const;
 export type DiagnosticSkillId = (typeof DIAGNOSTIC_CORE_SKILLS)[number];
 
-/** Display metadata for the nine probed skills. Titles are learner-facing. */
+/** Display metadata for the probed skills. Titles are learner-facing. */
 export const DIAGNOSTIC_SKILLS: { id: DiagnosticSkillId; title: string }[] = [
+  { id: "csp-foundations", title: "AP CSP: programs and algorithms" },
+  { id: "csp-data-systems", title: "AP CSP: data, systems, and impacts" },
   { id: "python-functions", title: "Functions and return contracts" },
   { id: "python-exceptions", title: "Exceptions and error handling" },
   { id: "data-structures", title: "Ordered record transformations" },
@@ -34,6 +67,11 @@ export const diagnosticItemSchema = z.object({
   kind: z.enum(["concept", "coding"]),
   prompt: z.string().min(10),
   hints: z.array(z.string().min(5)).min(2),
+  /** AP CSP provenance for foundation-tier items; optional on advanced items. */
+  framework: z.object({
+    bigIdea: z.enum(AP_CSP_FRAMEWORK.bigIdeas),
+    practice: z.enum(AP_CSP_FRAMEWORK.practices).optional(),
+  }).optional(),
   coding: z.object({
     exerciseId: z.string().min(1),
     graderId: z.string().min(1),
@@ -50,18 +88,115 @@ export const diagnosticItemSchema = z.object({
   if (item.kind === "coding" && item.coding && !item.coding.starterCode.includes(item.coding.entryFunction)) {
     ctx.addIssue({ code: "custom", message: `starter code for ${item.id} must mention ${item.coding.entryFunction}` });
   }
+  if (item.skillId.startsWith("csp-") && !item.framework) {
+    ctx.addIssue({ code: "custom", message: `AP CSP foundation item ${item.id} must declare its framework big idea` });
+  }
 });
 export type DiagnosticItem = z.infer<typeof diagnosticItemSchema>;
 
+type FrameworkRef = NonNullable<DiagnosticItem["framework"]>;
+
 const concept = (
   id: string, skillId: string, difficulty: 1 | 2 | 3, prompt: string, hints: string[], gradingNotes: string,
-): DiagnosticItem => ({ id, skillId, difficulty, kind: "concept", prompt, hints, concept: { graderId: `diagnostic-concept-${id}`, gradingNotes } });
+  framework?: FrameworkRef,
+): DiagnosticItem => ({ id, skillId, difficulty, kind: "concept", prompt, hints, framework, concept: { graderId: `diagnostic-concept-${id}`, gradingNotes } });
 const coding = (
   id: string, skillId: string, difficulty: 1 | 2 | 3, prompt: string, hints: string[],
   exerciseId: string, graderId: string, starterCode: string, entryFunction: string,
 ): DiagnosticItem => ({ id, skillId, difficulty, kind: "coding", prompt, hints, coding: { exerciseId, graderId, starterCode, entryFunction } });
 
 export const DIAGNOSTIC_ITEMS: DiagnosticItem[] = [
+  // ---- csp-foundations (AP CSP Big Ideas 1 & 3, adapted to Python) ----
+  // Bank order within a skill is the serving order: placement starts at the
+  // easiest AP CSP-level question.
+  concept("diag-csp-loop-count", "csp-foundations", 1,
+    "`total = 0` then `for i in range(4): total = total + 1`. What is the final value of `total`?",
+    ["The loop body runs once per value of `i`.", "range(4) produces 0, 1, 2, 3 — four values.", "total starts at 0 and gains 1 four times."],
+    "Correct iff the trimmed answer is exactly '4'. 'range(4)', '0', and '4.0' fail.",
+    { bigIdea: "Big Idea 3: Algorithms and Programming", practice: "Algorithms and Program Development" }),
+  concept("diag-csp-boolean", "csp-foundations", 1,
+    "In Python, `not (3 > 5)` evaluates to what — True or False?",
+    ["First evaluate the comparison inside the parentheses.", "3 is not greater than 5.", "`not` flips a boolean value."],
+    "Correct iff the answer is True (accept 'true'). False fails.",
+    { bigIdea: "Big Idea 3: Algorithms and Programming", practice: "Algorithms and Program Development" }),
+  concept("diag-csp-branch", "csp-foundations", 1,
+    "`score = 72`, then `if score >= 60: print('pass')` / `else: print('fail')`. What appears on screen?",
+    ["Compare 72 against 60.", "72 >= 60 is True, so the if-branch runs.", "Type only the word that gets printed."],
+    "Correct iff the trimmed answer is exactly 'pass' (quotes allowed). 'fail' fails.",
+    { bigIdea: "Big Idea 3: Algorithms and Programming", practice: "Algorithms and Program Development" }),
+  concept("diag-csp-variable", "csp-foundations", 1,
+    "`count = 1` then `count = count + 5`. What is the exact output of `print(count)`?",
+    ["The second line reassigns `count`.", "The right side reads the current value first.", "1 + 5 = 6."],
+    "Correct iff the trimmed answer is exactly '6'.",
+    { bigIdea: "Big Idea 3: Algorithms and Programming", practice: "Algorithms and Program Development" }),
+  concept("diag-csp-call", "csp-foundations", 1,
+    "`def double(n): return n * 2` — after `result = double(3)`, what is the value of `result`?",
+    ["The function is called with 3 as the argument.", "Inside one call, `n` holds 3.", "`n * 2` is returned to the caller."],
+    "Correct iff the trimmed answer is exactly '6'.",
+    { bigIdea: "Big Idea 3: Algorithms and Programming", practice: "Algorithms and Program Development" }),
+  concept("diag-csp-index", "csp-foundations", 1,
+    "`items = ['ant', 'bee', 'cat']`. What is the value of `items[1]`?",
+    ["List positions start at 0, not 1.", "Position 0 is 'ant'.", "Position 1 is the second element."],
+    "Correct iff the answer is 'bee' (quotes allowed). 'cat' and 'ant' fail.",
+    { bigIdea: "Big Idea 3: Algorithms and Programming", practice: "Algorithms and Program Development" }),
+  concept("diag-csp-abstraction", "csp-foundations", 2,
+    "The same ten lines of code appear in four places in your program. What programming idea lets you name those lines once and run them from anywhere?",
+    ["You need a named, reusable block of code.", "In Python you define one with `def`.", "Naming it once removes the duplication — what is that block called?"],
+    "Correct iff the answer names a function/procedure (accept 'function', 'def', 'procedure', 'method'). 'copy-paste' and 'loop' fail.",
+    { bigIdea: "Big Idea 1: Creative Development", practice: "Abstraction in Program Development" }),
+  concept("diag-csp-nested", "csp-foundations", 2,
+    "`count = 0`; then `for row in range(3): for col in range(2): count = count + 1`. What is the final value of `count`?",
+    ["The inner loop runs fully once per outer iteration.", "range(2) increments twice; range(3) triples that.", "3 outer iterations × 2 inner iterations = ?"],
+    "Correct iff the trimmed answer is exactly '6'. '5' and '2' fail.",
+    { bigIdea: "Big Idea 3: Algorithms and Programming", practice: "Algorithms and Program Development" }),
+  concept("diag-csp-testing", "csp-foundations", 2,
+    "`def is_passing(score)` returns True when `score >= 60`. Which test set gives the most confidence that it works?",
+    ["Think about where the function's behavior changes.", "The boundary is at 60.", "The strongest sets probe just below, at, and just above that boundary."],
+    "Correct iff the answer points at boundary/edge cases (accept 'boundary', 'edge cases', '59, 60, 61', 'just below and above 60'). 'only 100' fails.",
+    { bigIdea: "Big Idea 3: Algorithms and Programming", practice: "Code Analysis" }),
+
+  // ---- csp-data-systems (AP CSP Big Ideas 2, 4 & 5, adapted to Python) ----
+  concept("diag-csp-binary", "csp-data-systems", 1,
+    "At the lowest level, every file, image, and program is stored as a sequence of which two symbols?",
+    ["Computers store everything as two electrical states.", "Two states map to two digits.", "Answer with the two digits, or the name of this number system."],
+    "Correct iff the answer conveys 0 and 1 or binary (accept '0s and 1s', 'zeros and ones', 'binary', 'base 2').",
+    { bigIdea: "Big Idea 2: Data" }),
+  concept("diag-csp-unicode", "csp-data-systems", 1,
+    "Which text encoding covers ASCII letters *and* emoji like '😀' — ASCII or Unicode?",
+    ["ASCII was designed for English characters only.", "Emoji need code points far beyond ASCII's range.", "One of these was built to include every script."],
+    "Correct iff the answer is Unicode. A bare 'ASCII' answer fails; 'not ASCII, Unicode' passes.",
+    { bigIdea: "Big Idea 2: Data", practice: "Computing Innovations" }),
+  concept("diag-csp-compression", "csp-data-systems", 1,
+    "A photo's file size is reduced by permanently discarding visual detail. Is that lossy or lossless compression?",
+    ["Discarded detail means information is genuinely lost.", "Lossless lets you restore the original exactly.", "Answer with one of the two words."],
+    "Correct iff the answer is 'lossy'. 'lossless' fails.",
+    { bigIdea: "Big Idea 2: Data" }),
+  concept("diag-csp-packets", "csp-data-systems", 1,
+    "When you load a web page, your request travels across the internet in small numbered pieces called what?",
+    ["The internet breaks messages into chunks.", "Each chunk carries an address and a sequence number.", "The word starts with 'p'."],
+    "Correct iff the answer is 'packets' (accept 'packet').",
+    { bigIdea: "Big Idea 4: Computer Systems and Networks", practice: "Computing Innovations" }),
+  concept("diag-csp-fault-tolerance", "csp-data-systems", 2,
+    "An undersea cable is cut, yet the internet keeps working because traffic reroutes through other paths. Which property of the internet does this show?",
+    ["The network survives partial failures.", "Traffic finds another route automatically.", "The term literally contains the word 'fault'."],
+    "Correct iff the answer conveys fault tolerance (accept 'fault tolerance', 'fault-tolerant', 'rerouting').",
+    { bigIdea: "Big Idea 4: Computer Systems and Networks", practice: "Computing Innovations" }),
+  concept("diag-csp-digital-divide", "csp-data-systems", 2,
+    "People without reliable internet can't join online classes or apply for jobs online. What is this gap called?",
+    ["It is a socioeconomic gap in technology access.", "The name pairs a kind of gap with the technology.", "It starts with 'digital'."],
+    "Correct iff the answer is 'digital divide' (accept 'the digital divide', 'divide').",
+    { bigIdea: "Big Idea 5: Impact of Computing", practice: "Responsible Computing" }),
+  concept("diag-csp-privacy", "csp-data-systems", 2,
+    "An app collects your location history and sells it to advertisers without asking. Which computing concern does this raise?",
+    ["It is about what personal data is collected and with whom it is shared.", "The data describes you personally and moves without consent.", "Name the concern: data _____."],
+    "Correct iff the answer is privacy (accept 'privacy', 'data privacy', 'invasion of privacy'). 'security' alone fails.",
+    { bigIdea: "Big Idea 5: Impact of Computing", practice: "Responsible Computing" }),
+  concept("diag-csp-open-source", "csp-data-systems", 2,
+    "Software whose source code anyone may read, modify, and share is called what?",
+    ["The name describes how the code is licensed.", "It contrasts with proprietary, closed software.", "Two words; the first is a synonym of 'open'."],
+    "Correct iff the answer is 'open source' (accept 'open-source', 'open source software', 'OSS').",
+    { bigIdea: "Big Idea 1: Creative Development", practice: "Responsible Computing" }),
+
   // ---- python-functions ----
   concept("diag-fn-isqrt-output", "python-functions", 1,
     "What is the exact output of this line? `print(math.isqrt(81))` — type exactly what appears on screen.",

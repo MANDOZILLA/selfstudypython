@@ -5,6 +5,12 @@ import { IdePane } from "./ide-pane";
 import { StageRail } from "./stage-rail";
 import { TutorPanel } from "./tutor-panel";
 import { nextWorkbenchPanel, workbenchPanels, type WorkbenchPanel } from "../../lib/studio";
+import styles from "./workbench-layout.module.css";
+import {
+  COMPACT_QUERY, DEFAULT_SPLITS, KEY_BIG_STEP, KEY_STEP,
+  boundsFor, browserStorage, clampSplits, loadSplits, nudgeSplit, saveSplits, setSplit,
+  type SplitSide, type WorkbenchSplits,
+} from "./workbench-resizer";
 
 loader.config({ paths: { vs: "/monaco/vs" } });
 
@@ -36,8 +42,8 @@ function TaskInstructions({ studio }: { studio: Studio }) {
     <section className="teaching-block pattern-block"><h3>{task.kind === "instruction" ? "Inspect the pattern" : "What to do"}</h3><p className="task-explanation">{task.explanation}</p></section>
     <section className="teaching-block requirement-block"><h3>Requirements</h3><ol className="requirements">{task.requirements.map(item => <li key={item}>{item}</li>)}</ol></section>
     <section className="teaching-block example-block"><h3>{task.kind === "instruction" ? "Worked examples" : "Example input / expected output"}</h3>{task.examples.map((example, index) => <figure key={index}><figcaption>{task.kind === "instruction" ? "Worked example" : "Input and expected output"} {index + 1}</figcaption><pre className="example">{example}</pre></figure>)}</section>
-    {task.kind === "code" && independentForTask && <p className="independent-note">Independent work · Hints and solutions stay hidden. Turn Learning Mode off to use and record help.</p>}
-    {task.kind === "code" && draft && !independentForTask && <section className="hint-section"><div className="section-heading"><h3>Need a nudge?</h3><span className="muted">{draft.assistance.hintsUsed}/{task.hints.length} hints</span></div><p className="muted">Reveal one hint at a time. Hints are saved with your attempt.</p>{task.hints.slice(0, draft.assistance.hintsUsed).map((hint, i) => <p className="hint" key={hint}><strong>Hint {i + 1}</strong>{hint}</p>)}{draft.assistance.hintsUsed < task.hints.length && <button className="secondary" onClick={() => studio.updateDraft({ assistance: { ...draft.assistance, hintsUsed: draft.assistance.hintsUsed + 1 } })}>Reveal hint {draft.assistance.hintsUsed + 1}</button>}<details className="assistance-disclosure"><summary>Record other help</summary><p className="muted">If you used help outside this app, include it in this attempt.</p><label><input type="checkbox" checked={draft.assistance.aiAssisted} disabled={draft.assistance.aiAssisted} onChange={() => studio.updateDraft({ assistance: { ...draft.assistance, aiAssisted: true } })} /> I used external AI assistance</label><label><input type="checkbox" checked={draft.assistance.solutionViewed} disabled={draft.assistance.solutionViewed} onChange={() => studio.updateDraft({ assistance: { ...draft.assistance, solutionViewed: true } })} /> I viewed a solution</label></details><TutorPanel visible={!studio.learningMode} taskId={task.id} taskTitle={task.title} requirements={task.requirements} hints={task.hints} hintsUsed={draft.assistance.hintsUsed} code={Object.entries(draft.sourceFiles).map(([name, content]) => `# --- ${name} ---\n${content}`).join("\n")} execution={result?.execution ?? null} failedTests={result?.tests?.filter(test => !test.passed).map(test => test.name) ?? []} taskUrl={typeof window === "undefined" ? "#" : window.location.hash || "#"} onTutorUsed={() => studio.updateDraft({ assistance: { ...draft.assistance, aiAssisted: true } })} /></section>}
+    {independentForTask && <p className="independent-note">Independent work · Hints and solutions stay hidden. Turn Learning Mode off to use and record help.</p>}
+    {draft && !independentForTask && <section className="hint-section">{task.hints.length > 0 && <><div className="section-heading"><h3>Need a nudge?</h3><span className="muted">{draft.assistance.hintsUsed}/{task.hints.length} hints</span></div><p className="muted">Reveal one hint at a time. Hints are saved with your attempt.</p>{task.hints.slice(0, draft.assistance.hintsUsed).map((hint, i) => <p className="hint" key={hint}><strong>Hint {i + 1}</strong>{hint}</p>)}{draft.assistance.hintsUsed < task.hints.length && <button className="secondary" onClick={() => studio.updateDraft({ assistance: { ...draft.assistance, hintsUsed: draft.assistance.hintsUsed + 1 } })}>Reveal hint {draft.assistance.hintsUsed + 1}</button>}</>}<details className="assistance-disclosure"><summary>Record other help</summary><p className="muted">If you used help outside this app, include it in this attempt.</p><label><input type="checkbox" checked={draft.assistance.aiAssisted} disabled={draft.assistance.aiAssisted} onChange={() => studio.updateDraft({ assistance: { ...draft.assistance, aiAssisted: true } })} /> I used external AI assistance</label><label><input type="checkbox" checked={draft.assistance.solutionViewed} disabled={draft.assistance.solutionViewed} onChange={() => studio.updateDraft({ assistance: { ...draft.assistance, solutionViewed: true } })} /> I viewed a solution</label></details>{task.kind === "code" && <TutorPanel visible={!studio.learningMode} taskId={task.id} taskTitle={task.title} requirements={task.requirements} hints={task.hints} hintsUsed={draft.assistance.hintsUsed} code={Object.entries(draft.sourceFiles).map(([name, content]) => `# --- ${name} ---\n${content}`).join("\n")} execution={result?.execution ?? null} failedTests={result?.tests?.filter(test => !test.passed).map(test => test.name) ?? []} taskUrl={typeof window === "undefined" ? "#" : window.location.hash || "#"} onTutorUsed={() => studio.updateDraft({ assistance: { ...draft.assistance, aiAssisted: true } })} />}</section>}
   </div>;
 }
 
@@ -56,17 +62,67 @@ function Checks({ studio }: { studio: Studio }) {
       {!executed && <ul className="check-results">{result.tests.map(check => <li key={check.id} className={check.passed ? "check-pass" : "check-fail"}><span aria-hidden="true">{check.passed ? "✓" : "×"}</span><div><strong><span className="visually-hidden">{check.passed ? "Passed" : "Needs changes"}: </span>{check.name}</strong> <span className="badge">{check.required ? "required" : "optional"}</span>{check.detail && <p>{check.detail}</p>}{!check.passed && <p className="next-action">Next: {check.id === "execution" ? "Check the message below, then try Run checks again." : "Update the code for this requirement, then run the checks again."}</p>}</div></li>)}</ul>}
       {executed && !result.executionOk && <p className="execution-error" role="alert">{executionSummary}</p>}
     </> : restored ? <p className="checks-message">{restored.passed ? "This draft matches your saved passed attempt. Continue when you’re ready." : "Your review attempt is saved. You can continue or try again."}</p> : <p className="checks-message">Run your code to see its output, or run it against the requirements. Printing an answer alone does not pass the checks.</p>}
-    <details className="console-output"><summary>Standard output</summary><pre>{result?.stdout || "No standard output."}</pre></details>
-    <details className="console-errors"><summary>Standard error{result?.stderr ? " · has error output" : ""}</summary><pre>{result?.stderr || "No standard error."}</pre></details>
+    {result && (result.stdout || result.stderr) ? <div className={`console-output ${styles.console}`}>
+      <h3>Console output</h3>
+      {result.stdout && <><p className={styles.consoleLabel}>Standard output</p><pre>{result.stdout}</pre></>}
+      {result.stderr && <><p className={`${styles.consoleLabel} ${styles.consoleLabelError}`}>Standard error</p><pre>{result.stderr}</pre></>}
+    </div> : <p className="muted">{result ? "Your program produced no standard output or errors." : "Standard output and errors from your run appear here."}</p>}
   </section>;
+}
+
+/** Focusable splitter between two workbench panes: pointer drag on desktop,
+ *  arrow keys from the keyboard (Shift = larger step, Home/End = extremes).
+ *  Desktop three-pane flow only — never rendered while the tabbed single-pane
+ *  flow is active (mobile, or desktop narrower than THREE_PANE_MIN_WIDTH). */
+function PaneResizer({ side, splits, width, onPointerDown, onPointerMove, onPointerUp, onKeyDown }: {
+  side: SplitSide;
+  splits: WorkbenchSplits;
+  width: number;
+  onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
+}) {
+  const value = Math.round(splits[side] * 100);
+  // Announce the range the clamp can actually deliver at this row width: the
+  // pixel floors raise the min and cap the max, so the authored fractions would
+  // promise a value Home/End can never reach (the separator stops short of the
+  // number the screen reader announces).
+  const bounds = boundsFor(side, width > 0 ? width : undefined);
+  const min = Math.round(bounds.min * 100);
+  const max = Math.round(bounds.max * 100);
+  const panes = side === "left" ? ["instructions", "code"] : ["code", "checks"];
+  const paneName = side === "left" ? "Instructions" : "Checks";
+  const now = Math.min(Math.max(value, min), max);
+  return <div
+    className={styles.separator}
+    data-split={side}
+    role="separator"
+    aria-orientation="vertical"
+    aria-label={`Resize ${panes[0]} and ${panes[1]} panes`}
+    aria-controls={`panel-${panes[0]} panel-${panes[1]}`}
+    aria-valuemin={min}
+    aria-valuemax={max}
+    aria-valuenow={now}
+    aria-valuetext={`${paneName} pane width ${now} percent`}
+    tabIndex={0}
+    onPointerDown={onPointerDown}
+    onPointerMove={onPointerMove}
+    onPointerUp={onPointerUp}
+    onPointerCancel={onPointerUp}
+    onKeyDown={onKeyDown}
+  />;
 }
 
 export function Workbench({ studio }: { studio: Studio }) {
   const [panel, setPanel] = useState<WorkbenchPanel>("instructions");
-  const [mobile, setMobile] = useState(false);
+  // Tabbed single-pane flow: mobile (<1024px) and narrow desktop (1024-1199px,
+  // where three panes plus separators cannot fit beside the 224px nav).
+  // Defaults to false so SSR and the first paint ship the three-pane markup.
+  const [compact, setCompact] = useState(false);
   useEffect(() => {
-    const query = window.matchMedia("(max-width: 1023px)");
-    const sync = () => setMobile(query.matches);
+    const query = window.matchMedia(COMPACT_QUERY);
+    const sync = () => setCompact(query.matches);
     sync(); query.addEventListener("change", sync);
     return () => query.removeEventListener("change", sync);
   }, []);
@@ -83,6 +139,85 @@ export function Workbench({ studio }: { studio: Studio }) {
     }
     prevTaskId.current = taskId;
   }, [taskId]);
+  // Desktop three-pane sizing. Defaults render first (SSR-safe), then the
+  // stored proportions hydrate from localStorage and a ResizeObserver keeps
+  // them inside their bounds when the window changes size.
+  const [splits, setSplits] = useState<WorkbenchSplits>(DEFAULT_SPLITS);
+  // Live width of the layout row, published to the separators so their aria
+  // ranges match what clampSplits can deliver at that width. 0 until the first
+  // client-side measure, so SSR keeps the authored (width-free) ranges.
+  const [rowWidth, setRowWidth] = useState(0);
+  const splitsRef = useRef<WorkbenchSplits>(DEFAULT_SPLITS);
+  const layoutRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ side: SplitSide; startX: number; start: WorkbenchSplits; width: number } | null>(null);
+  function layoutWidth(): number {
+    return layoutRef.current?.getBoundingClientRect().width ?? 0;
+  }
+  /** Re-clamp against the live row. `keep` names the pane the user is moving so
+   *  a width mismatch between the gesture and this measure can never hand the
+   *  room to the other pane (which would move the separator the wrong way). */
+  function applySplits(next: WorkbenchSplits, persist: boolean, keep?: SplitSide) {
+    const width = layoutWidth();
+    const clamped = clampSplits(next, width > 0 ? width : undefined, keep);
+    splitsRef.current = clamped;
+    setSplits(clamped);
+    if (persist) saveSplits(browserStorage(), clamped);
+  }
+  function startDrag(side: SplitSide, event: React.PointerEvent<HTMLDivElement>) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    const width = layoutWidth();
+    if (!width) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = { side, startX: event.clientX, start: splitsRef.current, width };
+    document.body.classList.add("wb-dragging");
+  }
+  function moveDrag(event: React.PointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const delta = (event.clientX - drag.startX) / drag.width;
+    const value = drag.side === "left" ? drag.start.left + delta : drag.start.right - delta;
+    applySplits(setSplit(drag.start, drag.side, value, drag.width), false, drag.side);
+  }
+  function endDrag(event: React.PointerEvent<HTMLDivElement>) {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    document.body.classList.remove("wb-dragging");
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    saveSplits(browserStorage(), splitsRef.current);
+  }
+  function resizeByKey(side: SplitSide, event: React.KeyboardEvent<HTMLDivElement>) {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const width = layoutWidth();
+    const boundsWidth = width > 0 ? width : undefined;
+    const step = (event.shiftKey ? KEY_BIG_STEP : KEY_STEP) * (event.key === "ArrowRight" ? 1 : -1);
+    const next = event.key === "Home" || event.key === "End"
+      ? setSplit(splitsRef.current, side, boundsFor(side, boundsWidth)[event.key === "Home" ? "min" : "max"], boundsWidth)
+      : nudgeSplit(splitsRef.current, side, side === "left" ? step : -step, boundsWidth);
+    applySplits(next, true, side);
+  }
+  useEffect(() => {
+    const node = layoutRef.current;
+    const width = node?.getBoundingClientRect().width ?? 0;
+    const loaded = clampSplits(loadSplits(browserStorage()), width > 0 ? width : undefined);
+    splitsRef.current = loaded;
+    setSplits(loaded);
+    if (width > 0) setRowWidth(width);
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      const observed = node.getBoundingClientRect().width;
+      if (observed <= 0) return;
+      setRowWidth(observed);
+      setSplits(current => {
+        const next = clampSplits(current, observed);
+        splitsRef.current = next;
+        return next;
+      });
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
   if (!workbench) return null;
   const { mission, run, stage, task } = workbench;
   const nextStage = mission.stages[run.stageIndex + 1];
@@ -90,8 +225,8 @@ export function Workbench({ studio }: { studio: Studio }) {
   return <main className="workbench" id="main-content">
     <header className="workbench-heading"><div className="workbench-topline"><button className="text-button" onClick={() => studio.navigate("today")}>← Today</button><label className="learning-toggle"><input type="checkbox" checked={studio.learningMode} onChange={studio.toggleLearningMode} /><span>Learning Mode</span></label><span className="muted" role="status">{syncLabel(studio.syncStatus)}</span></div><div className="workbench-title"><h1 id="page-title" tabIndex={-1}>{run.mode === "review" ? "Scheduled skill review" : mission.title}</h1><span>{run.mode === "review" ? stage.estimatedMinutes : mission.estimatedMinutes} min {run.mode === "review" ? "review" : "mission"}</span></div><p className="mode-description">{studio.learningMode && studio.assistanceUsed ? "This task stays recorded as assisted. Independent Mode applies when you start the next task; prior help cannot be erased." : studio.learningMode ? "Independent work: hints and solutions are hidden; no assistance is recorded." : studio.assistanceUsed ? "Help is recorded for this task; past assistance stays in your record." : "Practice with authored hints, revealed one at a time. Any help you use is recorded."}</p><StageRail mission={mission} run={run} /></header>
     {!task ? <section className="stage-document document"><span className="eyebrow">REVIEW · {stage.estimatedMinutes} MIN PLANNED</span><h2>No retrieval is due for this mission.</h2><p>Your review schedule begins after you learn and practise. Use this moment to read the mission outcome, then begin the lesson.</p><div className="review-outcome"><span className="eyebrow">BY THE END</span><h3>{mission.stages[2].tasks[0]?.title}</h3><p>{mission.summary}</p></div><p className="muted">The stage times are a suggested {mission.estimatedMinutes}-minute guide, not a countdown.</p><button className="primary" onClick={studio.continueStage}>Continue to Learn →</button></section> : task.kind !== "code" ? <section className="reading-layout"><article className="document reading-document"><TaskInstructions studio={studio} />{task.kind === "explanation" && draft && <div className="reflection-input"><label htmlFor="reflection">Your explanation</label><textarea id="reflection" value={draft.response} onChange={event => studio.updateDraft({ response: event.target.value })} placeholder="Describe one decision, a concrete example, and what you’re still unsure about." rows={7} /><span className="muted">At least 20 characters. Your reflection is saved, not automatically graded.</span></div>}<footer className="reading-action"><p>{task.kind === "instruction" ? "Reading records exposure. Guided practice comes next." : "Save this reflection to complete your mission."}</p><button className="primary" disabled={task.kind === "explanation" && (draft?.response.trim().length ?? 0) < 20} onClick={studio.submitText}>{task.kind === "instruction" ? "I’ve read the examples · Start practice" : "Save reflection & finish"} →</button></footer></article><aside className="reading-aside"><span className="eyebrow">{stage.title.toUpperCase()}</span><h2>{task.kind === "instruction" ? "Understand it before you build it." : "Make your thinking visible."}</h2><p>{task.kind === "instruction" ? "Trace the examples in order. Notice what each function accepts, what it rejects, and what it returns." : "A passed check shows behavior. Your explanation captures why the behavior is correct."}</p><span className="reading-file">main.py<span>Next: {task.kind === "instruction" ? "guided practice" : "saved evidence"}</span></span></aside></section> : <>
-      <div className="workbench-tabs" role="tablist" aria-label="Workbench panels">{workbenchPanels.map(item => <button key={item} role="tab" id={`tab-${item}`} aria-controls={`panel-${item}`} aria-selected={panel === item} tabIndex={panel === item ? 0 : -1} onClick={() => setPanel(item)} onKeyDown={event => { if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) { event.preventDefault(); const next = nextWorkbenchPanel(item, event.key); setPanel(next); document.getElementById(`tab-${next}`)?.focus(); } }}>{item === "instructions" ? "Instructions" : item === "code" ? "Code" : "Checks"}</button>)}</div>
-      <div className={`coding-layout active-${panel}`}><section className="instruction-pane" id="panel-instructions" role={mobile ? "tabpanel" : "region"} aria-labelledby={mobile ? "tab-instructions" : undefined} aria-label={mobile ? undefined : "instructions"} hidden={mobile && panel !== "instructions"}><TaskInstructions studio={studio} /><button className="primary mobile-code-action" onClick={() => { setPanel("code"); focusWorkbenchTab("code"); }}>Open code →</button></section><div className="coding-right"><section className="code-pane" id="panel-code" role={mobile ? "tabpanel" : "region"} aria-labelledby={mobile ? "tab-code" : undefined} aria-label={mobile ? undefined : "code"} hidden={mobile && panel !== "code"}><IdePane key={task.id} studio={studio} onAfterRun={() => { setPanel("checks"); if (mobile) document.getElementById("checks-panel")?.focus(); }} /></section><div className="checks-wrap" id="panel-checks" role={mobile ? "tabpanel" : "region"} aria-labelledby={mobile ? "tab-checks" : undefined} aria-label={mobile ? undefined : "checks"} hidden={mobile && panel !== "checks"}><Checks studio={studio} /><div className="mobile-check-actions">{studio.busy && <button className="primary" onClick={studio.stopRun}>Stop run</button>}<button className="secondary" onClick={() => { setPanel("code"); focusWorkbenchTab("code"); }}>← Edit code</button>{workbench.taskComplete && !studio.storageError && <button className="primary" onClick={studio.continueStage}>{continueLabel} →</button>}</div></div></div></div>
+      <div className={`workbench-tabs ${styles.tabs}`} role="tablist" aria-label="Workbench panels">{workbenchPanels.map(item => <button key={item} role="tab" id={`tab-${item}`} aria-controls={`panel-${item}`} aria-selected={panel === item} tabIndex={panel === item ? 0 : -1} onClick={() => setPanel(item)} onKeyDown={event => { if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) { event.preventDefault(); const next = nextWorkbenchPanel(item, event.key); setPanel(next); document.getElementById(`tab-${next}`)?.focus(); } }}>{item === "instructions" ? "Instructions" : item === "code" ? "Code" : "Checks"}</button>)}</div>
+      <div className={`coding-layout active-${panel} ${styles.layout}`} ref={layoutRef} style={{ "--wb-left": `${(splits.left * 100).toFixed(3)}%`, "--wb-right": `${(splits.right * 100).toFixed(3)}%` } as React.CSSProperties}><section className="instruction-pane" id="panel-instructions" role={compact ? "tabpanel" : "region"} aria-labelledby={compact ? "tab-instructions" : undefined} aria-label={compact ? undefined : "instructions"} hidden={compact && panel !== "instructions"}><TaskInstructions studio={studio} /><button className="primary mobile-code-action" onClick={() => { setPanel("code"); focusWorkbenchTab("code"); }}>Open code →</button></section>{!compact && <PaneResizer side="left" splits={splits} width={rowWidth} onPointerDown={event => startDrag("left", event)} onPointerMove={moveDrag} onPointerUp={endDrag} onKeyDown={event => resizeByKey("left", event)} />}<section className="code-pane" id="panel-code" role={compact ? "tabpanel" : "region"} aria-labelledby={compact ? "tab-code" : undefined} aria-label={compact ? undefined : "code"} hidden={compact && panel !== "code"}><IdePane key={task.id} studio={studio} onAfterRun={() => { setPanel("checks"); if (compact) document.getElementById("checks-panel")?.focus(); }} /></section>{!compact && <PaneResizer side="right" splits={splits} width={rowWidth} onPointerDown={event => startDrag("right", event)} onPointerMove={moveDrag} onPointerUp={endDrag} onKeyDown={event => resizeByKey("right", event)} />}<div className="checks-wrap" id="panel-checks" role={compact ? "tabpanel" : "region"} aria-labelledby={compact ? "tab-checks" : undefined} aria-label={compact ? undefined : "checks"} hidden={compact && panel !== "checks"}><Checks studio={studio} /><div className="mobile-check-actions">{studio.busy && <button className="primary" onClick={studio.stopRun}>Stop run</button>}<button className="secondary" onClick={() => { setPanel("code"); focusWorkbenchTab("code"); }}>← Edit code</button>{workbench.taskComplete && !studio.storageError && <button className="primary" onClick={studio.continueStage}>{continueLabel} →</button>}</div></div></div>
     </>}
   </main>;
 }

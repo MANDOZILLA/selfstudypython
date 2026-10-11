@@ -9,6 +9,7 @@
  * the notes demand it, and named equivalent phrasings otherwise).
  */
 import { DIAGNOSTIC_ITEMS } from "../curriculum/diagnostic-items";
+import { isUnknownDeclaration } from "./diagnostic";
 
 export interface DiagnosticConceptResult {
   correct: boolean;
@@ -48,6 +49,88 @@ function affirmativeAnswer(t: string): DiagnosticConceptResult {
 }
 
 const GRADERS: Record<string, ConceptPredicate> = {
+  // ---- csp-foundations (AP CSP, adapted to Python) ----
+  "diag-csp-loop-count": t =>
+    t === "4" ? pass("range(4) runs the body four times: total is 4") : fail("expected exactly '4' (range(4) iterates four times)"),
+
+  "diag-csp-boolean": t =>
+    /\btrue\b/i.test(t) && !/\bfalse\b/i.test(t)
+      ? pass("3 > 5 is False, so not (3 > 5) is True")
+      : fail("expected 'True' (3 > 5 is False, not flips it)"),
+
+  "diag-csp-branch": t =>
+    /^['"]?pass['"]?$/.test(t)
+      ? pass("72 >= 60 is True, so 'pass' prints")
+      : fail("expected exactly 'pass' (72 >= 60 runs the if-branch)"),
+
+  "diag-csp-variable": t =>
+    t === "6" ? pass("count is reassigned to 1 + 5 = 6") : fail("expected exactly '6'"),
+
+  "diag-csp-call": t =>
+    t === "6" ? pass("double(3) returns 3 * 2 = 6") : fail("expected exactly '6' (double(3) returns 3 * 2)"),
+
+  "diag-csp-index": t =>
+    /^['"]?bee['"]?$/.test(t)
+      ? pass("list positions start at 0, so items[1] is 'bee'")
+      : fail("expected 'bee' (positions start at 0, so index 1 is the second element)"),
+
+  "diag-csp-abstraction": t =>
+    /\b(def|function|procedure|method|subroutine)\b/i.test(t)
+      ? pass("naming a reusable block is abstraction via a function/procedure")
+      : fail("expected a function/procedure (define it once with def, call it anywhere)"),
+
+  "diag-csp-nested": t =>
+    t === "6" ? pass("3 outer × 2 inner iterations = 6") : fail("expected exactly '6' (3 × 2 increments)"),
+
+  "diag-csp-testing": t =>
+    /(boundar|edge)/i.test(t) ||
+    (/\b59\b/.test(t) && /\b60\b/.test(t)) ||
+    (/\b60\b/.test(t) && /\b61\b/.test(t))
+      ? pass("boundary cases around 60 give the most confidence")
+      : fail("expected boundary/edge cases around 60 (e.g. 59, 60, 61)"),
+
+  // ---- csp-data-systems (AP CSP Big Ideas 2, 4 & 5) ----
+  "diag-csp-binary": t =>
+    (/\b0\b/.test(t) && /\b1\b/.test(t)) || /\bbinary\b/i.test(t) || /\bbase\s*2\b/i.test(t) ||
+    /\bzeros?\b.*\bones?\b/i.test(t)
+      ? pass("everything is stored as sequences of 0 and 1 (binary)")
+      : fail("expected the two digits 0 and 1 (binary)"),
+
+  "diag-csp-unicode": t =>
+    /unicode/i.test(t) && !/^ascii/i.test(t)
+      ? pass("Unicode covers ASCII letters and emoji; ASCII does not")
+      : fail("expected Unicode (ASCII alone cannot represent emoji)"),
+
+  "diag-csp-compression": t =>
+    /lossy/i.test(t) && !/lossless/i.test(t)
+      ? pass("discarding detail is lossy compression")
+      : fail("expected 'lossy' (discarded detail cannot be restored)"),
+
+  "diag-csp-packets": t =>
+    /\bpackets?\b/i.test(t)
+      ? pass("internet traffic travels in packets")
+      : fail("expected 'packets'"),
+
+  "diag-csp-fault-tolerance": t =>
+    /fault/i.test(t) || /rerout/i.test(t)
+      ? pass("rerouting around a failed link is fault tolerance")
+      : fail("expected fault tolerance (traffic reroutes around the failure)"),
+
+  "diag-csp-digital-divide": t =>
+    /\bdivide\b/i.test(t)
+      ? pass("the gap in technology access is the digital divide")
+      : fail("expected the 'digital divide'"),
+
+  "diag-csp-privacy": t =>
+    /privacy/i.test(t)
+      ? pass("selling personal location data is a privacy concern")
+      : fail("expected 'privacy' (personal data collected and sold without consent)"),
+
+  "diag-csp-open-source": t =>
+    /open[-\s]?source/i.test(t) || /\boss\b/i.test(t)
+      ? pass("source code anyone may read, modify, and share is open source")
+      : fail("expected 'open source'"),
+
   // ---- python-functions ----
   "diag-fn-isqrt-output": t =>
     t === "9" ? pass("exact printed output") : fail("expected exactly '9', the exact printed output"),
@@ -269,6 +352,9 @@ const GRADERS: Record<string, ConceptPredicate> = {
 
 /**
  * Grade a short-answer concept response against the item's semantic rule.
+ * The explicit "I do not know" declaration is never a wrong answer: the
+ * engine records it as a knowledge gap before grading, and if it reaches this
+ * layer anyway it fails with a gap-specific detail, never a misconception one.
  * @throws Error("unknown diagnostic concept item ...") for unknown ids.
  */
 export function gradeDiagnosticConcept(itemId: string, answer: string): DiagnosticConceptResult {
@@ -276,5 +362,9 @@ export function gradeDiagnosticConcept(itemId: string, answer: string): Diagnost
   if (!grader || !CONCEPT_IDS.has(itemId)) {
     throw new Error(`unknown diagnostic concept item ${itemId}`);
   }
-  return grader(answer.trim());
+  const trimmed = answer.trim();
+  if (isUnknownDeclaration(trimmed)) {
+    return { correct: false, detail: 'learner declared "I do not know" — knowledge gap, not a wrong answer' };
+  }
+  return grader(trimmed);
 }

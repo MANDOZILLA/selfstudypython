@@ -1,0 +1,156 @@
+/* Resizable three-pane self-assessment task card.
+   Wide desktop: instructions/rubric/hints | Python editor or written answer |
+   checks/output, split by two draggable, keyboard-operable separators.
+   Below ASSESSMENT_PANES_MIN_WIDTH (1120px) the media query never applies, so
+   the global single-column assessment flow stands and the separators stay
+   display:none — and the component unrenders them — so the layout stacks
+   before the panes can get too narrow. 1120px is the first viewport width at
+   which the dashboard column (viewport - 224px nav - 64px padding) can hold
+   the minmax() floors below: 240 + 12 + 300 + 12 + 240 = 804px.
+   Compound selectors (:global(...).local) are used so these overrides beat
+   the equally-specific globals.css rules regardless of stylesheet chunk order. */
+
+:global(body.as-dragging) {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* Stacked flow: no visible track, and display:none also removes the
+   separators from the tab order so keyboard users never land on a divider
+   that has nothing to divide. */
+.separator {
+  display: none;
+}
+
+/* The answer field now lives inside the centre pane, so the global
+   `.assessment-task > label` rule can no longer reach it in either flow. */
+:global(.assessment-task) .fieldLabel {
+  display: block;
+  font-weight: 500;
+  margin: 20px 0 8px;
+}
+
+.paneHeading {
+  margin: 0 0 14px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--secondary);
+}
+
+/* Console output after a run: always visible in the feedback pane, never
+   tucked behind a collapsed disclosure. Layered on the global
+   .console-output / .console-errors rules with compound selectors so they win
+   regardless of stylesheet chunk order. */
+:global(.console-output).console,
+:global(.console-errors).console {
+  border-top: 1px solid var(--line);
+  margin-top: 14px;
+  padding-top: 12px;
+}
+
+.consoleHeading {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--secondary);
+}
+
+.consoleHeadingError {
+  color: var(--error);
+}
+
+:global(.console-output).console pre,
+:global(.console-errors).console pre {
+  margin: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 1120px) {
+  /* The tab strip and the evidence block share the card's full width so the
+     three panes line up with the tabs above and the record below. */
+  :global(.assessment-detail).detail :global(.assessment-tabs),
+  :global(.assessment-detail).detail :global(.assessment-evidence) {
+    max-width: none;
+  }
+
+  :global(.assessment-task).task {
+    max-width: none;
+    padding: 0;
+    display: grid;
+    grid-template-columns:
+      minmax(240px, var(--as-left, 26%))
+      var(--as-sep, 12px)
+      minmax(300px, 1fr)
+      var(--as-sep, 12px)
+      minmax(240px, var(--as-right, 24%));
+  }
+
+  :global(.assessment-task).task > .pane {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 420px;
+    padding: 24px 24px 26px;
+  }
+
+  :global(.assessment-task).task > .pane > * {
+    min-width: 0;
+  }
+
+  /* The editor and the written answer soak up the spare row height so the
+     centre pane stays the anchor of the layout. */
+  :global(.assessment-task).task .pane :global(.editor-canvas.assessment-editor) {
+    flex: 1 1 auto;
+    min-height: 320px;
+  }
+
+  :global(.assessment-task).task .pane :global(.assessment-response) {
+    flex: 1 1 auto;
+    min-height: 220px;
+  }
+
+  /* Result first, then the save action pinned to the foot of the pane. */
+  :global(.assessment-task).task .pane :global(.assessment-save) {
+    margin-top: auto;
+  }
+
+  .separator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    background: var(--surface-sunken);
+    box-shadow: inset 1px 0 0 var(--line), inset -1px 0 0 var(--line);
+    cursor: col-resize;
+    touch-action: none;
+    user-select: none;
+    outline-offset: -3px;
+  }
+
+  .separator::after {
+    content: "";
+    width: 4px;
+    height: 64px;
+    max-height: 70%;
+    border-radius: 999px;
+    background: var(--border-field);
+    transition: background 0.12s ease;
+  }
+
+  .separator:hover::after,
+  .separator:active::after,
+  .separator:focus-visible::after {
+    background: var(--action);
+  }
+
+  .separator:focus-visible {
+    outline: 3px solid var(--action);
+  }
+}

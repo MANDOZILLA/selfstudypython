@@ -79,6 +79,54 @@ describe("gradeDiagnosticConcept — unknown ids", () => {
       .toThrowError(/unknown diagnostic concept item/);
     expect(() => gradeDiagnosticConcept("", "yes")).toThrowError(/unknown diagnostic concept item/);
   });
+
+  it("the declaration check never masks an unknown id", () => {
+    expect(() => gradeDiagnosticConcept("diag-nope-missing", "I do not know"))
+      .toThrowError(/unknown diagnostic concept item/);
+  });
+});
+
+describe("gradeDiagnosticConcept — AP CSP foundation items", () => {
+  const CSP_CASES: [id: string, correct: string[], wrong: string[]][] = [
+    ["diag-csp-loop-count", ["4"], ["3", "range(4)", "0"]],
+    ["diag-csp-boolean", ["True", "true"], ["False", "false"]],
+    ["diag-csp-branch", ["pass", "'pass'", "\"pass\""], ["fail", "\"fail\"", "print('pass')"]],
+    ["diag-csp-variable", ["6"], ["1", "5"]],
+    ["diag-csp-call", ["6"], ["3", "12"]],
+    ["diag-csp-index", ["bee", "'bee'"], ["ant", "cat"]],
+    ["diag-csp-abstraction", ["a function", "define it with def", "a procedure"], ["copy-paste", "loop"]],
+    ["diag-csp-nested", ["6"], ["3", "2"]],
+    ["diag-csp-testing", ["boundary cases around 60", "edge cases", "59, 60, 61"], ["only 100", "random values"]],
+    ["diag-csp-binary", ["0 and 1", "zeros and ones", "binary", "base 2"], ["decimal", "hexadecimal"]],
+    ["diag-csp-unicode", ["Unicode", "not ASCII, Unicode"], ["ASCII", "ascii"]],
+    ["diag-csp-compression", ["lossy", "Lossy compression"], ["lossless", "gzip keeps everything"]],
+    ["diag-csp-packets", ["packets", "packet"], ["cookies", "bytes"]],
+    ["diag-csp-fault-tolerance", ["fault tolerance", "fault-tolerant", "rerouting"], ["latency", "bandwidth"]],
+    ["diag-csp-digital-divide", ["digital divide", "the digital divide", "divide"], ["overpopulation"]],
+    ["diag-csp-privacy", ["privacy", "data privacy"], ["security", "performance"]],
+    ["diag-csp-open-source", ["open source", "open-source", "OSS"], ["shareware", "malware"]],
+  ];
+
+  for (const [id, correct, wrong] of CSP_CASES) {
+    it(`${id}: accepts the expected answers and rejects the traps`, () => {
+      expect(hasConceptGrader(id), `grader for ${id}`).toBe(true);
+      for (const answer of correct) {
+        expect(gradeDiagnosticConcept(id, answer).correct, `${id} "${answer}" should pass`).toBe(true);
+      }
+      for (const answer of wrong) {
+        expect(gradeDiagnosticConcept(id, answer).correct, `${id} "${answer}" should fail`).toBe(false);
+      }
+    });
+  }
+});
+
+describe("gradeDiagnosticConcept — knowledge-gap declaration", () => {
+  it('grades "I do not know" as a declared gap, never as a misconception', () => {
+    const result = gradeDiagnosticConcept("diag-csp-loop-count", "I do not know");
+    expect(result.correct).toBe(false);
+    expect(result.detail).toMatch(/knowledge gap/);
+    expect(result.detail).toMatch(/not a wrong answer/);
+  });
 });
 
 describe("gradeDiagnosticConcept — other concept items", () => {

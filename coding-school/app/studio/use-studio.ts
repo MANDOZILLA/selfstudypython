@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { advanceMissionStage, createDefaultState, getState, migrateState, resetState, StateRecoveryError, saveMissionDraft, saveState, startOrResumeMission, replaceDiagnosticSession, type LearningState, type MissionDraft } from "../../lib/state";
+import { advanceMissionStage, createDefaultState, getState, migrateState, resetState, StateRecoveryError, saveMissionDraft, saveState, startOrResumeMission, replaceDiagnosticSession, resetPlacement as resetPlacementState, type LearningState, type MissionDraft } from "../../lib/state";
 import { decideBoot, fetchSnapshot, pushState } from "../../lib/state-sync";
 import { getWorkbenchModel, persistAttempt, runStatus, type Destination, type RunStatus } from "../../lib/studio";
 import { startGradingRun, type GradeResult } from "../../lib/runner";
 import { ideRequestExtras, resolveEntrypoint, sanitizeProjectFiles, type IdeVariantExtras } from "../../lib/ide";
-import { answerConcept, classifyGradeResult, completeDiagnosticSession, createDiagnosticSession, recordCodingOutcome, saveDiagnosticDraft, type DiagnosticSession } from "../../lib/diagnostic";
+import { answerConcept, classifyGradeResult, completeDiagnosticSession, createDiagnosticSession, markUnknown, recordCodingOutcome, saveDiagnosticDraft, type DiagnosticSession } from "../../lib/diagnostic";
 import { gradeDiagnosticConcept } from "../../lib/diagnostic-grading";
 import { DIAGNOSTIC_ITEMS } from "../../curriculum";
 import { readRoute, routeHash, type Route } from "../../lib/route";
@@ -489,6 +489,20 @@ export function useStudio() {  const [state, setState] = useState(createDefaultS
       }
     } catch (error) { setStorageError(error instanceof Error ? error.message : String(error)); }
   }
+  /** Honest "I do not know" declaration for the current concept or coding
+   *  item. It is recorded as a knowledge gap — never graded — so any run in
+   *  flight is cancelled first and its stale results are cleared: a late
+   *  result must never land on the next question. */
+  function markDiagnosticUnknown() {
+    const session = diagnosticSession();
+    if (!session || session.status !== "in-progress") return;
+    const item = DIAGNOSTIC_ITEMS.find(i => i.id === session.currentItemId);
+    if (!item) return;
+    cancelDiagnosticRun();
+    setDiagnosticResult(null); setDiagnosticStatus("Ready"); setDiagnosticStale(false);
+    try { commitDiagnosticSession(markUnknown(session, item)); }
+    catch (error) { setStorageError(error instanceof Error ? error.message : String(error)); }
+  }
   function runDiagnosticCode() {
     const session = diagnosticSession();
     if (!session || session.status !== "in-progress" || diagnosticRunRef.current) return;
@@ -533,6 +547,16 @@ export function useStudio() {  const [state, setState] = useState(createDefaultS
     if (!session || session.status !== "in-progress") return;
     try { commitDiagnosticSession(completeDiagnosticSession(session)); }
     catch (error) { setStorageError(error instanceof Error ? error.message : String(error)); }
+  }
+  /** Destructive, confirmed in the UI first. Clears diagnostic sessions and
+   *  the placement summary through the normal persisted state commit, so the
+   *  change syncs like any other edit; missions, assessments, and portfolio
+   *  data are untouched. No database file is modified directly. */
+  function resetPlacement() {
+    cancelDiagnosticRun();
+    setDiagnosticResult(null); setDiagnosticStatus("Ready"); setDiagnosticStale(false);
+    if (!commit(resetPlacementState(stateRef.current))) return;
+    go({ destination: "today" });
   }
   function toggleLearningMode() {
     try { window.localStorage.setItem("coding-school:learning-mode", learningMode ? "off" : "on"); setLearningMode(!learningMode); }
@@ -584,6 +608,6 @@ export function useStudio() {  const [state, setState] = useState(createDefaultS
     syncStatus, resolveConflict, exportConflictCopy,
     navigate, start, updateDraft, continueStage, submitText, runChecks, runCode, stopRun, toggleLearningMode, retrySave, exportRecovery, retryRecovery, resetRecovery, downloadPortfolio, applyState,
     diagnosticResult, diagnosticStatus, diagnosticBusy, diagnosticStale,
-    startDiagnostic, retakeDiagnostic, openDiagnosticSession, updateDiagnosticDraft, revealDiagnosticHint, answerDiagnosticConcept, runDiagnosticCode, stopDiagnosticRun, finishDiagnostic };
+    startDiagnostic, retakeDiagnostic, openDiagnosticSession, updateDiagnosticDraft, revealDiagnosticHint, answerDiagnosticConcept, markDiagnosticUnknown, runDiagnosticCode, stopDiagnosticRun, finishDiagnostic, resetPlacement };
 }
 export type Studio = ReturnType<typeof useStudio>;

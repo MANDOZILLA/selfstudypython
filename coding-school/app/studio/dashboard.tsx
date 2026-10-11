@@ -1,5 +1,11 @@
+"use client";
+import { useState } from "react";
 import { curriculum } from "../../lib/curriculum";
-import { deriveDiagnosticProfile, latestCompletedDiagnosticSession, type DiagnosticSession } from "../../lib/diagnostic";
+import { DIAGNOSTIC_SKILLS } from "../../curriculum";
+import {
+  DIAGNOSTIC_CODING_QUOTA, DIAGNOSTIC_UNKNOWN_ANSWER,
+  deriveDiagnosticProfile, latestCompletedDiagnosticSession, type DiagnosticSession,
+} from "../../lib/diagnostic";
 import { recommendNext, type RecommendationAction } from "../../lib/recommend";
 import { buildSkillGraph, type GraphSkillStatus } from "../../lib/skill-graph";
 import { getDashboardModel, getEvidenceRows, getLibraryRows, getPortfolioModel, getProjectReview } from "../../lib/studio";
@@ -36,8 +42,30 @@ function PlacementCard({ studio }: { studio: Studio }) {
   }
   return <section className="document" aria-label="Placement diagnostic">
     <div className="section-heading"><h2>Placement diagnostic</h2><span className="eyebrow">RECOMMENDED FIRST</span></div>
-    <p>Twelve to twenty-five adaptive questions across nine Python skills find your starting point. Wrong answers only move you to easier material — they never block you.</p>
+    <p>Twelve to twenty-five adaptive questions start at the AP Computer Science Principles (AP CSP) foundation tier, adapted to Python, then branch across {DIAGNOSTIC_SKILLS.length} skills to find your starting point. Wrong answers only move you to easier material — they never block you. Coding evidence is flexible: {DIAGNOSTIC_CODING_QUOTA} successful Python runs, {DIAGNOSTIC_CODING_QUOTA} honest “{DIAGNOSTIC_UNKNOWN_ANSWER}” declarations, or one of each.</p>
     <div className="button-row"><button className="primary" onClick={studio.startDiagnostic}>Take the placement diagnostic →</button></div>
+  </section>;
+}
+
+/** Confirmed, diagnostic-only reset: sessions and the placement summary are
+ *  cleared through the normal persisted state commit; missions, checkpoint
+ *  assessments, evidence, and portfolio data are kept. */
+function ResetPlacement({ studio }: { studio: Studio }) {
+  const [confirming, setConfirming] = useState(false);
+  const sessions = studio.state.diagnosticSessions;
+  if (!sessions.length && !studio.state.diagnostic.completed) return null;
+  if (!confirming) return <section className="document" aria-label="Reset placement">
+    <div className="section-heading"><h2>Reset placement</h2><span className="eyebrow">START OVER</span></div>
+    <p className="muted">Clears your diagnostic sessions and placement summary so the placement diagnostic starts from scratch. Missions, checkpoint assessments, your evidence log, and portfolio snapshots are kept.</p>
+    <div className="button-row"><button className="text-button danger" onClick={() => setConfirming(true)}>Reset placement</button></div>
+  </section>;
+  return <section className="document" aria-label="Confirm placement reset">
+    <div className="section-heading"><h2>Reset placement?</h2><span className="eyebrow">CONFIRM</span></div>
+    <p role="alert">This permanently clears {sessions.length} saved diagnostic session{sessions.length === 1 ? "" : "s"} and your placement summary. Missions, checkpoint assessments, your evidence log, and portfolio snapshots are not affected.</p>
+    <div className="button-row">
+      <button className="secondary danger" onClick={() => { setConfirming(false); studio.resetPlacement(); }}>Yes, reset placement</button>
+      <button className="secondary" onClick={() => setConfirming(false)}>Keep my placement</button>
+    </div>
   </section>;
 }
 
@@ -56,6 +84,7 @@ function Today({ studio }: { studio: Studio }) {
       <div className="mission-action"><div><strong>{model.run ? `Pick up at ${model.mission.stages[model.run.stageIndex].title}` : "Begin with a clear plan"}</strong><p>{model.run ? "Your saved code, hints, and place are ready." : model.selection.reviewTaskIds.length ? "Your scheduled retrieval comes first." : "No review is due yet. Start with the mission overview."}</p></div><button className="primary" onClick={() => studio.start()}>{model.run ? reviewOnly ? "Resume review" : "Resume mission" : reviewOnly ? "Start review" : `Start ${model.mission.estimatedMinutes}-minute mission`}<span aria-hidden="true"> →</span></button></div>
     </section> : <section className="document empty-state"><span className="eyebrow">UP TO DATE</span><h2>You’ve completed the available missions.</h2><p>Your next retrieval appears when a saved skill review is due. Revisit your work in the evidence log.</p><button className="secondary" onClick={() => studio.navigate("learned")}>View your evidence</button></section>}
     <PlacementCard studio={studio} />
+    <ResetPlacement studio={studio} />
     <div className="dashboard-columns"><section className="document"><div className="section-heading"><h2>Your learning record</h2><button className="text-button" onClick={() => studio.navigate("learned")}>View log →</button></div>{model.evidence.length ? <ul className="skill-list">{model.evidence.map(skill => <li key={skill.skillId}><span>{skill.title}</span><span className="status-label">{skill.status}</span></li>)}</ul> : <div className="empty-copy"><span className="empty-mark" aria-hidden="true">[ ]</span><h3>Your first evidence starts here.</h3><p>No attempts saved yet. A completed lesson records exposure; independent project checks show what you can do.</p></div>}</section>
       <section className="document"><div className="section-heading"><h2>Coming back to it</h2><span className="eyebrow">REVIEW</span></div>{model.reviews.length ? <ul className="review-list">{model.reviews.map(review => <li key={review.skillId}><strong>{curriculum.skills.find(s => s.id === review.skillId)?.title}</strong><span>{formatDate(review.dueAt)} · {review.reason}</span></li>)}</ul> : <div className="empty-copy"><h3>No reviews scheduled yet.</h3><p>Reviews are scheduled from your actual learning and attempts. They’ll appear here as you work.</p></div>}</section></div>
     <p className="page-footnote">Your work is saved on this computer in SQLite. Reading, practice, and independent evidence are recorded separately.</p>

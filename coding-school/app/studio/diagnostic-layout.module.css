@@ -1,0 +1,276 @@
+/* Diagnostic coding view: instructions | Python editor | checks and output.
+   Desktop (>=1200px) is a three-pane grid split by two draggable, keyboard
+   operable separators; below 1200px the tab flow owns the view, through
+   mobile. The handoff mirrors THREE_PANE_MIN_WIDTH (1200px) in
+   workbench-resizer.ts, which diagnostic.tsx reads as COMPACT_QUERY:
+   224 nav + 240 + 12 + 320 + 12 + 240 panes = 1048, plus the dashboard's
+   64px side padding and scrollbar slack = 1112px of viewport before all
+   three panes fit. At 1024px only ~736px of pane space remains (and ~812px
+   at 1100px), so a 1024px handoff would clip the panes rather than show
+   them — the tabs take over first instead.
+   Compound selectors (:global(...).local) are used so
+   these overrides beat the equally-specific globals.css rules regardless of
+   stylesheet chunk order. */
+
+:global(body.dg-dragging) {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.tabs {
+  display: none;
+}
+
+.separator {
+  display: none;
+}
+
+.layout {
+  min-height: 0;
+}
+
+/* Console output after a run: always visible in the checks pane, never
+   tucked behind a collapsed disclosure. Layered on the global
+   .console-output rules with a compound selector so it wins regardless of
+   stylesheet order. */
+:global(.console-output).console {
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+  padding-top: 12px;
+}
+
+:global(.console-output).console h4 {
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+.consoleLabel {
+  font: 500 10px/1.5 var(--mono);
+  letter-spacing: .75px;
+  text-transform: uppercase;
+  color: var(--secondary);
+  margin: 12px 0 4px;
+}
+
+.consoleLabelError {
+  color: var(--error);
+}
+
+:global(.console-output).console pre {
+  margin: 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+/* Concept question workspace: the question, directions and hints span the
+   top; the written answer and its Submit / "I do not know" actions sit on the
+   left; the scratch Python sandbox — editor, run controls, and an output pane
+   that is always on screen — sits on the right. Two minmax(0,1fr) tracks keep
+   either side from blowing out the other. Below 880px the tracks collapse to
+   one and the regions stack; both stay visible, because the concept flow has
+   nothing worth tabbing away (only the coding view uses tabs, above).
+   Declared before the coding grid so the 1200px/1199px handoff below keeps
+   owning the coding view alone. */
+.concept {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px 28px;
+  align-items: start;
+}
+
+.conceptHead {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.conceptAnswer,
+.conceptSandbox {
+  min-width: 0;
+}
+
+/* Fixed minimum on the editor track so the Monaco wrapper always inherits a
+   definite height instead of collapsing against an auto-sized parent. */
+.conceptSandbox {
+  display: grid;
+  grid-template-rows: auto minmax(300px, 1fr) auto auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.conceptAnswer :global(.button-row) {
+  margin-top: 12px;
+}
+
+/* Run output: always rendered, never behind a disclosure, so the learner can
+   read stdout, stderr, or "nothing happened" without another click. */
+.scratchOutput {
+  border-top: 1px solid var(--line);
+  background: var(--surface-alt);
+  padding: 12px 16px 14px;
+  min-height: 96px;
+}
+
+.scratchStatus {
+  display: block;
+  font: 500 10px/1.5 var(--mono);
+  letter-spacing: .75px;
+  text-transform: uppercase;
+  color: var(--secondary);
+  margin-bottom: 6px;
+}
+
+.scratchOutput :global(.console-output).console {
+  border-top: 0;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.scratchOutput :global(.console-output).console pre {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.scratchError p {
+  margin: 0;
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.scratchError pre {
+  background: var(--surface-sunken);
+  font-size: 12px;
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+@media (max-width: 879px) {
+  .concept {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (min-width: 1200px) {
+  .layout {
+    --dg-sep: 12px;
+    display: grid;
+    grid-template-columns:
+      minmax(240px, var(--dg-left, 28%))
+      var(--dg-sep)
+      minmax(320px, 1fr)
+      var(--dg-sep)
+      minmax(240px, var(--dg-right, 26%));
+    grid-template-rows: clamp(440px, 62vh, 760px);
+    overflow: hidden;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+
+  :global(.instruction-pane).instructions {
+    border-right: 0;
+    overflow-y: auto;
+    padding: 24px 22px;
+  }
+
+  :global(.code-pane).editor {
+    display: grid;
+    grid-template-rows: 44px minmax(160px, 1fr) auto auto;
+    border-right: 0;
+  }
+
+  :global(.checks-wrap).checks {
+    border-top: 0;
+    border-left: 0;
+    overflow-y: auto;
+  }
+
+  .separator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    background: var(--surface-alt);
+    box-shadow: inset 1px 0 0 var(--line), inset -1px 0 0 var(--line);
+    cursor: col-resize;
+    touch-action: none;
+    user-select: none;
+    outline-offset: -3px;
+  }
+
+  .separator::after {
+    content: "";
+    width: 4px;
+    height: 64px;
+    max-height: 70%;
+    border-radius: 999px;
+    background: var(--line);
+    transition: background 0.12s ease;
+  }
+
+  .separator:hover::after,
+  .separator:active::after,
+  .separator:focus-visible::after {
+    background: var(--action);
+  }
+
+  .separator:focus-visible {
+    outline: 3px solid var(--action);
+  }
+}
+
+@media (max-width: 1199px) {
+  .tabs {
+    display: flex;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px 10px 0 0;
+    padding: 0 12px;
+  }
+
+  .tabs button {
+    flex: 1;
+    border-radius: 0;
+    background: var(--surface);
+    font-size: 12px;
+    color: var(--secondary);
+    border-bottom: 2px solid transparent;
+    padding: 13px 8px;
+  }
+
+  .tabs button[aria-selected="true"] {
+    color: var(--action);
+    border-bottom-color: var(--action);
+  }
+
+  :global(.instruction-pane).instructions,
+  :global(.code-pane).editor,
+  :global(.checks-wrap).checks {
+    display: none;
+    border-top: 0;
+    border-right: 0;
+    border-radius: 0 0 10px 10px;
+  }
+
+  .activeInstructions :global(.instruction-pane).instructions {
+    display: block;
+    padding: 22px 20px;
+  }
+
+  .activeCode :global(.code-pane).editor {
+    display: grid;
+    min-height: 64vh;
+  }
+
+  .activeChecks :global(.checks-wrap).checks {
+    display: block;
+    min-height: 40vh;
+  }
+}

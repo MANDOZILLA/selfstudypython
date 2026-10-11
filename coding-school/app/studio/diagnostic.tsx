@@ -1,21 +1,48 @@
 "use client";
 import Editor, { loader } from "@monaco-editor/react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Studio } from "./use-studio";
 import { DIAGNOSTIC_ITEMS, DIAGNOSTIC_SKILLS, type DiagnosticItem } from "../../curriculum";
 import {
   DIAGNOSTIC_CODING_QUOTA,
   DIAGNOSTIC_MAX_ITEMS,
+  DIAGNOSTIC_UNKNOWN_ANSWER,
   canCompleteDiagnostic,
+  codingUnknownCount,
   deriveDiagnosticProfile,
   type DiagnosticSession,
 } from "../../lib/diagnostic";
+import { startGradingRun, type GradeResult, type GradeRequest } from "../../lib/runner";
+import { runStatus } from "../../lib/studio";
+import { monacoThemeFor, useTheme } from "./theme";
+import styles from "./diagnostic-layout.module.css";
+import { DiagnosticPrompt } from "./diagnostic-prompt";
+import {
+  COMPACT_QUERY, DEFAULT_SPLITS, KEY_BIG_STEP, KEY_STEP, MIN_FRACTION,
+  boundsFor, clampSplits, maxFraction, nudgeSplit, setSplit,
+  type SplitSide, type WorkbenchSplits,
+} from "./workbench-resizer";
 
 loader.config({ paths: { vs: "/monaco/vs" } });
 
 const formatDate = (value: string) => new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 const skillTitle = (skillId: string) => DIAGNOSTIC_SKILLS.find(s => s.id === skillId)?.title ?? skillId;
 const profileLabel: Record<string, string> = { observed: "Observed", uncertain: "Uncertain", untested: "Untested" };
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+
+/** Mobile tab order for the coding view: instructions, code, checks. */
+const CODING_PANELS = ["instructions", "code", "checks"] as const;
+export type DiagnosticCodingPanel = (typeof CODING_PANELS)[number];
+
+/** Roving-tab keyboard navigation across the mobile coding tabs. */
+export function nextDiagnosticPanel(current: DiagnosticCodingPanel, key: string): DiagnosticCodingPanel {
+  const index = CODING_PANELS.indexOf(current);
+  if (key === "ArrowRight") return CODING_PANELS[(index + 1) % CODING_PANELS.length];
+  if (key === "ArrowLeft") return CODING_PANELS[(index - 1 + CODING_PANELS.length) % CODING_PANELS.length];
+  if (key === "Home") return CODING_PANELS[0];
+  if (key === "End") return CODING_PANELS[CODING_PANELS.length - 1];
+  return current;
+}
 
 function ProgressBar({ answered }: { answered: number }) {
   return <div className="diagnostic-progress" role="progressbar" aria-valuenow={answered} aria-valuemin={0} aria-valuemax={DIAGNOSTIC_MAX_ITEMS} aria-label="Diagnostic progress">
@@ -32,70 +59,380 @@ function Hints({ item, revealed, onReveal }: { item: DiagnosticItem; revealed: n
   </div>;
 }
 
-function ConceptItem({ studio, session, item }: { studio: Studio; session: DiagnosticSession; item: DiagnosticItem }) {
-  return <section className="document" aria-label="Diagnostic question">
-    <span className="eyebrow">QUESTION {session.responses.length + 1} · {skillTitle(item.skillId).toUpperCase()}</span>
-    <p className="diagnostic-prompt">{item.prompt}</p>
-    <Hints item={item} revealed={session.draftHints} onReveal={studio.revealDiagnosticHint} />
-    <label className="diagnostic-answer-label" htmlFor="diagnostic-answer">Your answer</label>
-    <textarea id="diagnostic-answer" className="diagnostic-answer" rows={4} value={session.draftAnswer}
-      onChange={event => studio.updateDiagnosticDraft({ answer: event.target.value })}
-      placeholder="Explain in your own words…" />
-    <div className="button-row">
-      <button className="primary" onClick={studio.answerDiagnosticConcept} disabled={!session.draftAnswer.trim()}>Submit answer →</button>
+/** Worker request for the concept-question Python sandbox. Execute-only:
+ *  runner.js skips the grader entirely in mode "execute", so the identifiers
+ *  only have to satisfy protocol.validRequest (non-empty requestId, a named
+ *  .py entrypoint present in files). It never grades, never returns a passing
+ *  result, and carries no submitted solution — just the scratch buffer. */
+export function conceptRunRequest(requestId: string, session: DiagnosticSession, item: DiagnosticItem, code: string): GradeRequest {
+  return {
+    type: "run",
+    requestId,
+    exerciseId: item.id,
+    graderId: "",
+    files: { "main.py": code },
+    entrypoint: "main.py",
+    sessionId: session.id,
+    taskId: item.id,
+    mode: "execute",
+  };
+}
+
+/** What the sandbox output pane should render for a finished (or absent) run. */
+export type ConceptSandboxOutput =
+  | { kind: "idle" }
+  | { kind: "no-output" }
+  | { kind: "output"; stdout: string; stderr: string }
+  | { kind: "error"; message: string; stdout: string };
+
+export function conceptSandboxOutput(result: GradeResult | null): ConceptSandboxOutput {
+  if (!result) return { kind: "idle" };
+  const stdout = result.stdout ?? "";
+  const stderr = result.stderr ?? "";
+  if (!result.executionOk) return { kind: "error", message: stderr, stdout };
+  if (!stdout && !stderr) return { kind: "no-output" };
+  return { kind: "output", stdout, stderr };
+}
+
+/** Scratch editor binding: the value IS the persisted session.draftCode (a
+ *  concept question has no starter solution, so clearing really clears), and
+ *  every keystroke patches only `code` — never the written answer. */
+export function conceptScratchDraft(session: DiagnosticSession, studio: Studio) {
+  return {
+    value: session.draftCode,
+    onChange: (code: string) => studio.updateDiagnosticDraft({ code }),
+  };
+}
+
+export type ConceptRunState = { requestId: string | null; busy: boolean; status: string; result: GradeResult | null };
+export const CONCEPT_RUN_IDLE: ConceptRunState = { requestId: null, busy: false, status: "Ready", result: null };
+
+/** Scratch Python sandbox: editor on top, run controls under it, and an
+ *  output pane that is always on screen. Presentation only — the parent owns
+ *  the run state, so the same markup renders idle, loading, stopped, and
+ *  finished runs. */
+export function ConceptSandbox({ studio, session, item, run, onRun, onStop }: {
+  studio: Studio; session: DiagnosticSession; item: DiagnosticItem;
+  run: ConceptRunState; onRun: () => void; onStop: () => void;
+}) {
+  const [plainEditor, setPlainEditor] = useState(false);
+  const { theme } = useTheme();
+  const monacoTheme = monacoThemeFor(theme);
+  const scratch = conceptScratchDraft(session, studio);
+  const code = scratch.value;
+  const output = conceptSandboxOutput(run.result);
+  const statusLine = run.busy ? run.status : run.result ? run.status : "Ready to run";
+  return <div className={styles.conceptSandbox}>
+    <div className="editor-toolbar"><span>main.py <small>Python sandbox</small></span><button className="text-button" onClick={() => setPlainEditor(!plainEditor)}>{plainEditor ? "Use code editor" : "Use plain text"}</button></div>
+    <div className="editor-canvas">{plainEditor
+      ? <textarea className="plain-editor" aria-label="Python code" value={code} spellCheck={false} onChange={event => scratch.onChange(event.target.value)} />
+      : <Editor path={`diagnostic/${session.id}/${item.id}/main.py`} language="python" theme={monacoTheme} value={code}
+        onChange={value => scratch.onChange(value ?? "")}
+        loading={<p className="editor-loading">Loading code editor… You can also choose “Use plain text”.</p>}
+        options={{ minimap: { enabled: false }, fontFamily: "IBM Plex Mono, monospace", fontSize: 13, lineHeight: 22, padding: { top: 16 }, scrollBeyondLastLine: false, automaticLayout: true, wordWrap: "on", tabSize: 4, ariaLabel: "Scratch Python editor. This code is never graded. Press Escape then Tab to leave the editor.", accessibilitySupport: "on", fixedOverflowWidgets: true }} />}</div>
+    <div className="editor-actions">
+      <button id="diagnostic-run-scratch" className="primary" disabled={run.busy} onClick={onRun}>
+        {run.busy ? run.status : "Run Python"}<span aria-hidden="true"> ▷</span>
+      </button>
+      {run.busy && <button className="secondary" onClick={onStop}>Stop run</button>}
+      <span className="save-indicator" role="status">{studio.storageError ? "Not saved" : "Draft saved locally"}</span>
     </div>
-    <p className="muted">Your answer is saved as you type. It never affects your grade — it only calibrates your starting point.</p>
+    <div className={styles.scratchOutput} role="status" aria-live="polite" aria-label="Scratch run output">
+      <span className={styles.scratchStatus}>{statusLine}</span>
+      {output.kind === "idle" && <p className="muted">Run your Python to see its output here. This sandbox is practice only: nothing it prints is graded, recorded, or counted as evidence.</p>}
+      {output.kind === "no-output" && <p className="muted">Your program finished without printing anything.</p>}
+      {output.kind === "error" && <div className={styles.scratchError}>
+        <p><strong>The run stopped with an error.</strong> {output.message || "No error message was returned."}</p>
+        {output.stdout && <><p className={styles.consoleLabel}>Standard output</p><pre>{output.stdout}</pre></>}
+      </div>}
+      {output.kind === "output" && <div className={`console-output ${styles.console}`}>
+        <h4>Program output</h4>
+        {output.stdout && <><p className={styles.consoleLabel}>Standard output</p><pre>{output.stdout}</pre></>}
+        {output.stderr && <><p className={`${styles.consoleLabel} ${styles.consoleLabelError}`}>Standard error</p><pre>{output.stderr}</pre></>}
+      </div>}
+    </div>
+  </div>;
+}
+
+function ConceptItem({ studio, session, item }: { studio: Studio; session: DiagnosticSession; item: DiagnosticItem }) {
+  const [run, setRun] = useState<ConceptRunState>(CONCEPT_RUN_IDLE);
+  const cancelRef = useRef<{ requestId: string; cancel: () => void } | null>(null);
+
+  // The run belongs to exactly one question. DiagnosticBody keys ConceptItem
+  // on session + item, so leaving the question (or the studio) unmounts this
+  // component, cancels the worker, and drops any output still in flight.
+  useEffect(() => () => {
+    cancelRef.current?.cancel();
+    cancelRef.current = null;
+  }, []);
+
+  function runScratch() {
+    if (cancelRef.current) return;
+    const requestId = crypto.randomUUID();
+    // Register before starting so an early callback still finds its own id;
+    // a mismatched id means the run was superseded and the output is stale.
+    cancelRef.current = { requestId, cancel: () => {} };
+    setRun({ requestId, busy: true, status: "Loading Python", result: null });
+    const cancel = startGradingRun(
+      conceptRunRequest(requestId, session, item, session.draftCode),
+      result => {
+        if (cancelRef.current?.requestId !== requestId) return;
+        cancelRef.current = null;
+        setRun({ requestId, busy: false, status: runStatus(result), result });
+      },
+      undefined,
+      15000,
+      phase => {
+        if (cancelRef.current?.requestId !== requestId) return;
+        const status = phase === "loading" ? "Loading Python" : "Running code";
+        setRun(current => current.requestId === requestId && current.busy ? { ...current, status } : current);
+      },
+    );
+    if (cancelRef.current?.requestId === requestId) cancelRef.current = { requestId, cancel };
+  }
+
+  function stopScratch() {
+    cancelRef.current?.cancel();
+    cancelRef.current = null;
+    setRun(CONCEPT_RUN_IDLE);
+  }
+
+  return <section className={`document ${styles.concept}`} aria-label="Diagnostic question">
+    <div className={styles.conceptHead}>
+      <span className="eyebrow">QUESTION {session.responses.length + 1} · {skillTitle(item.skillId).toUpperCase()}</span>
+      <DiagnosticPrompt prompt={item.prompt} />
+      <Hints item={item} revealed={session.draftHints} onReveal={studio.revealDiagnosticHint} />
+    </div>
+    <div className={styles.conceptAnswer}>
+      <label className="diagnostic-answer-label" htmlFor="diagnostic-answer">Your answer</label>
+      <textarea id="diagnostic-answer" className="diagnostic-answer" rows={4} value={session.draftAnswer}
+        onChange={event => studio.updateDiagnosticDraft({ answer: event.target.value })}
+        placeholder="Explain in your own words…" />
+      <div className="button-row">
+        <button className="primary" onClick={studio.answerDiagnosticConcept} disabled={!session.draftAnswer.trim()}>Submit answer →</button>
+        <button className="secondary" onClick={studio.markDiagnosticUnknown} title="Record a knowledge gap instead of answering. It is never graded.">{DIAGNOSTIC_UNKNOWN_ANSWER}</button>
+      </div>
+      <p className="muted">Your answer is saved as you type. It never affects your grade — it only calibrates your starting point. Stuck? Choose “{DIAGNOSTIC_UNKNOWN_ANSWER}”: it is recorded as a knowledge gap, never graded.</p>
+    </div>
+    <ConceptSandbox studio={studio} session={session} item={item} run={run} onRun={runScratch} onStop={stopScratch} />
   </section>;
 }
 
 function CodingChecks({ studio }: { studio: Studio }) {
   const result = studio.diagnosticResult;
-  if (!result) return null;
-  return <div className="checks-panel" role="status">
-    <h3>{studio.diagnosticStatus}</h3>
-    <ul className="check-results">
-      {result.tests.map(test => <li key={test.id} className={test.passed ? "check-pass" : "check-fail"}>
-        <strong>{test.passed ? "Passed" : "Needs changes"}:</strong> {test.name}
-        {test.detail && <p>{test.detail}</p>}
-      </li>)}
-    </ul>
-    {(result.stdout || result.stderr) && <details><summary>Console output</summary><pre className="console-output">{[result.stdout, result.stderr].filter(Boolean).join("\n")}</pre></details>}
-  </div>;
+  const heading = result || studio.diagnosticBusy ? studio.diagnosticStatus : "Checks and output";
+  return <section className="checks-panel" aria-label="Checks and output">
+    <div role="status" aria-live="polite"><h3>{heading}</h3></div>
+    {!result && <p className="muted">{studio.diagnosticBusy
+      ? "Running your code in this browser. Nothing is recorded until the run finishes."
+      : "Run your Python to see each check, its result, and the console output. Nothing here is graded until you run it, and a failing check never blocks you."}</p>}
+    {result && <>
+      <ul className="check-results">
+        {result.tests.map(test => <li key={test.id} className={test.passed ? "check-pass" : "check-fail"}>
+          <strong>{test.passed ? "Passed" : "Needs changes"}:</strong> {test.name}
+          {test.detail && <p>{test.detail}</p>}
+        </li>)}
+      </ul>
+      {(result.stdout || result.stderr) ? <div className={`console-output ${styles.console}`}>
+        <h4>Console output</h4>
+        {result.stdout && <><p className={styles.consoleLabel}>Standard output</p><pre>{result.stdout}</pre></>}
+        {result.stderr && <><p className={`${styles.consoleLabel} ${styles.consoleLabelError}`}>Standard error</p><pre>{result.stderr}</pre></>}
+      </div> : <p className="muted">Your program produced no standard output or errors.</p>}
+    </>}
+  </section>;
+}
+
+/** Focusable splitter between two coding panes: pointer drag on desktop,
+ *  arrow keys from the keyboard (Shift = larger step, Home/End = extremes).
+ *  Desktop only — unrendered while the mobile tab flow is active. */
+function CodingSeparator({ side, splits, onPointerDown, onPointerMove, onPointerUp, onKeyDown }: {
+  side: SplitSide;
+  splits: WorkbenchSplits;
+  onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
+}) {
+  const value = Math.round(splits[side] * 100);
+  const min = Math.round(MIN_FRACTION[side] * 100);
+  const max = Math.round(maxFraction(side) * 100);
+  const panes = side === "left" ? ["instructions", "code"] : ["code", "checks"];
+  const paneName = side === "left" ? "Instructions" : "Checks";
+  return <div
+    className={styles.separator}
+    data-split={side}
+    role="separator"
+    aria-orientation="vertical"
+    aria-label={`Resize ${panes[0]} and ${panes[1]} panes`}
+    aria-controls={`diagnostic-panel-${panes[0]} diagnostic-panel-${panes[1]}`}
+    aria-valuemin={min}
+    aria-valuemax={max}
+    aria-valuenow={Math.min(Math.max(value, min), max)}
+    aria-valuetext={`${paneName} pane width ${value} percent`}
+    tabIndex={0}
+    onPointerDown={onPointerDown}
+    onPointerMove={onPointerMove}
+    onPointerUp={onPointerUp}
+    onPointerCancel={onPointerUp}
+    onKeyDown={onKeyDown}
+  />;
 }
 
 function CodingItem({ studio, session, item }: { studio: Studio; session: DiagnosticSession; item: DiagnosticItem }) {
   const [plainEditor, setPlainEditor] = useState(false);
+  const [panel, setPanel] = useState<DiagnosticCodingPanel>("instructions");
+  const [mobile, setMobile] = useState(false);
+  const { theme } = useTheme();
+  const monacoTheme = monacoThemeFor(theme);
+  const [splits, setSplits] = useState<WorkbenchSplits>(DEFAULT_SPLITS);
+  const splitsRef = useRef<WorkbenchSplits>(DEFAULT_SPLITS);
+  const layoutRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ side: SplitSide; startX: number; start: WorkbenchSplits; width: number } | null>(null);
+
+  useEffect(() => {
+    // Same tabbed-flow handoff as the workbench: below THREE_PANE_MIN_WIDTH
+    // (1200px) the three panes cannot fit beside the nav, so tabs own the view.
+    const query = window.matchMedia(COMPACT_QUERY);
+    const sync = () => setMobile(query.matches);
+    sync(); query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
+
+  useEffect(() => {
+    const node = layoutRef.current;
+    const width = node?.getBoundingClientRect().width ?? 0;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      const observed = node.getBoundingClientRect().width;
+      if (observed <= 0) return;
+      setSplits(current => {
+        const next = clampSplits(current, observed);
+        splitsRef.current = next;
+        return next;
+      });
+    });
+    if (width > 0) splitsRef.current = clampSplits(splitsRef.current, width);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  function layoutWidth(): number {
+    return layoutRef.current?.getBoundingClientRect().width ?? 0;
+  }
+  function applySplits(next: WorkbenchSplits) {
+    const width = layoutWidth();
+    const clamped = clampSplits(next, width > 0 ? width : undefined);
+    splitsRef.current = clamped;
+    setSplits(clamped);
+  }
+  function startDrag(side: SplitSide, event: React.PointerEvent<HTMLDivElement>) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    const width = layoutWidth();
+    if (!width) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = { side, startX: event.clientX, start: splitsRef.current, width };
+    document.body.classList.add("dg-dragging");
+  }
+  function moveDrag(event: React.PointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const delta = (event.clientX - drag.startX) / drag.width;
+    const value = drag.side === "left" ? drag.start.left + delta : drag.start.right - delta;
+    applySplits(setSplit(drag.start, drag.side, value, drag.width));
+  }
+  function endDrag(event: React.PointerEvent<HTMLDivElement>) {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    document.body.classList.remove("dg-dragging");
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+  function resizeByKey(side: SplitSide, event: React.KeyboardEvent<HTMLDivElement>) {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const width = layoutWidth();
+    const boundsWidth = width > 0 ? width : undefined;
+    const step = (event.shiftKey ? KEY_BIG_STEP : KEY_STEP) * (event.key === "ArrowRight" ? 1 : -1);
+    const next = event.key === "Home" || event.key === "End"
+      ? setSplit(splitsRef.current, side, boundsFor(side, boundsWidth)[event.key === "Home" ? "min" : "max"], boundsWidth)
+      : nudgeSplit(splitsRef.current, side, side === "left" ? step : -step, boundsWidth);
+    applySplits(next);
+  }
+  function selectPanel(next: DiagnosticCodingPanel) {
+    setPanel(next);
+    if (mobile) requestAnimationFrame(() => document.getElementById(`diagnostic-tab-${next}`)?.focus());
+  }
+  function onTabKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, current: DiagnosticCodingPanel) {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    selectPanel(nextDiagnosticPanel(current, event.key));
+  }
+
   const coding = item.coding!;
   const code = session.draftCode.trim() ? session.draftCode : coding.starterCode;
-  return <section className="document" aria-label="Diagnostic coding question">
-    <span className="eyebrow">QUESTION {session.responses.length + 1} · {skillTitle(item.skillId).toUpperCase()}</span>
-    <p className="diagnostic-prompt">{item.prompt}</p>
-    <Hints item={item} revealed={session.draftHints} onReveal={studio.revealDiagnosticHint} />
-    <div className="editor-toolbar"><span>main.py <small>Python</small></span><button className="text-button" onClick={() => setPlainEditor(!plainEditor)}>{plainEditor ? "Use code editor" : "Use plain text"}</button></div>
-    <div className="editor-canvas">{plainEditor
-      ? <textarea className="plain-editor" aria-label="Python code" value={code} spellCheck={false} onChange={event => studio.updateDiagnosticDraft({ code: event.target.value })} />
-      : <Editor path={`diagnostic/${session.id}/${item.id}/main.py`} language="python" theme="light" value={code}
-        onChange={value => studio.updateDiagnosticDraft({ code: value ?? "" })}
-        loading={<p className="editor-loading">Loading code editor… You can also choose “Use plain text”.</p>}
-        options={{ minimap: { enabled: false }, fontFamily: "IBM Plex Mono, monospace", fontSize: 13, lineHeight: 22, padding: { top: 16 }, scrollBeyondLastLine: false, automaticLayout: true, wordWrap: "on", tabSize: 4, ariaLabel: "Python code editor. Press Escape then Tab to leave the editor.", accessibilitySupport: "on", fixedOverflowWidgets: true }} />}</div>
-    {session.infraError && <div className="diagnostic-infra" role="alert">
-      <p><strong>The Python run couldn’t complete.</strong> {session.infraError.message}</p>
-      <p>Your code is preserved. Nothing was recorded for this question.</p>
-      <button className="secondary" onClick={studio.runDiagnosticCode} disabled={studio.diagnosticBusy}>Retry run</button>
-    </div>}
-    {studio.diagnosticStale && <div className="diagnostic-infra" role="alert">
-      <p><strong>The grader was updated while you worked.</strong> Nothing was recorded — run the checks again.</p>
-      <button className="secondary" onClick={() => studio.runDiagnosticCode()} disabled={studio.diagnosticBusy}>Run checks again</button>
-    </div>}
-    <div className="editor-actions">
-      <button id="diagnostic-run-checks" className="primary" disabled={studio.diagnosticBusy} onClick={studio.runDiagnosticCode}>
-        {studio.diagnosticBusy ? studio.diagnosticStatus : "Run checks"}<span aria-hidden="true"> ▷</span>
-      </button>
-      {studio.diagnosticBusy && <button className="secondary" onClick={studio.stopDiagnosticRun}>Stop run</button>}
-      <span className="save-indicator" role="status">{studio.storageError ? "Not saved" : "Draft saved locally"}</span>
+  const activeClass = panel === "instructions" ? styles.activeInstructions : panel === "code" ? styles.activeCode : styles.activeChecks;
+  const panelProps = (name: DiagnosticCodingPanel) => ({
+    role: mobile ? ("tabpanel" as const) : ("region" as const),
+    "aria-labelledby": mobile ? `diagnostic-tab-${name}` : undefined,
+    "aria-label": mobile ? undefined : `Diagnostic ${name === "instructions" ? "instructions" : name === "code" ? "code editor" : "checks and output"}`,
+    hidden: mobile && panel !== name,
+  });
+  return <div
+    className={`diagnostic-coding ${styles.layout} ${activeClass}`}
+    ref={layoutRef}
+    style={{ "--dg-left": `${(splits.left * 100).toFixed(3)}%`, "--dg-right": `${(splits.right * 100).toFixed(3)}%` } as React.CSSProperties}>
+    <div className={styles.tabs} role="tablist" aria-label="Diagnostic coding panels">
+      {CODING_PANELS.map(name => <button
+        key={name}
+        type="button"
+        id={`diagnostic-tab-${name}`}
+        role="tab"
+        aria-controls={`diagnostic-panel-${name}`}
+        aria-selected={panel === name}
+        tabIndex={panel === name ? 0 : -1}
+        onClick={() => setPanel(name)}
+        onKeyDown={event => onTabKeyDown(event, name)}>
+        {name === "instructions" ? "Instructions" : name === "code" ? "Code" : "Checks"}
+      </button>)}
     </div>
-    <CodingChecks studio={studio} />
-  </section>;
+    <section className={`instruction-pane ${styles.instructions}`} id="diagnostic-panel-instructions" {...panelProps("instructions")}>
+      <span className="eyebrow">QUESTION {session.responses.length + 1} · {skillTitle(item.skillId).toUpperCase()}</span>
+      <DiagnosticPrompt prompt={item.prompt} />
+      <Hints item={item} revealed={session.draftHints} onReveal={studio.revealDiagnosticHint} />
+      <p className="muted">Not sure? Choose “{DIAGNOSTIC_UNKNOWN_ANSWER}” beside Run checks. It is recorded as a knowledge gap — never graded, and it never counts as a successful run.</p>
+    </section>
+    {!mobile && <CodingSeparator side="left" splits={splits} onPointerDown={event => startDrag("left", event)} onPointerMove={moveDrag} onPointerUp={endDrag} onKeyDown={event => resizeByKey("left", event)} />}
+    <section className={`code-pane ${styles.editor}`} id="diagnostic-panel-code" {...panelProps("code")}>
+      <div className="editor-toolbar"><span>main.py <small>Python</small></span><button className="text-button" onClick={() => setPlainEditor(!plainEditor)}>{plainEditor ? "Use code editor" : "Use plain text"}</button></div>
+      <div className="editor-canvas">{plainEditor
+        ? <textarea className="plain-editor" aria-label="Python code" value={code} spellCheck={false} onChange={event => studio.updateDiagnosticDraft({ code: event.target.value })} />
+        : <Editor path={`diagnostic/${session.id}/${item.id}/main.py`} language="python" theme={monacoTheme} value={code}
+          onChange={value => studio.updateDiagnosticDraft({ code: value ?? "" })}
+          loading={<p className="editor-loading">Loading code editor… You can also choose “Use plain text”.</p>}
+          options={{ minimap: { enabled: false }, fontFamily: "IBM Plex Mono, monospace", fontSize: 13, lineHeight: 22, padding: { top: 16 }, scrollBeyondLastLine: false, automaticLayout: true, wordWrap: "on", tabSize: 4, ariaLabel: "Python code editor. Press Escape then Tab to leave the editor.", accessibilitySupport: "on", fixedOverflowWidgets: true }} />}</div>
+      {session.infraError && <div className="diagnostic-infra" role="alert">
+        <p><strong>The Python run couldn’t complete.</strong> {session.infraError.message}</p>
+        <p>Your code is preserved. Nothing was recorded for this question.</p>
+        <button className="secondary" onClick={studio.runDiagnosticCode} disabled={studio.diagnosticBusy}>Retry run</button>
+      </div>}
+      {studio.diagnosticStale && <div className="diagnostic-infra" role="alert">
+        <p><strong>The grader was updated while you worked.</strong> Nothing was recorded — run the checks again.</p>
+        <button className="secondary" onClick={() => studio.runDiagnosticCode()} disabled={studio.diagnosticBusy}>Run checks again</button>
+      </div>}
+      <div className="editor-actions">
+        <button id="diagnostic-run-checks" className="primary" disabled={studio.diagnosticBusy} onClick={() => { studio.runDiagnosticCode(); if (mobile) selectPanel("checks"); }}>
+          {studio.diagnosticBusy ? studio.diagnosticStatus : "Run checks"}<span aria-hidden="true"> ▷</span>
+        </button>
+        {studio.diagnosticBusy && <button className="secondary" onClick={studio.stopDiagnosticRun}>Stop run</button>}
+        <button className="secondary" onClick={studio.markDiagnosticUnknown} title="Record a knowledge gap. Any running check is cancelled and no result is graded.">{DIAGNOSTIC_UNKNOWN_ANSWER}</button>
+        <span className="save-indicator" role="status">{studio.storageError ? "Not saved" : "Draft saved locally"}</span>
+      </div>
+    </section>
+    {!mobile && <CodingSeparator side="right" splits={splits} onPointerDown={event => startDrag("right", event)} onPointerMove={moveDrag} onPointerUp={endDrag} onKeyDown={event => resizeByKey("right", event)} />}
+    <aside className={`checks-wrap ${styles.checks}`} id="diagnostic-panel-checks" {...panelProps("checks")}>
+      <CodingChecks studio={studio} />
+    </aside>
+  </div>;
 }
 
 function FinishPanel({ studio, session }: { studio: Studio; session: DiagnosticSession }) {
@@ -106,15 +443,16 @@ function FinishPanel({ studio, session }: { studio: Studio; session: DiagnosticS
     <p>Finishing locks this session and produces your placement. You can retake it any time; retakes start a fresh session.</p>
     <button className="primary" onClick={studio.finishDiagnostic}>See my placement →</button>
   </section>;
-  const quotaBlocked = session.codingSuccessCount < DIAGNOSTIC_CODING_QUOTA;
+  const declarations = codingUnknownCount(session);
+  const quotaBlocked = session.codingSuccessCount < DIAGNOSTIC_CODING_QUOTA && declarations < DIAGNOSTIC_CODING_QUOTA;
   return <section className="document" aria-label="Diagnostic blocked">
     <span className="eyebrow">NOT QUITE FINISHED</span>
     <h2>{quotaBlocked
-      ? `${DIAGNOSTIC_CODING_QUOTA} successful Python runs are required.`
+      ? `${DIAGNOSTIC_CODING_QUOTA} pieces of coding evidence are required.`
       : "A few more questions to go."}</h2>
     <ul>{completion.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>
     {quotaBlocked
-      ? <p className="muted">Each coding question needs its checks to pass with a working Python run. Your code is preserved — keep going.</p>
+      ? <p className="muted">Coding evidence is flexible: each coding question either passes its checks with a working Python run, or is declared with “{DIAGNOSTIC_UNKNOWN_ANSWER}”. You have {plural(session.codingSuccessCount, "successful run")} and {plural(declarations, "declaration")}. Your code is preserved — keep going.</p>
       : <p className="muted">Keep answering questions so every skill area gets a clear read before placement.</p>}
     <div className="button-row"><button className="secondary" onClick={studio.retakeDiagnostic}>Start a fresh retake</button></div>
   </section>;
@@ -122,12 +460,14 @@ function FinishPanel({ studio, session }: { studio: Studio; session: DiagnosticS
 
 function CompletedSession({ studio, session }: { studio: Studio; session: DiagnosticSession }) {
   const { profile, recommendation, legacyCount } = deriveDiagnosticProfile(session);
+  const declarations = codingUnknownCount(session);
   return <>
     <section className="document" aria-label="Diagnostic placement">
       <span className="eyebrow">PLACEMENT · {formatDate(session.completedAt ?? session.startedAt).toUpperCase()}</span>
       <h2>Your starting point</h2>
       <p>{recommendation}</p>
-      {legacyCount > 0 && <p className="muted"><strong>Legacy / unverified:</strong> {legacyCount} response{legacyCount === 1 ? " was" : "s were"} graded with an older version and did not affect placement.</p>}
+      <p className="muted">Coding evidence: {plural(session.codingSuccessCount, "successful Python run")} and {plural(declarations, `honest “${DIAGNOSTIC_UNKNOWN_ANSWER}” declaration`)}. Both count — a declaration is a knowledge gap, never a grade.</p>
+      {legacyCount > 0 && <p className="muted"><strong>Legacy / unverified:</strong> {legacyCount} response{legacyCount === 1 ? "" : "s"} graded with an older version and did not affect placement.</p>}
       <div className="button-row">
         <button className="primary" onClick={studio.retakeDiagnostic}>Retake diagnostic</button>
         <button className="secondary" onClick={() => studio.navigate("today")}>Back to Today</button>
@@ -138,7 +478,7 @@ function CompletedSession({ studio, session }: { studio: Studio; session: Diagno
         <span>{skill.title}{session.responses.some(r => r.itemId && r.skillId === skill.id && r.legacy) ? " · Legacy / unverified" : ""}</span>
         <span className="status-label">{profileLabel[profile[skill.id]] ?? profile[skill.id]}</span>
       </li>)}</ul>
-      <p className="muted">Observed skills shape your review schedule. Uncertain skills are prioritized for review. Placement never unlocks missions or claims mastery.</p>
+      <p className="muted">Placement starts at the AP Computer Science Principles foundation tier, adapted to Python, then branches into advanced skills. Observed skills shape your review schedule, uncertain skills are prioritized for review. Placement never unlocks missions or claims mastery.</p>
     </section>
   </>;
 }
@@ -174,17 +514,18 @@ function DiagnosticBody({ studio }: { studio: Studio }) {
   const latestId = studio.state.diagnosticSessions.at(-1)?.id;
   const interactive = session.status === "in-progress" && session.id === latestId;
   const currentItem = session.currentItemId ? DIAGNOSTIC_ITEMS.find(i => i.id === session.currentItemId) : undefined;
+  const declarations = codingUnknownCount(session);
 
   return <>
     <div className="page-heading">
       <button className="text-button" onClick={() => studio.navigate("today")}>← Today</button>
       <h1 id="page-title" tabIndex={-1}>Placement diagnostic</h1>
-      <p>Adaptive questions across nine skills calibrate your starting point. Wrong answers only move you to easier material — they never block you.</p>
+      <p>Adaptive questions start at the AP Computer Science Principles (AP CSP) foundation tier, adapted to Python, then branch across {DIAGNOSTIC_SKILLS.length} skills. Wrong answers only move you to easier material — they never block you — and “{DIAGNOSTIC_UNKNOWN_ANSWER}” is recorded as a knowledge gap instead of a graded answer.</p>
     </div>
     <section className="document" aria-label="Diagnostic progress">
       <div className="diagnostic-meta">
         <span><strong>{session.responses.length}</strong> of up to {DIAGNOSTIC_MAX_ITEMS} questions</span>
-        <span><strong>{session.codingSuccessCount}</strong> of {DIAGNOSTIC_CODING_QUOTA} successful Python runs</span>
+        <span><strong>{session.codingSuccessCount}</strong> successful Python run{session.codingSuccessCount === 1 ? "" : "s"} + <strong>{declarations}</strong> “{DIAGNOSTIC_UNKNOWN_ANSWER}” declaration{declarations === 1 ? "" : "s"} — {DIAGNOSTIC_CODING_QUOTA} pieces of coding evidence needed, either kind</span>
       </div>
       <ProgressBar answered={session.responses.length} />
       {session.status === "in-progress" && !interactive && <p className="muted">A newer session exists, so this one is read-only. Open the latest session to continue.</p>}
@@ -192,8 +533,8 @@ function DiagnosticBody({ studio }: { studio: Studio }) {
     {session.status === "completed" && <CompletedSession studio={studio} session={session} />}
     {session.status === "in-progress" && interactive && (currentItem
       ? currentItem.kind === "concept"
-        ? <ConceptItem studio={studio} session={session} item={currentItem} />
-        : <CodingItem studio={studio} session={session} item={currentItem} />
+        ? <ConceptItem key={`${session.id}:${currentItem.id}`} studio={studio} session={session} item={currentItem} />
+        : <CodingItem key={currentItem.id} studio={studio} session={session} item={currentItem} />
       : <FinishPanel studio={studio} session={session} />)}
     {session.status === "in-progress" && !interactive && <section className="document empty-state">
       <h2>This session is superseded.</h2>

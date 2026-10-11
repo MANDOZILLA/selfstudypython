@@ -85,18 +85,44 @@ async function desktopFlow(browser) {
   const pageErrors = watchErrors(page);
   await page.goto(BASE_URL, { waitUntil: "networkidle" });
 
-  const startButton = page.getByRole("button", { name: /take the placement diagnostic/i });
+  // The shared server may already host an in-progress session (retakes and
+  // concurrent runs persist server-side), so accept resume as well as start.
+  const startButton = page.getByRole("button", { name: /take the placement diagnostic|resume diagnostic/i });
   // Dashboard boots from the server snapshot asynchronously; wait for the
   // entry to render instead of racing the first paint.
   await startButton.waitFor({ timeout: 15000 }).catch(() => {});
   check("dashboard shows the diagnostic entry", await startButton.isVisible());
   await startButton.click();
   await page.waitForURL(/diagnostic\?session=/);
-  const sessionUrl = page.url();
+  let sessionUrl = page.url();
   check("starting creates a session route", /diagnostic\?session=/.test(sessionUrl), sessionUrl);
 
-  let codingSuccesses = 0;
-  for (let step = 0; step < 16 && codingSuccesses < 2; step++) {
+  // A shared-server resume can land on a quota-blocked session with no
+  // current question (nothing to answer or run). The blocked panel offers
+  // "Start a fresh retake", which commits a new session without clearing
+  // history or touching the placement reset — take it and carry on.
+  const retakeButton = page.getByRole("button", { name: /start a fresh retake/i });
+  await retakeButton.waitFor({ timeout: 3000 }).catch(() => {});
+  const answerBox = page.getByRole("button", { name: /submit answer/i });
+  const runChecks = page.getByRole("button", { name: /run checks/i });
+  const hasActiveItem =
+    (await answerBox.isVisible().catch(() => false)) ||
+    (await runChecks.isVisible().catch(() => false));
+  if (!hasActiveItem && (await retakeButton.isVisible().catch(() => false))) {
+    const staleId = /diagnostic\?session=([^&]+)/.exec(page.url())?.[1];
+    await retakeButton.click();
+    await page.waitForFunction((id) => !location.href.includes(id ?? "@@@"), staleId, { timeout: 15000 }).catch(() => {});
+    check("blocked session escaped via fresh retake", Boolean(staleId) && !page.url().includes(staleId), page.url());
+    sessionUrl = page.url();
+  }
+
+  // Seed successes from the meta line so an already-progressed session counts.
+  const seedMeta = await page.locator(".diagnostic-meta").innerText();
+  let codingSuccesses = Number(/(\d+) successful Python run/.exec(seedMeta)?.[1] ?? 0);
+  // Step budget: the AP CSP foundation tier serves ~5 concept questions
+  // before the first coding item, and the second coding item sits behind
+  // several more two-question skills — 30 covers the path with headroom.
+  for (let step = 0; step < 30 && codingSuccesses < 2; step++) {
     const isCoding = await page.getByRole("button", { name: /run checks/i }).isVisible().catch(() => false);
     if (isCoding) {
       const prompt = await page.locator(".diagnostic-prompt").innerText();
@@ -135,7 +161,7 @@ async function desktopFlow(browser) {
       const metaAfter = await page.locator(".diagnostic-meta").innerText();
       const answeredAfter = Number(/(\d+) of up to 25/.exec(metaAfter)?.[1] ?? -1);
       check("response recorded in progress", answeredAfter === answeredBefore + 1, `${answeredBefore} -> ${answeredAfter}`);
-      const successes = Number(/(\d+) of \d+ successful Python runs/.exec(metaAfter)?.[1] ?? -1);
+      const successes = Number(/(\d+) successful Python run/.exec(metaAfter)?.[1] ?? -1);
       check("successful runs counted", successes >= 0, metaAfter.replace(/\n/g, " "));
       codingSuccesses = Math.max(codingSuccesses, successes);
     } else {

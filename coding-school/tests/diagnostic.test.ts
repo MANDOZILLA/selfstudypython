@@ -4,14 +4,20 @@ import {
   DIAGNOSTIC_MAX_ITEMS,
   DIAGNOSTIC_MIN_ITEMS,
   DIAGNOSTIC_SESSION_VERSION,
+  DIAGNOSTIC_UNKNOWN_ANSWER,
   answerConcept,
   canCompleteDiagnostic,
   classifyGradeResult,
+  codingEvidenceCount,
+  codingUnknownCount,
   completeDiagnosticSession,
   createDiagnosticSession,
   deriveDiagnosticProfile,
+  diagnosticSessionSchema,
   diagnosticSkillState,
+  isUnknownDeclaration,
   markLegacyDiagnosticSession,
+  markUnknown,
   nextDiagnosticItem,
   recordCodingOutcome,
   saveDiagnosticDraft,
@@ -35,22 +41,27 @@ type SyntheticResponse = {
   skillId: string;
   kind: "concept" | "coding";
   correct: boolean;
+  itemId?: string;
+  hintsUsed?: number;
+  dontKnow?: boolean;
+  legacy?: boolean;
 };
 
 /** Build an in-progress session from hand-authored responses, so completion
  *  gates can be tested in isolation from the item-selection engine. */
 function syntheticSession(parts: SyntheticResponse[]): DiagnosticSession {
   const responses = parts.map((part, i) => ({
-    itemId: `synthetic-${i}`,
+    itemId: part.itemId ?? `synthetic-${i}`,
     skillId: part.skillId,
     kind: part.kind,
     correct: part.correct,
-    answer: "",
+    answer: part.dontKnow ? "I do not know" : "",
     code: "",
-    hintsUsed: 0,
+    hintsUsed: part.hintsUsed ?? 0,
     graderId: null,
     graderVersion: null,
-    legacy: false,
+    legacy: part.legacy ?? false,
+    dontKnow: part.dontKnow ?? false,
     respondedAt: "2026-09-13T12:00:00.000Z",
   }));
   return {
@@ -102,10 +113,10 @@ describe("diagnostic session lifecycle", () => {
     expect(third.skillId).not.toBe(firstSkill);
   });
 
-  it("confident path stops in 12-18 items with observed, uncertain, and untested skills", () => {
+  it("confident path stops well before the cap with observed, uncertain, and untested skills", () => {
     const session = runConfidentPath();
     expect(session.responses.length).toBeGreaterThanOrEqual(DIAGNOSTIC_MIN_ITEMS);
-    expect(session.responses.length).toBeLessThanOrEqual(18);
+    expect(session.responses.length).toBeLessThanOrEqual(20);
     expect(nextDiagnosticItem(session)).toBeNull();
     const check = canCompleteDiagnostic(session);
     expect(check.ok).toBe(true);
@@ -119,8 +130,8 @@ describe("diagnostic session lifecycle", () => {
     expect(states).toContain("untested");
     // Confident path probes each skill in order until observed, stopping as
     // soon as a skill is still genuinely uncertain after the quota is met.
-    expect(session.responses.length).toBe(15);
-    expect(states.filter(s => s === "observed")).toHaveLength(7);
+    expect(session.responses.length).toBe(19);
+    expect(states.filter(s => s === "observed")).toHaveLength(9);
     expect(states.filter(s => s === "uncertain")).toHaveLength(1);
     expect(states.filter(s => s === "untested")).toHaveLength(1);
     expect(profile.recommendation.length).toBeGreaterThan(20);
@@ -426,5 +437,450 @@ describe("profile derivation", () => {
 
   it("coding quota constant is positive", () => {
     expect(DIAGNOSTIC_CODING_QUOTA).toBeGreaterThan(0);
+  });
+});
+
+describe("explicit I do not know declarations", () => {
+  it("matches only answers that open with the declaration", () => {
+    for (const phrase of ["I do not know", "i don't know", "I do not know.", "I do not know the answer!", "I do not know how to approach this"]) {
+      expect(isUnknownDeclaration(phrase), phrase).toBe(true);
+    }
+    for (const phrase of ["", "no", "9", "Not sure — maybe 9", "I know this one", "unknown"]) {
+      expect(isUnknownDeclaration(phrase), phrase).toBe(false);
+    }
+  });
+
+  it("records a concept declaration without ever invoking the grader", () => {
+    const session = createDiagnosticSession();
+    const item = byId.get(session.currentItemId!)!;
+    expect(item.kind).toBe("concept");
+    const graderCalls: string[] = [];
+    const spy: ConceptGrader = (itemId, answer) => {
+      graderCalls.push(`${itemId}:${answer}`);
+      return { correct: true, detail: "must never run for a declaration" };
+    };
+    const next = answerConcept(session, item, DIAGNOSTIC_UNKNOWN_ANSWER, spy);
+    expect(graderCalls).toHaveLength(0);
+    const response = next.responses[0];
+    expect(response.dontKnow).toBe(true);
+    expect(response.correct).toBe(false);
+    expect(response.answer).toBe(DIAGNOSTIC_UNKNOWN_ANSWER);
+    expect(response.respondedAt).toBeTruthy();
+    expect(next.currentItemId).not.toBe(item.id);
+    expect(next.draftAnswer).toBe("");
+    expect(next.draftHints).toBe(0);
+  });
+
+  it("treats a typed declaration as a gap and a near-miss sentence as graded", () => {
+    const session = createDiagnosticSession();
+    const item = byId.get(session.currentItemId!)!;
+    const graded: string[] = [];
+    const grader: ConceptGrader = (_id, answer) => { graded.push(answer); return { correct: true, detail: "ok" }; };
+
+    const declared = answerConcept(session, item, "I do not know, honestly", grader);
+    expect(graded).toHaveLength(0);
+    expect(declared.responses[0].dontKnow).toBe(true);
+    expect(declared.responses[0].correct).toBe(false);
+
+    const current = byId.get(declared.currentItemId!)!;
+    const answered = answerConcept(declared, current, "Not sure — maybe 9", grader);
+    expect(graded).toEqual(["Not sure — maybe 9"]);
+    expect(answered.responses[1].dontKnow).toBeFalsy();
+    expect(answered.responses[1].correct).toBe(true);
+  });
+
+  it("records a coding declaration with draft code preserved and no execution", () => {
+    let session = createDiagnosticSession();
+    let guard = 0;
+    while (session.currentItemId && byId.get(session.currentItemId)!.kind !== "coding" && guard++ < 20) {
+      session = answerConcept(session, byId.get(session.currentItemId)!, "stub", alwaysCorrect);
+    }
+    const codingItem = byId.get(session.currentItemId!)!;
+    expect(codingItem.kind).toBe("coding");
+    session = saveDiagnosticDraft(session, { code: "def solve():  # my attempt", hints: 2 });
+    const before = session.codingSuccessCount;
+
+    const next = markUnknown(session, codingItem);
+
+    const response = next.responses.at(-1)!;
+    expect(response.kind).toBe("coding");
+    expect(response.dontKnow).toBe(true);
+    expect(response.correct).toBe(false);
+    expect(response.code).toBe("def solve():  # my attempt");
+    expect(response.hintsUsed).toBe(2);
+    expect(response.graderVersion).toBeNull();
+    expect(next.codingSuccessCount).toBe(before);
+    expect(next.currentItemId).not.toBe(codingItem.id);
+    expect(next.infraError).toBeNull();
+  });
+
+  it("counts distinct current-format coding declarations and ignores legacy ones", () => {
+    const session = syntheticSession([
+      { skillId: "python-functions", kind: "coding", correct: false, itemId: "diag-fn-callforms", dontKnow: true },
+      { skillId: "python-functions", kind: "coding", correct: false, itemId: "diag-fn-callforms", dontKnow: true },
+      { skillId: "file-io", kind: "coding", correct: false, itemId: "diag-file-with", dontKnow: true },
+      { skillId: "http-reliability", kind: "coding", correct: false, itemId: "diag-http-success", dontKnow: true, legacy: true },
+    ]);
+    expect(codingUnknownCount(session)).toBe(2);
+  });
+
+  it("lets two honest coding declarations satisfy the coding gate without any run", () => {
+    const parts: SyntheticResponse[] = [];
+    // Five skills observed with two correct answers each.
+    DIAGNOSTIC_CORE_SKILLS.slice(2, 7).forEach(skillId => {
+      parts.push({ skillId, kind: "concept", correct: true });
+      parts.push({ skillId, kind: "concept", correct: true });
+    });
+    // One skill observed as a pure knowledge gap: two honest declarations.
+    parts.push({ skillId: DIAGNOSTIC_CORE_SKILLS[0], kind: "coding", correct: false, dontKnow: true });
+    parts.push({ skillId: DIAGNOSTIC_CORE_SKILLS[0], kind: "coding", correct: false, dontKnow: true });
+    // One skill still genuinely uncertain (the early-stop gate needs it).
+    parts.push({ skillId: DIAGNOSTIC_CORE_SKILLS[7], kind: "concept", correct: true });
+
+    const allDecided = syntheticSession(parts);
+    expect(allDecided.responses.length).toBe(13);
+    expect(allDecided.codingSuccessCount).toBe(0);
+    expect(codingUnknownCount(allDecided)).toBe(DIAGNOSTIC_CODING_QUOTA);
+    const check = canCompleteDiagnostic(allDecided);
+    expect(check.ok).toBe(true);
+    expect(check.reasons.join(" ")).not.toMatch(/coding/i);
+    const completed = completeDiagnosticSession(allDecided);
+    // The declaration places its skill as a knowledge gap, never as mastery.
+    expect(completed.profile![DIAGNOSTIC_CORE_SKILLS[0]]).toBe("observed");
+    expect(completed.recommendation).toContain("Knowledge gaps");
+  });
+
+  it("still blocks completion when declarations fall short of the quota", () => {
+    const parts: SyntheticResponse[] = [];
+    DIAGNOSTIC_CORE_SKILLS.slice(2, 7).forEach(skillId => {
+      parts.push({ skillId, kind: "concept", correct: true });
+      parts.push({ skillId, kind: "concept", correct: true });
+    });
+    // One observed skill mixing a wrong answer with a single declaration —
+    // evidence exists, but only one of the two required declarations.
+    parts.push({ skillId: DIAGNOSTIC_CORE_SKILLS[0], kind: "concept", correct: false });
+    parts.push({ skillId: DIAGNOSTIC_CORE_SKILLS[0], kind: "coding", correct: false, dontKnow: true });
+    parts.push({ skillId: DIAGNOSTIC_CORE_SKILLS[7], kind: "concept", correct: true });
+
+    const session = syntheticSession(parts);
+    expect(codingUnknownCount(session)).toBe(1);
+    expect(session.codingSuccessCount).toBe(0);
+    const check = canCompleteDiagnostic(session);
+    expect(check.ok).toBe(false);
+    expect(check.reasons.join(" ")).toMatch(/coding/i);
+    expect(() => completeDiagnosticSession(session)).toThrow(/coding/i);
+  });
+
+  it("never re-serves a coding item already declared unknown, but retries graded failures", () => {
+    const twoConceptIds = (skillId: string) =>
+      DIAGNOSTIC_ITEMS.filter(i => i.skillId === skillId && i.kind === "concept").slice(0, 2).map(i => i.id);
+    const responses: SyntheticResponse[] = [];
+    // Eight skills observed with two correct concept answers each.
+    for (const skillId of DIAGNOSTIC_CORE_SKILLS.filter(id =>
+      id !== "python-functions" && id !== "http-reliability" && id !== "file-io")) {
+      const [a, b] = twoConceptIds(skillId);
+      responses.push({ skillId, kind: "concept", correct: true, itemId: a });
+      responses.push({ skillId, kind: "concept", correct: true, itemId: b });
+    }
+    // Three skills observed through a wrong concept + their coding item: one
+    // declared and two graded failures, so the two-piece coding evidence
+    // quota is still unmet and the failed items stay in play.
+    const special: [string, string, boolean][] = [
+      ["python-functions", "diag-fn-callforms", true],
+      ["http-reliability", "diag-http-success", false],
+      ["file-io", "diag-file-with", false],
+    ];
+    for (const [skillId, codingId, declared] of special) {
+      responses.push({ skillId, kind: "concept", correct: false, itemId: twoConceptIds(skillId)[0] });
+      responses.push({ skillId, kind: "coding", correct: false, itemId: codingId, dontKnow: declared });
+    }
+    const declaredIds = ["diag-fn-callforms", "diag-http-success", "diag-file-with"];
+
+    // One declaration: one graded failure is re-offered for an honest retry
+    // while the quota is unmet; the declared item is never served again.
+    const withFailure = syntheticSession(responses);
+    expect(withFailure.responses.length).toBeLessThan(DIAGNOSTIC_MAX_ITEMS);
+    expect(codingUnknownCount(withFailure)).toBe(1);
+    expect(withFailure.codingSuccessCount).toBe(0);
+    const retry = nextDiagnosticItem(withFailure);
+    expect(retry?.id).toBe("diag-http-success");
+
+    // A second declaration completes the two-piece quota: the engine stops
+    // forcing coding questions and falls through to a fresh concept.
+    const evidenceMet = syntheticSession(responses.map(r =>
+      r.itemId === "diag-http-success" ? { ...r, dontKnow: true } : r));
+    expect(codingUnknownCount(evidenceMet)).toBe(DIAGNOSTIC_CODING_QUOTA);
+    const afterEvidence = nextDiagnosticItem(evidenceMet);
+    expect(afterEvidence).not.toBeNull();
+    expect(declaredIds).not.toContain(afterEvidence!.id);
+    expect(afterEvidence!.kind).toBe("concept");
+
+    // All three declared: nothing coding is re-served — the engine falls
+    // through to a fresh concept while the other gates finish.
+    const allDeclared = syntheticSession(responses.map(r =>
+      r.itemId === "diag-http-success" || r.itemId === "diag-file-with" ? { ...r, dontKnow: true } : r));
+    expect(codingUnknownCount(allDeclared)).toBe(3);
+    const next = nextDiagnosticItem(allDeclared);
+    expect(next).not.toBeNull();
+    expect(declaredIds).not.toContain(next!.id);
+    expect(next!.kind).toBe("concept");
+  });
+});
+
+describe("honest evidence: gaps, wrong answers, and hints", () => {
+  it("splits per-skill evidence and keeps pure gaps out of the wrong-answer list", () => {
+    const session = syntheticSession([
+      { skillId: "csp-foundations", kind: "concept", correct: true, hintsUsed: 0 },
+      { skillId: "csp-foundations", kind: "concept", correct: true, hintsUsed: 2 },
+      { skillId: "csp-data-systems", kind: "concept", correct: false },
+      { skillId: "csp-data-systems", kind: "concept", correct: false, dontKnow: true },
+      { skillId: "json-validation", kind: "concept", correct: false, dontKnow: true },
+      { skillId: "json-validation", kind: "concept", correct: false, dontKnow: true },
+      { skillId: "python-functions", kind: "concept", correct: true, hintsUsed: 1 },
+    ]);
+    const { evidence, knowledgeGaps, hintDependent, recommendation } = deriveDiagnosticProfile(session);
+
+    expect(evidence["csp-foundations"]).toEqual({ independent: 1, hinted: 1, wrong: 0, unknown: 0 });
+    expect(evidence["csp-data-systems"]).toEqual({ independent: 0, hinted: 0, wrong: 1, unknown: 1 });
+    expect(evidence["json-validation"]).toEqual({ independent: 0, hinted: 0, wrong: 0, unknown: 2 });
+    expect(evidence["python-functions"]).toEqual({ independent: 0, hinted: 1, wrong: 0, unknown: 0 });
+    expect(evidence["csv-cleaning"]).toEqual({ independent: 0, hinted: 0, wrong: 0, unknown: 0 });
+
+    expect(knowledgeGaps).toContain("json-validation");
+    expect(knowledgeGaps).not.toContain("csp-data-systems"); // mixed: has a wrong answer too
+    expect(hintDependent).toContain("python-functions");
+    expect(hintDependent).not.toContain("csp-foundations"); // one independent correct answer
+
+    // The gap skill is reported as a knowledge gap, not lumped into "needs practice".
+    expect(recommendation).toMatch(/Knowledge gaps .*json-validation/);
+    const needsPractice = /Needs practice: ([^.]+)\./.exec(recommendation)?.[1] ?? "";
+    expect(needsPractice).not.toContain("json-validation");
+    expect(needsPractice).toContain("csp-data-systems");
+    expect(recommendation).toContain("Hint-dependent: python-functions");
+  });
+
+  it("reports the honest tally and the AP CSP starting level", () => {
+    const session = syntheticSession([
+      { skillId: "csp-foundations", kind: "concept", correct: true, hintsUsed: 0 },
+      { skillId: "csp-foundations", kind: "concept", correct: true, hintsUsed: 2 },
+      { skillId: "csp-data-systems", kind: "concept", correct: false },
+      { skillId: "json-validation", kind: "concept", correct: false, dontKnow: true },
+    ]);
+    const { recommendation } = deriveDiagnosticProfile(session);
+    expect(recommendation).toContain(
+      'Answers: 1 correct on your own, 1 correct after hints, 1 incorrect, 1 declared "I do not know".',
+    );
+    expect(recommendation).toContain("Starting level: AP Computer Science Principles foundations");
+    expect(recommendation).toMatch(/never grants mission completion or mastery/i);
+  });
+});
+
+describe("versioned migration preserves stored sessions", () => {
+  it("bumped the format version for the v2 bank and evidence fields", () => {
+    expect(DIAGNOSTIC_SESSION_VERSION).not.toBe("1.0.0");
+    expect(createDiagnosticSession().formatVersion).toBe(DIAGNOSTIC_SESSION_VERSION);
+  });
+
+  it("parses pre-v2 responses lacking dontKnow and keeps their evidence legacy, not current", () => {
+    const stored = {
+      id: "stored-v1", formatVersion: "1.0.0", status: "in-progress",
+      startedAt: "2026-08-01T00:00:00.000Z", completedAt: null,
+      responses: [{
+        itemId: "diag-fn-loop-var", skillId: "python-functions", kind: "concept", correct: true,
+        answer: "x", code: "", hintsUsed: 1, graderId: "diagnostic-concept-diag-fn-loop-var",
+        graderVersion: null, legacy: false, respondedAt: "2026-08-01T00:05:00.000Z",
+      }],
+      currentItemId: "diag-fn-return", draftAnswer: "half typed", draftCode: "", draftHints: 1,
+      codingSuccessCount: 0, infraError: null, profile: null, recommendation: null,
+    };
+    const parsed = diagnosticSessionSchema.safeParse(stored);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    // The missing field is tolerated (no fabrication), and the whole session
+    // survives a JSON round-trip the way browser storage persists it.
+    expect(parsed.data.responses[0].dontKnow).toBeFalsy();
+    const roundTripped = diagnosticSessionSchema.safeParse(JSON.parse(JSON.stringify(parsed.data)));
+    expect(roundTripped.success).toBe(true);
+
+    const migrated = markLegacyDiagnosticSession(parsed.data);
+    expect(migrated.id).toBe("stored-v1");
+    expect(migrated.draftAnswer).toBe("half typed");
+    expect(migrated.responses).toHaveLength(1);
+    expect(migrated.responses[0].answer).toBe("x");
+    expect(migrated.responses[0].hintsUsed).toBe(1);
+    expect(migrated.responses[0].legacy).toBe(true);
+    // Stale evidence no longer counts toward placement.
+    expect(diagnosticSkillState(migrated, "python-functions")).toBe("untested");
+  });
+
+  it("round-trips current-version declarations through the session schema", () => {
+    let session = createDiagnosticSession();
+    const item = byId.get(session.currentItemId!)!;
+    session = markUnknown(session, item);
+    const round = diagnosticSessionSchema.parse(JSON.parse(JSON.stringify(session)));
+    expect(round.responses[0].dontKnow).toBe(true);
+    expect(round.responses[0].correct).toBe(false);
+    expect(markLegacyDiagnosticSession(round).responses[0].legacy).toBe(false);
+  });
+});
+
+describe("two-piece coding evidence gate", () => {
+  /** Five observed skills plus one still-uncertain skill at twelve responses:
+   *  only the coding gate may block these sessions. */
+  function readySession(extra: SyntheticResponse[]): DiagnosticSession {
+    const parts: SyntheticResponse[] = [];
+    DIAGNOSTIC_CORE_SKILLS.slice(2, 7).forEach(skillId => {
+      parts.push({ skillId, kind: "concept", correct: true });
+      parts.push({ skillId, kind: "concept", correct: true });
+    });
+    parts.push({ skillId: DIAGNOSTIC_CORE_SKILLS[7], kind: "concept", correct: true });
+    parts.push(...extra);
+    return syntheticSession(parts);
+  }
+
+  it("lets one successful run plus one distinct declaration satisfy the gate", () => {
+    const session = readySession([
+      { skillId: "http-reliability", kind: "coding", correct: true, itemId: "diag-http-success" },
+      { skillId: "file-io", kind: "coding", correct: false, itemId: "diag-file-with", dontKnow: true },
+    ]);
+    expect(session.codingSuccessCount).toBe(1);
+    expect(codingUnknownCount(session)).toBe(1);
+    expect(codingEvidenceCount(session)).toBe(DIAGNOSTIC_CODING_QUOTA);
+    const check = canCompleteDiagnostic(session);
+    expect(check.ok, check.reasons.join("; ")).toBe(true);
+    expect(completeDiagnosticSession(session).status).toBe("completed");
+  });
+
+  it("never counts hints, graded failures, or legacy runs as coding evidence", () => {
+    const hintOnly = readySession([
+      { skillId: "json-validation", kind: "concept", correct: true, hintsUsed: 2 },
+    ]);
+    expect(hintOnly.responses.at(-1)?.hintsUsed).toBe(2);
+    const failedRun = readySession([
+      { skillId: "http-reliability", kind: "coding", correct: false, itemId: "diag-http-success" },
+    ]);
+    const legacyRun = readySession([
+      { skillId: "http-reliability", kind: "coding", correct: true, itemId: "diag-http-success", legacy: true },
+    ]);
+
+    for (const session of [hintOnly, failedRun, legacyRun]) {
+      expect(session.responses.length).toBe(DIAGNOSTIC_MIN_ITEMS);
+      expect(codingEvidenceCount(session)).toBe(0);
+      const check = canCompleteDiagnostic(session);
+      expect(check.ok).toBe(false);
+      expect(check.reasons).toHaveLength(1);
+      expect(check.reasons[0]).toMatch(/coding/i);
+      expect(() => completeDiagnosticSession(session)).toThrow(/coding/i);
+    }
+  });
+
+  it("does not let hints pad a lone declaration into the quota", () => {
+    const session = readySession([
+      { skillId: "file-io", kind: "coding", correct: false, itemId: "diag-file-with", dontKnow: true },
+      { skillId: "json-validation", kind: "concept", correct: true, hintsUsed: 3 },
+    ]);
+    expect(codingUnknownCount(session)).toBe(1);
+    expect(codingEvidenceCount(session)).toBe(1);
+    const check = canCompleteDiagnostic(session);
+    expect(check.ok).toBe(false);
+    expect(check.reasons).toHaveLength(1);
+    expect(check.reasons[0]).toMatch(/coding/i);
+  });
+
+  it("counts a successful run and a declaration only once each, on distinct coding items", () => {
+    const sameItemTwice = syntheticSession([
+      { skillId: "file-io", kind: "coding", correct: true, itemId: "diag-file-with" },
+      { skillId: "file-io", kind: "coding", correct: false, itemId: "diag-file-with", dontKnow: true },
+    ]);
+    expect(codingEvidenceCount(sameItemTwice)).toBe(1);
+    const twoItems = syntheticSession([
+      { skillId: "file-io", kind: "coding", correct: true, itemId: "diag-file-with" },
+      { skillId: "http-reliability", kind: "coding", correct: false, itemId: "diag-http-success", dontKnow: true },
+    ]);
+    expect(codingEvidenceCount(twoItems)).toBe(DIAGNOSTIC_CODING_QUOTA);
+  });
+});
+
+describe("real-bank simulation: a learner who declares on every item", () => {
+  it("serves two distinct coding questions and completes without a 25-item dead end", () => {
+    let session = createDiagnosticSession(new Date("2026-09-13T12:00:00.000Z"));
+    const served: string[] = [];
+    let guard = 0;
+    while (session.currentItemId && guard++ < DIAGNOSTIC_MAX_ITEMS + 5) {
+      const item = byId.get(session.currentItemId)!;
+      served.push(item.id);
+      session = markUnknown(session, item);
+    }
+    // The engine, not the guard, stopped serving items — and it stopped well
+    // before the 25-item cap, so the declaration path never dead-ends.
+    expect(session.currentItemId).toBeNull();
+    expect(session.responses).toHaveLength(served.length);
+    expect(session.responses.length).toBeGreaterThanOrEqual(DIAGNOSTIC_MIN_ITEMS);
+    expect(session.responses.length).toBeLessThan(DIAGNOSTIC_MAX_ITEMS);
+
+    const codingServed = [...new Set(served.filter(id => byId.get(id)!.kind === "coding"))];
+    expect(codingServed.length).toBeGreaterThanOrEqual(DIAGNOSTIC_CODING_QUOTA);
+    expect(codingUnknownCount(session)).toBe(codingServed.length);
+    expect(codingEvidenceCount(session)).toBe(codingServed.length);
+    expect(session.codingSuccessCount).toBe(0);
+
+    const check = canCompleteDiagnostic(session);
+    expect(check.ok, check.reasons.join("; ")).toBe(true);
+    const completed = completeDiagnosticSession(session);
+    expect(completed.status).toBe("completed");
+    // Every response is an honest knowledge gap: never a grade, never mastery.
+    expect(completed.responses.every(r => r.dontKnow === true && !r.correct)).toBe(true);
+    expect(completed.recommendation).not.toContain("Solid ground");
+    expect(completed.recommendation).toMatch(/Knowledge gaps/);
+    const gaps = /Knowledge gaps[^:]*: ([^.]+)\./.exec(completed.recommendation ?? "")?.[1] ?? "";
+    expect(gaps).toContain("csp-foundations");
+  });
+
+  it("serves coding questions from the real bank in a reachable order", () => {
+    let session = createDiagnosticSession(new Date("2026-09-13T12:00:00.000Z"));
+    const codingServed: string[] = [];
+    let guard = 0;
+    while (session.currentItemId && guard++ < DIAGNOSTIC_MAX_ITEMS + 5) {
+      const item = byId.get(session.currentItemId)!;
+      if (item.kind === "coding") codingServed.push(item.id);
+      session = markUnknown(session, item);
+    }
+    expect(new Set(codingServed).size).toBeGreaterThanOrEqual(DIAGNOSTIC_CODING_QUOTA);
+    for (const id of codingServed) expect(byId.get(id)?.kind).toBe("coding");
+    // Two distinct coding questions arrive well before the item cap.
+    const firstTwo = [...new Set(codingServed)].slice(0, DIAGNOSTIC_CODING_QUOTA);
+    expect(firstTwo).toHaveLength(DIAGNOSTIC_CODING_QUOTA);
+  });
+});
+
+describe("placement wording separates solid ground from assisted success", () => {
+  it("keeps hint-only successes out of Solid ground and reports them as emerging", () => {
+    const session = syntheticSession([
+      { skillId: "python-functions", kind: "concept", correct: true, hintsUsed: 1 },
+      { skillId: "python-functions", kind: "concept", correct: true, hintsUsed: 3 },
+      { skillId: "data-structures", kind: "concept", correct: true, hintsUsed: 0 },
+      { skillId: "data-structures", kind: "concept", correct: true, hintsUsed: 0 },
+    ]);
+    const { recommendation, hintDependent, evidence } = deriveDiagnosticProfile(session);
+
+    expect(evidence["python-functions"]).toEqual({ independent: 0, hinted: 2, wrong: 0, unknown: 0 });
+    expect(hintDependent).toContain("python-functions");
+    expect(hintDependent).not.toContain("data-structures");
+
+    const solid = /Solid ground: ([^.]+)\./.exec(recommendation)?.[1] ?? "";
+    expect(solid).toContain("data-structures");
+    expect(solid).not.toContain("python-functions");
+    expect(recommendation).toMatch(/Hint-dependent: python-functions[^.]*emerging, assisted success, not solid ground/);
+  });
+
+  it("still reports a mixed skill with unaided successes as solid ground", () => {
+    const session = syntheticSession([
+      { skillId: "csv-cleaning", kind: "concept", correct: true, hintsUsed: 0 },
+      { skillId: "csv-cleaning", kind: "concept", correct: true, hintsUsed: 2 },
+      { skillId: "csv-cleaning", kind: "concept", correct: true, hintsUsed: 0 },
+    ]);
+    const { recommendation, hintDependent } = deriveDiagnosticProfile(session);
+    expect(hintDependent).not.toContain("csv-cleaning");
+    expect(recommendation).toContain("Solid ground: csv-cleaning");
   });
 });

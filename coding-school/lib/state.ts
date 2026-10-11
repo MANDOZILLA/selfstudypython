@@ -310,6 +310,16 @@ export function replaceDiagnosticSession(state: LearningState, session: Diagnost
   }
   return next;
 }
+/** Clear placement only: every diagnostic session and the derived summary go,
+ *  while missions, attempts, checkpoint assessments, and portfolio snapshots
+ *  are preserved verbatim. Placement is recalibrated; the learning record is
+ *  not. Callers persist the result through the normal state commit. */
+export function resetPlacement(state: LearningState): LearningState {
+  const next = clone(state);
+  next.diagnosticSessions = [];
+  next.diagnostic = { completed: false, completedAt: null };
+  return next;
+}
 function storage(): Storage | undefined {
   if (typeof window === "undefined") return undefined;
   try { return window.localStorage; } catch { return undefined; }
