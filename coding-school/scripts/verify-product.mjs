@@ -16,7 +16,7 @@
  *   9. diagnostic browser flow       (scripts/verify-diagnostic.mjs)
  *  10. mission browser flow          (scripts/verify-missions.mjs)
  *  11. portfolio export / ZIP       (tests/zip-export.test.ts)
- *  12. tutor fallback + Learn Mode  (scripts/verify-tutor.mjs)
+ *  12. deterministic tutor + independent mode (scripts/verify-tutor.mjs)
  *  13. desktop 1280x720 journey     (scripts/verify-desktop.mjs)
  *  14. mobile 375x812 journey       (scripts/verify-mobile.mjs)
  *  15. durable state sync           (temp DB populated via /api/state)
@@ -35,8 +35,6 @@
  *   ever touching the real learner database.
  * - One shared production server (next start) serves all browser stages; it
  *   is always stopped in the finally block.
- * - The server is started WITHOUT OPENROUTER_API_KEY so stage 12 exercises
- *   the deterministic fallback path.
  * - Noninteractive (CI=true) and idempotent: rerunning is safe; build output
  *   (.next) is gitignored and never committed.
  */
@@ -159,8 +157,7 @@ async function main() {
     await stage("eslint", () => run("npx", ["eslint", ...LINT_PATHS]));
     await stage("production build", () => run("npm", ["run", "build"]));
 
-    // One shared production server for every browser stage. The tutor stage
-    // requires the fallback path, so the provider key is stripped here.
+    // One shared production server for every browser stage.
     // The server writes learner state to a fresh temporary database so the
     // browser stages exercise the real durable-sync path; stage 15 asserts
     // that temp DB was populated, and the DB-integrity check below still
@@ -175,16 +172,15 @@ async function main() {
     tempDbDir = tempDbDir_;
     tempDbPath = join(tempDbDir, "verify.db");
     const serverEnv = { ...process.env, CODING_SCHOOL_DB_PATH: tempDbPath };
-    delete serverEnv.OPENROUTER_API_KEY;
     server = spawn(process.execPath, [resolveBin("next"), "start", "--hostname", "127.0.0.1", "--port", String(PORT)], { cwd: ROOT, stdio: "inherit", env: serverEnv });
     await waitForServer(BASE_URL);
-    console.log(`Production server up at ${BASE_URL} (OPENROUTER_API_KEY unset, CODING_SCHOOL_DB_PATH=${tempDbPath})`);
+    console.log(`Production server up at ${BASE_URL} (CODING_SCHOOL_DB_PATH=${tempDbPath})`);
 
     await stage("runtime-boundary trace", () => run("npx", ["vitest", "run", "tests/runtime-boundary.test.ts"]));
     await stage("diagnostic browser flow", () => run("node", ["scripts/verify-diagnostic.mjs"], { BASE_URL }));
     await stage("mission browser flow", () => run("node", ["scripts/verify-missions.mjs"], { BASE_URL }));
     await stage("portfolio export / ZIP inspection", () => run("npx", ["vitest", "run", "tests/zip-export.test.ts"]));
-    await stage("tutor fallback + Learning Mode", () => run("node", ["scripts/verify-tutor.mjs"], { BASE_URL }));
+    await stage("deterministic tutor + independent mode", () => run("node", ["scripts/verify-tutor.mjs"], { BASE_URL }));
     await stage("desktop 1280x720 journey", () => run("node", ["scripts/verify-desktop.mjs"], { BASE_URL }));
     await stage("mobile 375x812 journey", () => run("node", ["scripts/verify-mobile.mjs"], { BASE_URL }));
     await stage("durable state sync", async () => {

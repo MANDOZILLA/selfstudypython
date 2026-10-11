@@ -9,7 +9,7 @@ import { getMission } from "../../lib/curriculum";
 import { startGradingRun, type GradeResult } from "../../lib/runner";
 import { gradeAssessmentWritten } from "../../lib/assessment-grading";
 import { getAssessmentSkillStatus, recordAssessmentAttempt, type AssessmentTaskAttempt } from "../../lib/state";
-import { monacoThemeFor, useTheme } from "./theme";
+import { defineSnakepitThemes, monacoThemeFor, useTheme } from "./theme";
 import { graderCatalog } from "../../public/grading/catalog.js";
 import { failureResult } from "../../public/grading/protocol.js";
 
@@ -601,6 +601,7 @@ export function TaskRunner({ studio, assessment, task, draft, setDraft, layout: 
             path={`assessment/${assessment.id}/${task.id}/main.py`}
             language="python"
             theme={monacoTheme}
+            beforeMount={defineSnakepitThemes}
             value={draft.code}
             onChange={value => updateCode(value ?? "")}
             loading={<p className="editor-loading">Loading code editor… You can also choose “Use plain text”.</p>}

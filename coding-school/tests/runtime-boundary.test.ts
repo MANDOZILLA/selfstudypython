@@ -4,16 +4,15 @@ import { join, relative } from "node:path";
 
 /**
  * Runtime-boundary trace: server-only modules must never be imported from
- * client-rendered code paths. This is the static half of the verification
- * stage; the browser stages confirm no secret reaches the page at runtime.
+ * client-rendered code paths.
  *
  * Boundaries:
  * - lib/server/** and app/api/** route modules are server-only: they may
- *   touch OPENROUTER_API_KEY and the SQLite file. No component/, page, or
+ *   touch the SQLite file. No component/, page, or
  *   other client module may import them.
  * - No client-rendered module may reference process.env secrets directly.
  * - Public worker bundles (public/grading/**, public/python-worker/**) must
- *   not reference OPENROUTER or fetch credentials.
+ *   not reference credentials.
  */
 const ROOT = join(__dirname, "..");
 
@@ -37,13 +36,11 @@ const rel = (f: string) => relative(ROOT, f);
  *  it is on this list or lives under a server-only path — never because of
  *  a comment it carries about itself. */
 const SERVER_ONLY_PREFIXES = ["lib/server/", "db/"];
-const SERVER_ONLY_FILES = new Set(["lib/tutor-provider.ts"]);
 
 function isServerOnly(f: string): boolean {
   const r = rel(f).replace(/\\/g, "/");
   if (
     SERVER_ONLY_PREFIXES.some(prefix => r.startsWith(prefix)) ||
-    SERVER_ONLY_FILES.has(r) ||
     /app\/api\/.*\/route\.(ts|js)$/.test(r)
   ) return true;
   return false;
@@ -78,8 +75,7 @@ describe("runtime boundaries", () => {
         if (
           normalized.startsWith("lib/server") ||
           normalized.startsWith("db/") ||
-          normalized.includes("app/api") ||
-          normalized.endsWith("/openrouter")
+          normalized.includes("app/api")
         ) {
           violations.push(`${rel(f)} imports ${imp}`);
         }
@@ -89,7 +85,7 @@ describe("runtime boundaries", () => {
   });
 
   it("no client-rendered module references secret environment variables", () => {
-    const secretRe = /process\.env\.(OPENROUTER_API_KEY|TUTOR_MODEL|[\w]*(?:SECRET|KEY|TOKEN|PASSWORD)[\w]*)/;
+    const secretRe = /process\.env\.[\w]*(?:SECRET|KEY|TOKEN|PASSWORD)[\w]*/;
     const violations = allFiles
       .filter(f => isClientRendered(f) && !isServerOnly(f))
       .filter(f => !/\.test\.|tests\//.test(rel(f)))
@@ -104,20 +100,19 @@ describe("runtime boundaries", () => {
       const r = rel(f).replace(/\\/g, "/");
       if (!r.startsWith("public/grading/") && !r.startsWith("public/python-worker/") && r !== "public/python-worker.js") continue;
       const src = readFileSync(f, "utf8");
-      if (/OPENROUTER|api\/tutor/i.test(src)) violations.push(r);
+      if (/process\.env\.[\w]*(?:SECRET|KEY|TOKEN|PASSWORD)[\w]*/i.test(src)) violations.push(r);
     }
     expect(violations, "tutor wiring inside worker bundles").toEqual([]);
   });
 
-  it("tutor client reaches only the same-origin API route", () => {
+  it("client modules do not hardcode external service URLs", () => {
     const client = allFiles.find(f => rel(f).replace(/\\/g, "/") === "app/studio/tutor-panel.tsx")
       ?? allFiles.find(f => /tutor/i.test(rel(f)) && isClientRendered(f) && !isServerOnly(f));
     if (client) {
       const src = readFileSync(client, "utf8");
       const urls = [...src.matchAll(/https?:\/\/[^\s"'`]+/g)].map(m => m[0]);
-      const external = urls.filter(u => !u.startsWith("https://openrouter.ai") && !u.includes("localhost"));
+      const external = urls.filter(u => !u.includes("localhost"));
       expect(external, "external URLs in tutor client").toEqual([]);
-      expect(src.includes("openrouter.ai"), "tutor client must not call OpenRouter directly").toBe(false);
     }
   });
 });

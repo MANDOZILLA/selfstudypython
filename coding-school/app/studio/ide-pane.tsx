@@ -3,7 +3,7 @@
 import Editor from "@monaco-editor/react";
 import { useMemo, useState } from "react";
 import type { Studio } from "./use-studio";
-import { monacoThemeFor, useTheme } from "./theme";
+import { defineSnakepitThemes, monacoThemeFor, useTheme } from "./theme";
 import {
   addProjectFile, createResetBackup, deleteProjectFile, editableFiles, resolveEntrypoint, sanitizeProjectFiles,
   type IdeProject, type IdeVariantExtras,
@@ -183,7 +183,7 @@ export function IdePane({ studio, onAfterRun }: { studio: Studio; onAfterRun?: (
         <pre aria-label={`Fixture ${viewingFixture}`}>{editorValue || "(empty)"}</pre>
       </div> : plainEditor
         ? <textarea className="plain-editor" aria-label={`Python code in ${project.activeFile}`} value={editorValue} spellCheck={false} onChange={event => editActiveFile(event.target.value)} />
-        : <Editor path={`${runId}/${taskId}/${project.activeFile}`} language="python" theme={monacoTheme} value={editorValue}
+        : <Editor path={`${runId}/${taskId}/${project.activeFile}`} language="python" theme={monacoTheme} beforeMount={defineSnakepitThemes} value={editorValue}
           onChange={value => editActiveFile(value ?? "")}
           loading={<p className="editor-loading">Loading code editor… You can also choose “Use plain text”.</p>}
           options={{ minimap: { enabled: false }, fontFamily: "IBM Plex Mono, monospace", fontSize: 13, lineHeight: 22, padding: { top: 16 }, scrollBeyondLastLine: false, automaticLayout: true, wordWrap: "on", tabSize: 4, ariaLabel: `Python code editor for ${project.activeFile}. Press Escape then Tab to leave the editor.`, accessibilitySupport: "on", fixedOverflowWidgets: true }}

@@ -1,14 +1,10 @@
 #!/usr/bin/env node
 /**
- * Verification for the Task 6 tutor: deterministic fallback and Learning Mode.
+ * Verification for the deterministic tutor and independent mode.
  *
- * The server is expected to run WITHOUT OPENROUTER_API_KEY (the orchestrator
- * strips it), so the provider path is unreachable and the deterministic
- * built-in tutor must answer. Covers:
+ * Covers:
  *   - guided-practice code task shows the "Stuck?" tutor affordance
  *   - "Ask tutor" returns the built-in (deterministic) tutor, labeled as such
- *   - no request ever leaves the browser for openrouter.ai
- *   - the API key never appears in page source or responses
  *   - Learning Mode hides the tutor affordance and hints entirely
  *   - POST /api/tutor with independentMode:true is rejected with 403
  *   - POST /api/tutor with independentMode:false returns a tutor answer
@@ -55,11 +51,6 @@ async function tutorFlow(browser) {
   const errors = [];
   watchErrors(page, errors);
 
-  const externalTutorRequests = [];
-  page.on("request", request => {
-    if (/openrouter\.ai/i.test(request.url())) externalTutorRequests.push(request.url());
-  });
-
   await page.goto(BASE_URL, { waitUntil: "networkidle" });
 
   // Reach a guided-practice code task: dashboard -> first mission -> Learn.
@@ -102,20 +93,16 @@ async function tutorFlow(browser) {
   await sleep(400);
   check("tutor affordance returns after leaving Learning Mode", await tutorSection.isVisible());
 
-  // Ask the tutor with no provider key configured: deterministic fallback.
+  // Ask the deterministic tutor.
   await page.getByRole("button", { name: /Ask tutor/ }).click();
   await page.waitForFunction(
     () => document.querySelector('[aria-label="AI tutor suggestion"]') || document.querySelector(".tutor-section .error"),
     null, { timeout: 30000 },
   );
   const suggestion = page.locator('[aria-label="AI tutor suggestion"]');
-  check("tutor returns an answer without a provider key", await suggestion.isVisible());
+  check("tutor returns a deterministic answer", await suggestion.isVisible());
   const label = (await suggestion.innerText()).slice(0, 200);
   check("answer is labeled as the built-in tutor", /built-in tutor/i.test(label), label.slice(0, 80));
-  check("no request reached openrouter.ai", externalTutorRequests.length === 0, externalTutorRequests.join(" | "));
-
-  const pageSource = await page.content();
-  check("API key never appears in page source", !/OPENROUTER_API_KEY/.test(pageSource));
 
   // Server-side enforcement: direct API calls.
   const forbidden = await page.request.post(`${BASE_URL}/api/tutor`, {
@@ -127,7 +114,7 @@ async function tutorFlow(browser) {
     data: { taskId: "probe", taskTitle: "probe", requirements: [], hints: [], code: "def solve(x):\n    return []\n", independentMode: false },
   });
   const allowedBody = await allowed.json().catch(() => ({}));
-  check("POST /api/tutor answers without a provider key", allowed.status() === 200 && Boolean(allowedBody.tutor), `status=${allowed.status()}`);
+  check("POST /api/tutor returns an answer", allowed.status() === 200 && Boolean(allowedBody.tutor), `status=${allowed.status()}`);
   check(
     "API answer is the deterministic tutor",
     allowedBody.source === "deterministic",

@@ -201,7 +201,7 @@ describe("dark Monaco theme", () => {
     const source = readSource("studio/diagnostic.tsx");
     expect(source).not.toMatch(/theme="(light|vs|vs-dark)"/);
     expect(source).toContain("monacoThemeFor(theme)");
-    expect(source).toContain('import { monacoThemeFor, useTheme } from "./theme"');
+    expect(source).toMatch(/import \{[^}]*\bmonacoThemeFor\b[^}]*\buseTheme\b[^}]*\} from "\.\/theme"/);
   });
 });
 

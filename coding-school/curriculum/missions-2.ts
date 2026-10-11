@@ -50,7 +50,7 @@ export const MISSIONS_2: MissionDefinition[] = [
         id: "recovery-review", kind: "review", title: "Review", estimatedMinutes: 4, advanceRule: "attempt-review",
         tasks: [
           {
-            id: "recovery-review-functions", title: "Recall: functions and guards", kind: "instruction", purpose: "instruction",
+            id: "recovery-review-functions", title: "Review: functions and guards", kind: "instruction", purpose: "instruction",
             skillIds: ["python-functions"], introducedSkillIds: [],
             explanation: "Before reading crashes, recall the tools that prevent them. A function with a clear return contract is easier to debug than a script: solve(text) always returns the same shape. Guard clauses — if type(x) is not str: return ... — turn a crash into a value. You used these in the payments CSV and API missions; the crash-log scanner you build today leans on the same guards.",
             examples: [
@@ -200,7 +200,7 @@ export const MISSIONS_2: MissionDefinition[] = [
         id: "validation-review", kind: "review", title: "Review", estimatedMinutes: 4, advanceRule: "attempt-review",
         tasks: [
           {
-            id: "validation-review-tracebacks", title: "Recall: report, never raise", kind: "instruction", purpose: "instruction",
+            id: "validation-review-tracebacks", title: "Review: report, never raise", kind: "instruction", purpose: "instruction",
             skillIds: ["python-exceptions"], introducedSkillIds: [],
             explanation: "Last mission you built a scanner that returns {} for a missing file instead of raising. Validation works the same way: a validator returns a verdict, it does not crash the caller. The difference is granularity — instead of one {} for the whole input, validators report per-field, per-record verdicts so the caller can fix exactly what is wrong.",
             examples: [
@@ -219,14 +219,14 @@ export const MISSIONS_2: MissionDefinition[] = [
           {
             id: "validation-instruction", title: "One helper per rule", kind: "instruction", purpose: "instruction",
             skillIds: ["python-functions"], introducedSkillIds: [],
-            explanation: "A reusable validator is a small function with one job: take a value, return a verdict. Helpers like is_valid_username(value) keep solve() readable and let other missions import the rule without copying the logic. Call the helper from solve — defining it is not enough; the grader checks that solve actually calls a helper on the executed path. Exact type checks matter: type(value) is int rejects True, while isinstance(True, int) accepts it. For strings, strip first, then check length and characters: all(ch.isalnum() or ch == \"_\" for ch in name).",
+            explanation: "A reusable validator is a small function with one job: take a value, return a verdict. Helpers like is_valid_username(value) keep solve() readable and reusable. Call the helper from solve so it participates in the result. Exact type checks matter: type(value) is int rejects True, while isinstance(True, int) accepts it. For strings, strip first, then check length and characters: all(ch.isalnum() or ch == \"_\" for ch in name).",
             examples: [
               "def is_valid_username(value):\n    if type(value) is not str:\n        return None\n    name = value.strip()\n    if not 3 <= len(name) <= 20:\n        return None\n    if not all(ch.isalnum() or ch == \"_\" for ch in name):\n        return None\n    return name",
               "type(True) is int  # False — bool is rejected\nisinstance(True, int)  # True — bool slips through; prefer exact type checks for validated input.",
               "def solve(users):\n    ...\n    username = is_valid_username(row.get(\"username\"))  # the call is what counts",
             ],
             requirements: ["Read the examples and acknowledge the lesson. Reading records exposure only; it does not demonstrate a skill."],
-            hints: ["Trace is_valid_username step by step: type check, strip, length, characters — in that order.", "Then find the line where solve actually calls a helper; that call is what the grader looks for."],
+            hints: ["Think about why validation belongs in a reusable helper.", "Check the value's type before applying string operations.", "Make solve call your helper and use its result to decide what to keep."],
             variants: [readingVariant("validation-reading-v1", "validation-teaching")],
           },
           {
@@ -325,7 +325,7 @@ export const MISSIONS_2: MissionDefinition[] = [
         id: "transform-review", kind: "review", title: "Review", estimatedMinutes: 5, advanceRule: "attempt-review",
         tasks: [
           {
-            id: "transform-review-validation", title: "Recall: validate then collect", kind: "instruction", purpose: "instruction",
+            id: "transform-review-validation", title: "Review: validate then collect", kind: "instruction", purpose: "instruction",
             skillIds: ["python-functions", "data-structures"], introducedSkillIds: [],
             explanation: "Your signup validator used one pattern: guard each record, normalize, collect the survivors. Transformations reuse it at two levels. First validate the envelope (is this order a dict with a usable customer and an items list?). Then validate each nested item (is the sku a non-blank string? is qty an exact int?). Invalid items are skipped without killing the whole order — but an order with zero valid items contributes nothing. Comprehensions express the inner loop: [entry for entry in (valid_item(i) for i in items) if entry is not None].",
             examples: [
@@ -344,7 +344,7 @@ export const MISSIONS_2: MissionDefinition[] = [
           {
             id: "transform-instruction", title: "Aggregate with exact money", kind: "instruction", purpose: "instruction",
             skillIds: ["data-structures"], introducedSkillIds: [],
-            explanation: "Aggregating money means grouping by a key and summing qty * price with Decimal — never float. Build a groups dict keyed by customer: [order_count, total_qty, total_decimal]. For each order with at least one valid item, bump the counters. Format the final total with format(total.quantize(Decimal(\"0.01\")), \".2f\") so \"8.3\" becomes \"8.30\". Sort groups by customer name for a stable report. And use at least one comprehension on the executed path — the grader checks for it, because comprehensions are the idiomatic shape of a transform.",
+            explanation: "Aggregating money means grouping by a key and summing qty * price with Decimal — never float. Build a groups dict keyed by customer: [order_count, total_qty, total_decimal]. For each order with at least one valid item, bump the counters. Format the final total with format(total.quantize(Decimal(\"0.01\")), \".2f\") so \"8.3\" becomes \"8.30\". Sort groups by customer name for a stable report. Use at least one comprehension in the transformation.",
             examples: [
               "groups = {}\nentry = groups.setdefault(customer, [0, 0, Decimal(\"0\")])\nentry[0] += 1; entry[1] += qty; entry[2] += qty * price",
               "format(Decimal(\"8.3\").quantize(Decimal(\"0.01\")), \".2f\")  # '8.30'",
@@ -451,7 +451,7 @@ export const MISSIONS_2: MissionDefinition[] = [
         id: "pandas-review", kind: "review", title: "Review", estimatedMinutes: 5, advanceRule: "attempt-review",
         tasks: [
           {
-            id: "pandas-review-transform", title: "Recall: validate then collect, at scale", kind: "instruction", purpose: "instruction",
+            id: "pandas-review-transform", title: "Review: validate then collect, at scale", kind: "instruction", purpose: "instruction",
             skillIds: ["data-structures"], introducedSkillIds: [],
             explanation: "Your order aggregator validated each item, skipped the bad ones, and grouped the survivors. pandas does the same thing to whole columns at once: df[df[\"id\"] != \"\"] keeps the survivors; fillna(median) repairs a column; groupby(\"region\") groups them. The rules you wrote by hand become one-liners — but the decisions (what counts as missing, what fills it) are still yours.",
             examples: [
@@ -470,7 +470,7 @@ export const MISSIONS_2: MissionDefinition[] = [
           {
             id: "pandas-instruction", title: "Pandas runs offline here", kind: "instruction", purpose: "instruction",
             skillIds: ["pandas-data-quality"], introducedSkillIds: ["pandas-data-quality"],
-            explanation: "pandas and numpy are vendored as local wheels — import pandas works with zero network requests, and the grader verifies no HTTP happens. Read CSV text with pd.read_csv(io.StringIO(csv_text)). Missing values arrive as NaN: use pd.to_numeric(col, errors=\"coerce\") to force bad text to NaN, then fillna. The median (not the mean) fills amounts because one huge outlier would drag the mean away from typical values; when every amount is missing, the median is NaN, so fall back to 0.0. Quantities must be whole: coerce, then keep values that are not NaN and have no fractional part, else 0, as int. Blank regions become \"unknown\". The grader checks that pandas is actually used on the executed path — a csv-module rewrite fails.",
+            explanation: "pandas and numpy are available locally, so imports need no network. Read CSV text with pd.read_csv(io.StringIO(csv_text)). Missing values arrive as NaN: use pd.to_numeric(col, errors=\"coerce\") to turn bad text into NaN, then fill missing values. Use the median for amounts because outliers can skew the mean; if every amount is missing, fall back to 0.0. Keep only whole quantities, using 0 for invalid values, and change blank regions to \"unknown\". Use pandas for the data cleanup.",
             examples: [
               "df[\"amount\"] = pd.to_numeric(df[\"amount\"], errors=\"coerce\")\nmedian = df[\"amount\"].median()\nif pd.isna(median):\n    median = 0.0\ndf[\"amount\"] = df[\"amount\"].fillna(median).round(2)",
               "qty = pd.to_numeric(df[\"qty\"], errors=\"coerce\")\ndf[\"qty\"] = qty.where(qty.notna() & (qty % 1 == 0), 0).astype(int)\n# 2.0 -> 2, \"x\" -> 0, 1.5 -> 0",
@@ -498,8 +498,8 @@ export const MISSIONS_2: MissionDefinition[] = [
             ],
             hints: [
               "Start: df = pd.read_csv(io.StringIO(csv_text)); check each required column with `col not in df.columns`.",
-              "Normalize ids: where(notna(), \"\").astype(str).str.strip(), then keep df[id != \"\"].",
-              "amount: pd.to_numeric(errors=\"coerce\"), median, isna -> 0.0, fillna, round(2).",
+              "Normalize IDs to trimmed text, then remove rows whose IDs are blank.",
+              "Convert amounts to numbers, fill missing values from the median, and round to two places.",
             ],
             variants: [codeVariant(
               "pandas-clean-v1", "sales-cleanup", "pandas-clean-challenge", "pandas-clean-v1",
@@ -532,8 +532,8 @@ export const MISSIONS_2: MissionDefinition[] = [
             ],
             hints: [
               "Compute rows_in right after read_csv, before any filtering.",
-              "groupby(\"region\", as_index=False).agg(orders=(\"id\", \"count\"), total=(\"amount\", \"sum\")), then round totals.",
-              "Sort with sort_values([\"total\", \"region\"], ascending=[False, True]).",
+              "Group the cleaned rows by region and calculate an order count and amount total.",
+              "Sort the summary by descending total, then ascending region.",
               "Return the zero report early for every invalid-input path — one shared dict shape.",
             ],
             variants: [codeVariant(
@@ -578,12 +578,12 @@ export const MISSIONS_2: MissionDefinition[] = [
         id: "sqlite-review", kind: "review", title: "Review", estimatedMinutes: 5, advanceRule: "attempt-review",
         tasks: [
           {
-            id: "sqlite-review-files", title: "Recall: context managers close things", kind: "instruction", purpose: "instruction",
+            id: "sqlite-review-files", title: "Review: context managers close things", kind: "instruction", purpose: "instruction",
             skillIds: ["file-io"], introducedSkillIds: [],
-            explanation: "Your crash-log scanner used with open(path) so the file always closes, even on error. Database connections want the same treatment: with sqlite3.connect(db_path) as conn commits on success and rolls back on exception — the transaction is atomic. The grader checks that sqlite3.connect is called through a context manager on the executed path; opening without with fails even if you close manually.",
+            explanation: "Your crash-log scanner used with open(path) so the file always closes, even on error. Database connections want the same treatment: with sqlite3.connect(db_path) as conn commits on success and rolls back on exception — the transaction is atomic. Open the connection with a context manager so writes commit or roll back together.",
             examples: [
               "with sqlite3.connect(db_path) as conn:\n    rows = conn.execute(\"SELECT ...\").fetchall()\n# commit on success, rollback on exception, always closed",
-              "conn = sqlite3.connect(db_path)  # then conn.close() — NOT enough for the grader",
+              "conn = sqlite3.connect(db_path)  # remember to manage the transaction too",
             ],
             requirements: ["Read the examples and acknowledge the lesson. Reading records exposure only; it does not demonstrate a skill."],
             hints: ["Compare the two examples: the context manager commits and closes; the manual version only closes.", "Ask what happens to open writes when the body raises — that difference is the lesson."],
@@ -641,7 +641,7 @@ export const MISSIONS_2: MissionDefinition[] = [
           {
             id: "sqlite-ledger-project", title: "Project: ledger writer", kind: "code", purpose: "project",
             skillIds: ["sqlite-analytics", "file-io"], introducedSkillIds: [],
-            explanation: "Build the whole writer yourself: solve(db_path, entries) inserts ledger entries inside a real transaction. The database already has customers(id) and ledger(customer_id, amount_cents, note) tables — do not create tables. Open with `with sqlite3.connect(db_path)` so writes commit; the grader reopens the file with a fresh connection and checks the rows are really there. Each entry is {\"customer_id\", \"amount\", \"note\"}: customer_id must be an exact int present in customers; amount must be a string holding a positive Decimal with at most two decimals (\"12.345\" rejected); note may be a string or omitted (NULL). Insert accepted rows as integer cents with a parameterized query. Return {\"inserted\": n, \"rejected\": n, \"total\": \"0.00\"} where total is the inserted sum formatted to two decimals. A bad db_path or non-list entries returns {\"inserted\": 0, \"rejected\": 0, \"total\": \"0.00\"}; any sqlite error returns the same zero report.",
+            explanation: "Build solve(db_path, entries) to insert ledger entries inside a transaction. The database already has customers(id) and ledger(customer_id, amount_cents, note) tables — do not create tables. Use `with sqlite3.connect(db_path)` so writes commit; verify saved rows by opening a fresh connection. Each entry has customer_id, amount, and optional note. The ID must be an exact int present in customers; amount must be a positive string with at most two decimals (\"12.345\" is rejected); note must be a string or omitted. Insert cents with a parameterized query. Return inserted/rejected counts and the inserted total formatted to two decimals. Invalid database paths or non-list entries return the zero report; sqlite errors do too.",
             examples: [
               "customers: ids 1, 2 — entries: [{\"customer_id\": 1, \"amount\": \"10.50\", \"note\": \"refund\"}, {\"customer_id\": 9, \"amount\": \"5.00\"}, {\"customer_id\": 2, \"amount\": \"0.10\"}]\nOutput: {\"inserted\": 2, \"rejected\": 1, \"total\": \"10.60\"} — and ledger holds (1, 1050, 'refund'), (2, 10, NULL).",
               "Input: (\"missing.db\", [])\nOutput: {\"inserted\": 0, \"rejected\": 0, \"total\": \"0.00\"}",
@@ -651,14 +651,14 @@ export const MISSIONS_2: MissionDefinition[] = [
             requirements: [
               "Define solve(db_path, entries). Bad db_path or non-list entries returns the zero report; any sqlite error returns the zero report.",
               "Open with `with sqlite3.connect(db_path)`; inserted rows must be visible to a fresh connection.",
-              "Validate each entry: exact-int customer_id present in customers; amount a positive string with at most two decimals; note a string or absent.",
+              "Validate each entry: exact-int customer_id present in customers; amount a positive string with at most two decimals (zero is rejected); note a string or absent.",
               "Insert accepted rows into ledger as integer cents with a parameterized query; count inserted/rejected; total formatted \"0.00\".",
             ],
             hints: [
               "Read valid ids once: {row[0] for row in conn.execute(\"SELECT id FROM customers\").fetchall()}.",
-              "Convert amounts: Decimal(text); require finite, > 0, and (amount * 100) == its integral value; cents = int(amount * 100).",
-              "INSERT INTO ledger (customer_id, amount_cents, note) VALUES (?, ?, ?) — never format values into SQL.",
-              "Accumulate total_cents as an int; format with (Decimal(total_cents) / 100).quantize(Decimal(\"0.01\")).",
+              "Parse each amount with Decimal and check that it represents a positive whole number of cents.",
+              "Use a parameterized INSERT so values stay separate from the SQL command.",
+              "Track the inserted total in cents, then convert it to the required two-decimal text format.",
             ],
             variants: [codeVariant(
               "sqlite-project-v1", "ledger-writer", "sqlite-project-challenge", "sqlite-project-v1",
@@ -676,7 +676,7 @@ export const MISSIONS_2: MissionDefinition[] = [
             "Why does the ledger writer use a context manager instead of calling commit() manually, and what could go wrong with manual commits?",
             [
               "Explain what happens to the INSERTs if an exception fires mid-loop under with versus manual commit.",
-              "Explain why the grader checks the rows from a fresh connection.",
+              "Explain why checking saved rows from a fresh connection matters.",
               "Give one entry your writer rejects and the exact rule that rejects it.",
             ],
             [
@@ -702,7 +702,7 @@ export const MISSIONS_2: MissionDefinition[] = [
         id: "money-review", kind: "review", title: "Review", estimatedMinutes: 4, advanceRule: "attempt-review",
         tasks: [
           {
-            id: "money-review-decimal", title: "Recall: exact money or nothing", kind: "instruction", purpose: "instruction",
+            id: "money-review-decimal", title: "Review: exact money or nothing", kind: "instruction", purpose: "instruction",
             skillIds: ["financial-data"], introducedSkillIds: [],
             explanation: "Your ledger writer stored cents as integers because floats cannot represent most decimals exactly: 0.1 + 0.2 is 0.30000000000000004. Reconciliation has the same rule at a bigger scale — sum credits and debits as Decimal, compare the net to zero exactly, and never let a float touch the totals. Amounts arrive as text; parse with Decimal(text), require finite and positive, and require at most two decimals so \"12.345\" cannot sneak in.",
             examples: [
@@ -734,7 +734,7 @@ export const MISSIONS_2: MissionDefinition[] = [
           {
             id: "money-recon-guided", title: "Guided practice: reconcile a ledger", kind: "code", purpose: "guided-practice",
             skillIds: ["financial-data", "python-functions"], introducedSkillIds: [],
-            explanation: "Write solve(transactions) that reconciles a list of {\"id\", \"amount\", \"type\"} dicts. Parse amounts with Decimal: they must be strings holding finite, positive values with at most two decimals. type must be \"credit\" or \"debit\"; ids must be strings and unique — a repeated id is anomalous. Append the id of every anomalous entry to anomalies. Net = credits minus debits as Decimal; balanced is (net == 0); total formatted \"0.00\". Non-list input returns {\"balanced\": True, \"total\": \"0.00\", \"anomalies\": []}.",
+            explanation: "Write solve(transactions) to reconcile a list of {\"id\", \"amount\", \"type\"} dicts. Amounts must be strings with finite, positive values and at most two decimals; zero is rejected. Type must be \"credit\" or \"debit\"; IDs must be strings and unique. Add each anomalous entry's ID to anomalies. Calculate credits minus debits with Decimal; balanced means the net is zero, and total uses two decimal places. Non-list input returns the zero report.",
             examples: [
               "Input: [{\"id\": \"a\", \"amount\": \"10.00\", \"type\": \"credit\"}, {\"id\": \"b\", \"amount\": \"10.00\", \"type\": \"debit\"}]\nOutput: {\"balanced\": True, \"total\": \"0.00\", \"anomalies\": []}",
               "Input: [{\"id\": \"a\", \"amount\": \"10.00\", \"type\": \"credit\"}, {\"id\": \"a\", \"amount\": \"1.00\", \"type\": \"credit\"}, {\"id\": \"c\", \"amount\": \"x\", \"type\": \"debit\"}]\nOutput: {\"balanced\": False, \"total\": \"10.00\", \"anomalies\": [\"a\", \"c\"]}",
@@ -742,7 +742,7 @@ export const MISSIONS_2: MissionDefinition[] = [
             ],
             requirements: [
               "Define solve(transactions). Non-list input returns the zero report; never raise.",
-              "Parse amounts with Decimal; require finite, positive, at most two decimals.",
+              "Parse amounts with Decimal; require finite, positive, at most two decimals. Zero is rejected.",
               "Treat duplicate ids, bad amounts, and bad types as anomalies; append each anomalous id.",
               "total = credits minus debits formatted \"0.00\"; balanced is True only when the net is exactly zero.",
             ],
@@ -758,9 +758,9 @@ export const MISSIONS_2: MissionDefinition[] = [
             )],
           },
           {
-            id: "sqlite-rollup-retrieval", title: "Retrieval: regional ledger rollup", kind: "code", purpose: "retrieval",
+            id: "sqlite-rollup-retrieval", title: "Review: regional ledger rollup", kind: "code", purpose: "retrieval",
             skillIds: ["sqlite-analytics"], introducedSkillIds: [],
-            explanation: "A finance dashboard needs the same regional rollup you built for orders, now over a ledger table. Without opening your old solution, recall the pattern: guard the path, open with a context manager, JOIN on the key, COALESCE the NULLs, GROUP BY, ORDER BY. This short retrieval is allowed to fail; its purpose is to find what needs repair.",
+            explanation: "A finance dashboard needs the same regional rollup you built for orders, now over a ledger table. Without opening your old solution, review the pattern: guard the path, open with a context manager, JOIN on the key, COALESCE the NULLs, GROUP BY, ORDER BY. This short review is allowed to fail; its purpose is to find what needs repair.",
             examples: [
               "Same contract as regional order totals: solve(db_path) -> [{\"region\", \"orders\", \"total\"}], NULL regions become \"unknown\".",
             ],
@@ -798,7 +798,7 @@ export const MISSIONS_2: MissionDefinition[] = [
             requirements: [
               "Define solve(csv_text). Non-string/blank input or missing id/amount/type columns return the zero report.",
               "Read the CSV with pandas on the executed path; rows counts every data row.",
-              "Apply the exact reconciliation rules: positive exact-cent Decimal amounts, credit/debit only, unique ids; flag every anomalous id.",
+              "Apply the exact reconciliation rules: positive exact-cent Decimal amounts (zero is rejected), credit/debit only, unique ids; flag every anomalous id.",
               "net formatted \"0.00\"; blank-id rows are skipped without flagging.",
             ],
             hints: [
@@ -849,7 +849,7 @@ export const MISSIONS_2: MissionDefinition[] = [
         id: "http-review", kind: "review", title: "Review", estimatedMinutes: 4, advanceRule: "attempt-review",
         tasks: [
           {
-            id: "http-review-json", title: "Recall: validate the body", kind: "instruction", purpose: "instruction",
+            id: "http-review-json", title: "Review: validate the body", kind: "instruction", purpose: "instruction",
             skillIds: ["json-validation"], introducedSkillIds: [],
             explanation: "Every HTTP response ends where your JSON mission began: a body of text that may or may not be valid JSON. The pagination client you build today does json.loads on each page body and requires a dict with an items list — a malformed page stops the walk with ok False. Status codes decide whether you even look at the body: 2xx means read it, 429/5xx mean wait and retry, anything else means stop.",
             examples: [
@@ -924,9 +924,9 @@ export const MISSIONS_2: MissionDefinition[] = [
             ],
             requirements: [
               "Define solve(transport, base_url, sleep). Bad inputs return {\"items\": [], \"pages\": 0, \"ok\": False}.",
-              "Fetch each page with the retry policy: 429 sleeps Retry-After (cap 60), 5xx backs off 1s/2s, 3 attempts max.",
+              "Apply the retry policy to each page request, with bounded attempts and delays.",
               "Unrecoverable or malformed pages stop the walk with ok False and the items collected so far.",
-              "Follow next only when it is a string starting with \"/\"; anything else ends pagination with ok True.",
+              "Follow only safe relative next links; other values end pagination successfully.",
               "Stop after 10 pages; break on repeated URLs.",
             ],
             hints: [
@@ -977,7 +977,7 @@ export const MISSIONS_2: MissionDefinition[] = [
         id: "llm-review", kind: "review", title: "Review", estimatedMinutes: 4, advanceRule: "attempt-review",
         tasks: [
           {
-            id: "llm-review-validation", title: "Recall: schemas are contracts", kind: "instruction", purpose: "instruction",
+            id: "llm-review-validation", title: "Review: schemas are contracts", kind: "instruction", purpose: "instruction",
             skillIds: ["json-validation"], introducedSkillIds: [],
             explanation: "Your API mission validated every layer of a response envelope; LLM output needs the same treatment with one extra twist — the model is nondeterministic, so the validator must be deterministic. Same input text always yields the same verdict: fixed field order, exact type checks, every error collected. The guardrail turns 'the model said something' into 'the model said a valid profile' or a precise list of what is wrong.",
             examples: [
@@ -996,7 +996,7 @@ export const MISSIONS_2: MissionDefinition[] = [
           {
             id: "llm-instruction", title: "Guardrails are pure functions", kind: "instruction", purpose: "instruction",
             skillIds: ["llm-output-validation"], introducedSkillIds: ["llm-output-validation"],
-            explanation: "The guard is a pure function: solve(raw_text) -> {\"ok\", \"data\", \"errors\"}. No network, no model calls, no randomness — the grader can test it exhaustively. Steps: reject non-strings as invalid_json; json.loads (failure -> invalid_json); require a dict (else not_an_object). Then check the profile schema in FIXED order (name, age, email) — iterating the input's keys would make error order depend on the model, which is nondeterministic. name: non-blank str; age: exact int 0-120 (bool rejected); email: str containing '@' after strip. Missing field -> \"missing_<field>\"; bad value -> \"bad_<field>\"; collect ALL errors. Success returns the stripped profile and [].",
+            explanation: "The guard is a pure function: solve(raw_text) -> {\"ok\", \"data\", \"errors\"}. It makes no network or model calls and uses no randomness. Reject non-strings and invalid JSON, then require an object. Check fields in fixed order (name, age, email) so error order stays stable. Name must be a non-blank string; age an exact int from 0–120 (bool rejected); email a string containing '@' after stripping. Report every missing or invalid field. Success returns the stripped profile and an empty error list.",
             examples: [
               "'{\"name\": \" Ada \", \"age\": 36, \"email\": \"a@x.com\"}'\n# {\"ok\": True, \"data\": {\"name\": \"Ada\", \"age\": 36, \"email\": \"a@x.com\"}, \"errors\": []}",
               "'{\"age\": -1, \"name\": \"\"}'\n# {\"ok\": False, \"data\": None, \"errors\": [\"bad_name\", \"bad_age\", \"missing_email\"]} — fixed order, all errors",
@@ -1033,9 +1033,9 @@ export const MISSIONS_2: MissionDefinition[] = [
             )],
           },
           {
-            id: "model-retry-retrieval", title: "Retrieval: retry a flaky model endpoint", kind: "code", purpose: "retrieval",
+            id: "model-retry-retrieval", title: "Review: retry a flaky model endpoint", kind: "code", purpose: "retrieval",
             skillIds: ["http-reliability"], introducedSkillIds: [],
-            explanation: "Model endpoints are flaky HTTP APIs: 429s when you exceed your token quota, 500s when the provider hiccups. Without opening your old solution, recall the retry policy — which statuses retry, how long each sleep is, when to stop. This short retrieval is allowed to fail; its purpose is to find what needs repair.",
+            explanation: "Model endpoints are flaky HTTP APIs: 429s when you exceed your token quota, 500s when the provider hiccups. Without opening your old solution, review the retry policy — which statuses retry, how long each sleep is, when to stop. This short review is allowed to fail; its purpose is to find what needs repair.",
             examples: [
               "Same contract as the retrying client: solve(transport, url, sleep) -> {\"ok\", \"status\", \"body\", \"attempts\"}.",
             ],
@@ -1078,13 +1078,13 @@ export const MISSIONS_2: MissionDefinition[] = [
             ],
             hints: [
               "Write validate_text(raw_text) reusing your guided guardrail logic.",
-              "Loop attempts 1..3: try model(prompt, attempts), except Exception -> [\"model_error\"], continue.",
-              "Keep last_errors from each failed validation; return them after the loop.",
-              "Return immediately on the first verdict with ok True.",
+              "Make up to three calls, counting an exception as a failed attempt.",
+              "Keep the most recent failure details so exhaustion can report them.",
+              "When validation succeeds, stop retrying and return that profile with its attempt count.",
             ],
             variants: [codeVariant(
               "llm-project-v1", "guarded-pipeline", "llm-project-challenge", "llm-project-v1",
-              "import json\n\ndef validate_text(raw_text):\n    # Profile guardrail: {\"ok\", \"data\", \"errors\"}.\n    return {\"ok\": False, \"data\": None, \"errors\": [\"invalid_json\"]}\n\ndef solve(model, prompt):\n    if not callable(model) or type(prompt) is not str:\n        return {\"ok\": False, \"data\": None, \"errors\": [\"bad_input\"], \"attempts\": 0}\n    # Up to 3 attempts: model(prompt, attempts), validate, first ok wins.\n    return {\"ok\": False, \"data\": None, \"errors\": [\"no_response\"], \"attempts\": 0}\n",
+              "import json\n\ndef validate_text(raw_text):\n    # Profile guardrail: {\"ok\", \"data\", \"errors\"}.\n    return {\"ok\": False, \"data\": None, \"errors\": [\"invalid_json\"]}\n\ndef solve(model, prompt):\n    if not callable(model) or type(prompt) is not str:\n        return {\"ok\": False, \"data\": None, \"errors\": [\"bad_input\"], \"attempts\": 0}\n    # TODO: return the last failure in the required shape after retries.\n    return {\"ok\": False, \"data\": None, \"errors\": [], \"attempts\": 3}\n",
               { "llm-output-validation": ["passthrough", "retry", "invalid-body", "exhausted"], "python-exceptions": ["shape"] },
             )],
           },
@@ -1118,7 +1118,7 @@ export const MISSION_2_REVIEW_TASKS: MissionTask[] = [
   {
     id: "traceback-retrieval", title: "Parse a deployment traceback", kind: "code", purpose: "retrieval",
     skillIds: ["python-exceptions"], introducedSkillIds: [],
-    explanation: "A deploy failed with a chained traceback: a config error caused a startup crash. Without opening your old solution, recall the parser: last block wins, frames in call order, SyntaxError frames carry an empty function. This short retrieval is allowed to fail; its purpose is to find what needs repair.",
+    explanation: "A deploy failed with a chained traceback: a config error caused a startup crash. Without opening your old solution, review the parser: last block wins, frames in call order, SyntaxError frames carry an empty function. This short review is allowed to fail; its purpose is to find what needs repair.",
     examples: [
       "Input: a chained traceback ending in 'RuntimeError: startup failed' with two frames\nOutput: {\"type\": \"RuntimeError\", \"message\": \"startup failed\", \"frames\": [...]}",
     ],
@@ -1136,7 +1136,7 @@ export const MISSION_2_REVIEW_TASKS: MissionTask[] = [
   {
     id: "logscan-retrieval", title: "Count levels in a deploy log", kind: "code", purpose: "retrieval",
     skillIds: ["file-io"], introducedSkillIds: [],
-    explanation: "A deploy log needs the same level counts you built for app logs. Without opening your old solution, recall the pattern: open with a with block, count ERROR/WARN/INFO lines, return the all-zero shape for bad paths. This short retrieval is allowed to fail; its purpose is to find what needs repair.",
+    explanation: "A deploy log needs the same level counts you built for app logs. Without opening your old solution, review the pattern: open with a with block, count ERROR/WARN/INFO lines, return the all-zero shape for bad paths. This short review is allowed to fail; its purpose is to find what needs repair.",
     examples: [
       "Input file: 'INFO ok\\nERROR bad\\n'\nOutput: {\"error\": 1, \"warning\": 0, \"info\": 1}",
     ],
@@ -1154,7 +1154,7 @@ export const MISSION_2_REVIEW_TASKS: MissionTask[] = [
   {
     id: "pandas-cleanup-retrieval", title: "Clean an inventory CSV", kind: "code", purpose: "retrieval",
     skillIds: ["pandas-data-quality"], introducedSkillIds: [],
-    explanation: "An inventory export has the same missing-data problems as the sales CSV: blank ids, missing amounts, bad quantities. Without opening your old solution, recall the pandas pattern: read, drop blank ids, fill amounts with the median, zero bad quantities, unknown regions. This short retrieval is allowed to fail; its purpose is to find what needs repair.",
+    explanation: "An inventory export has the same missing-data problems as the sales CSV: blank ids, missing amounts, bad quantities. Without opening your old solution, recall the pandas pattern: read, drop blank ids, fill amounts with the median, zero bad quantities, unknown regions. This short review is allowed to fail; its purpose is to find what needs repair.",
     examples: [
       "Input: 'id,region,amount,qty\\na,,5.00,x\\n'\nOutput: [{\"id\": \"a\", \"region\": \"unknown\", \"amount\": 5.0, \"qty\": 0}]",
     ],
@@ -1172,7 +1172,7 @@ export const MISSION_2_REVIEW_TASKS: MissionTask[] = [
   {
     id: "sqlite-totals-retrieval", title: "Regional refund totals", kind: "code", purpose: "retrieval",
     skillIds: ["sqlite-analytics"], introducedSkillIds: [],
-    explanation: "A refunds database needs the same regional aggregation you built for orders. Without opening your old solution, recall the pattern: context-manager connection, JOIN on the key, COALESCE nulls, GROUP BY, ORDER BY. This short retrieval is allowed to fail; its purpose is to find what needs repair.",
+    explanation: "A refunds database needs the same regional aggregation you built for orders. Without opening your old solution, review the pattern: context-manager connection, JOIN on the key, COALESCE nulls, GROUP BY, ORDER BY. This short review is allowed to fail; its purpose is to find what needs repair.",
     examples: [
       "Same contract: solve(db_path) -> [{\"region\", \"orders\", \"total\"}], NULL regions become \"unknown\".",
     ],
@@ -1190,7 +1190,7 @@ export const MISSION_2_REVIEW_TASKS: MissionTask[] = [
   {
     id: "webhook-retry-retrieval", title: "Retry a webhook delivery", kind: "code", purpose: "retrieval",
     skillIds: ["http-reliability"], introducedSkillIds: [],
-    explanation: "Webhook deliveries fail like any HTTP call: 429s under load, 500s on bad days. Without opening your old solution, recall the retry policy — which statuses retry, how long each sleep lasts, when to give up. This short retrieval is allowed to fail; its purpose is to find what needs repair.",
+    explanation: "Webhook deliveries fail like any HTTP call: 429s under load, 500s on bad days. Without opening your old solution, review the retry policy — which statuses retry, how long each sleep lasts, when to give up. This short review is allowed to fail; its purpose is to find what needs repair.",
     examples: [
       "Same contract: solve(transport, url, sleep) -> {\"ok\", \"status\", \"body\", \"attempts\"}.",
     ],
@@ -1208,7 +1208,7 @@ export const MISSION_2_REVIEW_TASKS: MissionTask[] = [
   {
     id: "speaker-profile-retrieval", title: "Validate speaker-profile output", kind: "code", purpose: "retrieval",
     skillIds: ["llm-output-validation"], introducedSkillIds: [],
-    explanation: "A conference-talk generator emits speaker profiles as JSON text. Without opening your old solution, recall the guardrail: fixed field order, exact types, every error collected. This short retrieval is allowed to fail; its purpose is to find what needs repair.",
+    explanation: "A conference-talk generator emits speaker profiles as JSON text. Without opening your old solution, review the guardrail: fixed field order, exact types, every error collected. This short review is allowed to fail; its purpose is to find what needs repair.",
     examples: [
       "Input: '{\"name\": \" Ada \", \"age\": 36, \"email\": \"a@x.com\"}'\nOutput: {\"ok\": True, \"data\": {\"name\": \"Ada\", \"age\": 36, \"email\": \"a@x.com\"}, \"errors\": []}",
       "Input: '{\"email\": \"x\"}'\nOutput: {\"ok\": False, \"data\": None, \"errors\": [\"missing_name\", \"missing_age\", \"bad_email\"]}",

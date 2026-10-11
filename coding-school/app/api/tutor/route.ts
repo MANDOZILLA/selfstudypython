@@ -1,36 +1,28 @@
 import { z } from "zod";
 import { deterministicTutor, type TutorContext } from "../../../lib/tutor";
-import { requestOpenRouterTutor, isSafeAppReference } from "../../../lib/tutor-provider";
 
-/** POST /api/tutor — tutor help for the current task.
- *
- *  The OpenRouter key lives ONLY here on the server: it is read from
- *  process.env per request, used for a single outbound call, and never
- *  sent to the client, logged, or persisted. With no key (or any provider
- *  failure: 401/429/5xx, timeout, oversized or malformed response) the
- *  deterministic local tutor answers instead, so the endpoint works fully
- *  offline. Independent (Learning) Mode requests are rejected before any
- *  provider call, so a client bypass cannot reach the provider. */
+/** POST /api/tutor — deterministic, offline help for the current task. */
+const text = (max: number) => z.string().max(max);
 const tutorRequestSchema = z.object({
-  taskId: z.string().min(1),
-  taskTitle: z.string().min(1),
-  requirements: z.array(z.string()).default([]),
-  hints: z.array(z.string()).default([]),
+  taskId: text(200).min(1),
+  taskTitle: text(300).min(1),
+  requirements: z.array(text(2000)).max(50).default([]),
+  hints: z.array(text(2000)).max(20).default([]),
   hintsUsed: z.number().int().nonnegative().default(0),
   code: z.string().max(40000).default(""),
   execution: z
     .object({
-      status: z.string(),
-      kind: z.string().optional(),
-      file: z.string().optional(),
+      status: text(100),
+      kind: text(200).optional(),
+      file: text(500).optional(),
       line: z.number().int().optional(),
-      message: z.string().optional(),
+      message: text(4000).optional(),
     })
     .nullable()
     .default(null),
-  failedTests: z.array(z.string()).default([]),
+  failedTests: z.array(text(500)).max(100).default([]),
   independentMode: z.boolean(),
-  taskUrl: z.string().default("#"),
+  taskUrl: text(500).default("#"),
 });
 
 export async function POST(request: Request) {
@@ -44,7 +36,7 @@ export async function POST(request: Request) {
   if (!parsed.success) return Response.json({ error: "invalid_request" }, { status: 400 });
   const input = parsed.data;
 
-  // Server-side enforcement: Learning (independent) Mode never reaches the tutor.
+  // Server-side enforcement: independent mode never reaches the tutor.
   if (input.independentMode) {
     return Response.json({ error: "independent_mode" }, { status: 403 });
   }
@@ -61,19 +53,5 @@ export async function POST(request: Request) {
     taskUrl: input.taskUrl,
   };
 
-  const provider = await requestOpenRouterTutor(ctx);
-  if (provider.tutor) {
-    return Response.json({ source: "openrouter", tutor: provider.tutor });
-  }
-  // Sanitize only the fallback path: the provider already rejects an unsafe
-  // taskUrl as malformed (preserving that signal), but the deterministic tutor
-  // would otherwise re-emit the same hostile URL as a clickable reference.
-  // deterministicTutor also sanitizes internally; this keeps the stored ctx
-  // clean even if other fallback fields are added later.
-  const safeCtx: TutorContext = {
-    ...ctx,
-    taskUrl: isSafeAppReference(ctx.taskUrl) ? ctx.taskUrl : "#",
-  };
-  const tutor = deterministicTutor(safeCtx);
-  return Response.json({ source: "deterministic", tutor, fallbackReason: provider.reason ?? "no_key" });
+  return Response.json({ source: "deterministic", tutor: deterministicTutor(ctx) });
 }

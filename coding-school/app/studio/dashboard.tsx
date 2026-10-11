@@ -12,7 +12,6 @@ import { getDashboardModel, getEvidenceRows, getLibraryRows, getPortfolioModel, 
 import type { Studio } from "./use-studio";
 import { StageRail } from "./stage-rail";
 import { AssessmentWorkbench } from "./assessment-workbench";
-import { ProjectLedCurriculum } from "./project-led-curriculum";
 
 const formatDate = (value: string) => new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 function PageHeading({ label, title, children }: { label: string; title: string; children: React.ReactNode }) {
@@ -75,7 +74,6 @@ function Today({ studio }: { studio: Studio }) {
   const available = model.selection.kind !== "complete" && model.mission;
   return <>
     <PageHeading label="TODAY" title="Make room for useful practice.">A small lesson. A working artifact. A clearer understanding of your code.</PageHeading>
-    <section className="document curriculum-callout"><div><span className="eyebrow">NEW CURRICULUM</span><h2>Python → machine learning → research</h2><p>Follow the project-led roadmap from a Python diagnostic through twenty units and an independent research project.</p></div><button className="secondary" onClick={() => studio.navigate("lessons")}>View curriculum →</button></section>
     <RecommendationCard studio={studio} />
     {available && model.mission ? <section className="mission-document" aria-labelledby="mission-title">
       <div className="mission-topline"><span className="eyebrow">{reviewOnly && model.run ? "YOUR REVIEW IN PROGRESS" : model.run ? "YOUR MISSION IN PROGRESS" : reviewOnly ? "YOUR SCHEDULED REVIEW" : "YOUR NEXT MISSION"}</span><span className="duration">{reviewOnly ? model.mission.stages[0].estimatedMinutes : model.mission.estimatedMinutes} min <span>· suggested pace</span></span></div>
@@ -118,7 +116,7 @@ function RecommendationCard({ studio }: { studio: Studio }) {
 }
 
 function Lessons({ studio }: { studio: Studio }) {
-  return <><PageHeading label="CURRICULUM" title="Build your way into machine learning.">Start with a Python diagnostic, then learn each concept through a project that needs it.</PageHeading><ProjectLedCurriculum /><section className="document lesson-library" aria-labelledby="library-title"><div className="library-group"><h2 id="library-title">Coding practice missions</h2><p>Graded exercises currently available in the workbench</p></div>{getLibraryRows(studio.state).map((row, index) => <article className="lesson-row" key={row.mission.id}>
+  return <><PageHeading label="CURRICULUM" title="Build your way into machine learning.">Start with a Python diagnostic, then learn each concept through a project that needs it.</PageHeading><section className="document lesson-library" aria-labelledby="library-title"><div className="library-group"><h2 id="library-title">Coding practice missions</h2><p>Graded exercises currently available in the workbench</p></div>{getLibraryRows(studio.state).map((row, index) => <article className="lesson-row" key={row.mission.id}>
       <span className="lesson-index" aria-label={`Mission ${index + 1}`}>{String(index + 1).padStart(2, "0")}</span><div className="lesson-description"><span className="status-label">{row.status}</span><h3>{row.mission.title}</h3><p>{row.mission.summary}</p><span className="artifact-label">Artifact · {row.artifact}</span>{row.blockedReason && <p className="prerequisite">{row.blockedReason}</p>}</div><div className="lesson-action"><span className="duration">{row.mission.estimatedMinutes} min</span><button className="secondary" disabled={Boolean(row.blockedReason)} onClick={() => studio.start(row.mission.id)}>{row.status === "In progress" ? "Resume mission" : row.status === "Completed" ? "Practice again" : "Open mission"}<span aria-hidden="true"> →</span></button></div>
     </article>)}</section><p className="page-footnote">The roadmap above follows the supplied curriculum. The coding practice missions are existing graded exercises and do not cover every unit yet.</p></>;
 }

@@ -1,7 +1,5 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { POST } from "../app/api/tutor/route";
 import { TutorPanel, TutorResponseView } from "../app/studio/tutor-panel";
 import {
@@ -10,8 +8,6 @@ import {
   type TutorContext,
   type TutorResponse,
 } from "../lib/tutor";
-
-const ROOT = resolve(__dirname, "..");
 
 function baseContext(overrides: Partial<TutorContext> = {}): TutorContext {
   return {
@@ -60,12 +56,6 @@ const validTutorJson: TutorResponse = {
   references: [{ label: "Lesson", url: "#task/task-normalize" }],
 };
 
-function providerResponse(content: string, status = 200, headers: Record<string, string> = {}) {
-  return new Response(
-    JSON.stringify({ choices: [{ message: { role: "assistant", content } }], usage: {} }),
-    { status, headers: { "content-type": "application/json", ...headers } },
-  );
-}
 
 describe("tutor response schema", () => {
   it("accepts the spec shape", () => {
@@ -146,212 +136,35 @@ describe("deterministic tutor", () => {
 });
 
 describe("tutor route", () => {
-  const savedEnv = { ...process.env };
-  let fetchMock: ReturnType<typeof vi.fn>;
-  beforeEach(() => {
-    fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    delete process.env.OPENROUTER_API_KEY;
-    delete process.env.TUTOR_MODEL;
-    delete process.env.TUTOR_TIMEOUT_MS;
-    delete process.env.TUTOR_MAX_RESPONSE_BYTES;
-  });
-  afterEach(() => {
-    process.env = { ...savedEnv };
-    vi.unstubAllGlobals();
-  });
-
-  it("answers deterministically with no key and makes zero provider calls", async () => {
+  it("returns a deterministic answer for a valid request", async () => {
     const res = await POST(tutorRequest(baseBody()));
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.source).toBe("deterministic");
     expect(tutorResponseSchema.safeParse(data.tutor).success).toBe(true);
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("rejects independent-mode requests server-side without calling the provider", async () => {
-    process.env.OPENROUTER_API_KEY = "sk-or-v1-testkey";
+  it("rejects independent-mode requests before answering", async () => {
     const res = await POST(tutorRequest(baseBody({ independentMode: true })));
     expect(res.status).toBe(403);
     expect((await res.json()).error).toBe("independent_mode");
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("rejects invalid request bodies", async () => {
-    const res = await POST(tutorRequest({ taskId: "" }));
-    expect(res.status).toBe(400);
+  it("rejects invalid JSON and invalid request bodies", async () => {
+    const invalidJson = await POST(new Request("http://localhost/api/tutor", { method: "POST", body: "{" }));
+    expect(invalidJson.status).toBe(400);
+    expect(await POST(tutorRequest({ taskId: "" })).then(res => res.status)).toBe(400);
   });
 
-  it("accepts a valid provider response and authenticates correctly", async () => {
-    process.env.OPENROUTER_API_KEY = "sk-or-v1-testkey";
-    process.env.TUTOR_MODEL = "openai/gpt-4o-mini";
-    fetchMock.mockResolvedValue(providerResponse(JSON.stringify(validTutorJson)));
-    const res = await POST(tutorRequest(baseBody()));
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data.source).toBe("openrouter");
-    expect(data.tutor).toEqual(validTutorJson);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("https://openrouter.ai/api/v1/chat/completions");
-    expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer sk-or-v1-testkey");
-    expect(JSON.parse(init.body as string).model).toBe("openai/gpt-4o-mini");
-  });
-
-  it.each(["https://phishing.example/lesson", "//phishing.example/lesson"])(
-    "rejects provider references outside the app: %s",
-    async url => {
-      process.env.OPENROUTER_API_KEY = "sk-or-v1-testkey";
-      fetchMock.mockResolvedValue(providerResponse(JSON.stringify({
-        ...validTutorJson,
-        references: [{ label: "Lesson", url }],
-      })));
-
-      const data = await (await POST(tutorRequest(baseBody()))).json();
-      expect(data.source).toBe("deterministic");
-      expect(data.fallbackReason).toBe("malformed");
-    },
-  );
-
-  it("rejects provider output when the task URL itself is outside the app", async () => {
-    process.env.OPENROUTER_API_KEY = "sk-or-v1-testkey";
-    fetchMock.mockResolvedValue(providerResponse(JSON.stringify(validTutorJson)));
-
-    const data = await (await POST(tutorRequest(baseBody({ taskUrl: "https://phishing.example/task" })))).json();
-    expect(data.source).toBe("deterministic");
-    expect(data.fallbackReason).toBe("malformed");
-    // The fallback must not re-emit the hostile URL as a clickable reference.
-    expect(data.tutor.references[0].url).toBe("#");
-  });
-
-  it.each([
-    "javascript:alert(1)",
-    "data:text/html,<h1>x</h1>",
-    "/\n/evil.example",
-    "/\r/evil.example",
-    "/\t/evil.example",
-    "/\\evil.example",
-    "/\\/evil.example",
-  ])("sanitizes hostile task URLs in the deterministic fallback: %s", async url => {
-    process.env.OPENROUTER_API_KEY = "sk-or-v1-testkey";
-    fetchMock.mockResolvedValue(providerResponse(JSON.stringify(validTutorJson)));
-    const data = await (await POST(tutorRequest(baseBody({ taskUrl: url })))).json();
-    expect(data.source).toBe("deterministic");
-    for (const ref of data.tutor.references) {
-      expect(ref.url.startsWith("#") || ref.url.startsWith("/")).toBe(true);
-      expect(ref.url).not.toContain("evil.example");
-      expect(ref.url).not.toMatch(/^javascript:|^data:/i);
-    }
-  });
-
-  it("deterministic tutor never emits an external reference for hostile task URLs", () => {
+  it("keeps deterministic tutor references inside the app", () => {
     for (const url of ["https://phishing.example/task", "//evil.example/x", "javascript:alert(1)", "/\n/evil.example"]) {
       const tutor = deterministicTutor(baseContext({ taskUrl: url }));
       expect(tutor.references[0].url).toBe("#");
     }
-    // Safe URLs still pass through.
     expect(deterministicTutor(baseContext({ taskUrl: "#task/x" })).references[0].url).toBe("#task/x");
     expect(deterministicTutor(baseContext({ taskUrl: "/lessons/x" })).references[0].url).toBe("/lessons/x");
   });
-
-  it("falls back when the provider returns malformed JSON", async () => {
-    process.env.OPENROUTER_API_KEY = "sk-or-v1-testkey";
-    fetchMock.mockResolvedValue(providerResponse("this is not json"));
-    const res = await POST(tutorRequest(baseBody()));
-    const data = await res.json();
-    expect(data.source).toBe("deterministic");
-    expect(tutorResponseSchema.safeParse(data.tutor).success).toBe(true);
-    expect(typeof data.fallbackReason).toBe("string");
-  });
-
-  it("falls back when the provider JSON fails schema validation", async () => {
-    process.env.OPENROUTER_API_KEY = "sk-or-v1-testkey";
-    fetchMock.mockResolvedValue(providerResponse(JSON.stringify({ summary: "incomplete" })));
-    const data = await (await POST(tutorRequest(baseBody()))).json();
-    expect(data.source).toBe("deterministic");
-  });
-
-  it("falls back on provider timeout", async () => {
-    process.env.OPENROUTER_API_KEY = "sk-or-v1-testkey";
-    process.env.TUTOR_TIMEOUT_MS = "60";
-    // A hanging fetch that rejects with AbortError on abort, like real fetch.
-    fetchMock.mockImplementation(
-      (_url: string, init?: RequestInit) =>
-        new Promise<never>((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => {
-            const error = new Error("The operation was aborted.");
-            error.name = "AbortError";
-            reject(error);
-          });
-        }),
-    );
-    const started = Date.now();
-    const data = await (await POST(tutorRequest(baseBody()))).json();
-    expect(Date.now() - started).toBeLessThan(5000);
-    expect(data.source).toBe("deterministic");
-    expect(data.fallbackReason).toBe("timeout");
-  });
-
-  it("falls back on 429 and 401", async () => {
-    process.env.OPENROUTER_API_KEY = "sk-or-v1-testkey";
-    for (const [status, reason] of [[429, "rate_limited"], [401, "unauthorized"]] as const) {
-      fetchMock.mockResolvedValue(new Response("nope", { status }));
-      const data = await (await POST(tutorRequest(baseBody()))).json();
-      expect(data.source).toBe("deterministic");
-      expect(data.fallbackReason).toBe(reason);
-    }
-  });
-
-  it("falls back on oversized provider responses", async () => {
-    process.env.OPENROUTER_API_KEY = "sk-or-v1-testkey";
-    process.env.TUTOR_MAX_RESPONSE_BYTES = "100";
-    fetchMock.mockResolvedValue(providerResponse(JSON.stringify(validTutorJson).padEnd(10000, "x")));
-    const data = await (await POST(tutorRequest(baseBody()))).json();
-    expect(data.source).toBe("deterministic");
-    expect(data.fallbackReason).toBe("oversized");
-  });
-
-  it("enforces the response limit in UTF-8 bytes", async () => {
-    process.env.OPENROUTER_API_KEY = "sk-or-v1-testkey";
-    const unicodeTutor = { ...validTutorJson, summary: "é".repeat(80) };
-    const response = providerResponse(JSON.stringify(unicodeTutor));
-    const encodedBody = await response.clone().text();
-    process.env.TUTOR_MAX_RESPONSE_BYTES = String(encodedBody.length);
-    fetchMock.mockResolvedValue(response);
-
-    const data = await (await POST(tutorRequest(baseBody()))).json();
-    expect(data.source).toBe("deterministic");
-    expect(data.fallbackReason).toBe("oversized");
-  });
-
-  it("never leaks the API key in responses or error paths", async () => {
-    process.env.OPENROUTER_API_KEY = "sk-or-v1-SECRETXYZ";
-    fetchMock.mockResolvedValue(
-      new Response(JSON.stringify({ error: "bad key sk-or-v1-SECRETXYZ" }), { status: 401 }),
-    );
-    const res = await POST(tutorRequest(baseBody()));
-    const text = JSON.stringify(await res.json());
-    expect(text).not.toContain("SECRETXYZ");
-    // The invalid-body path also stays clean.
-    const bad = await POST(tutorRequest({ nope: true }));
-    expect(JSON.stringify(await bad.json())).not.toContain("SECRETXYZ");
-  });
 });
-
-describe("client bundle hygiene", () => {
-  it("no client module references the server-side API key", () => {
-    for (const file of ["app/studio/tutor-panel.tsx", "app/studio/workbench.tsx", "lib/tutor.ts"]) {
-      const source = readFileSync(resolve(ROOT, file), "utf8");
-      expect(source).not.toContain("OPENROUTER_API_KEY");
-    }
-  });
-  it("the client tutor panel never imports the server-only provider module", () => {
-    const source = readFileSync(resolve(ROOT, "app/studio/tutor-panel.tsx"), "utf8");
-    expect(source).not.toContain("tutor-provider");
-  });
-});
-
 describe("tutor panel presentation", () => {
   const props = {
     taskId: "task-normalize",

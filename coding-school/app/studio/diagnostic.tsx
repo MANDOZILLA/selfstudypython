@@ -14,7 +14,7 @@ import {
 } from "../../lib/diagnostic";
 import { startGradingRun, type GradeResult, type GradeRequest } from "../../lib/runner";
 import { runStatus } from "../../lib/studio";
-import { monacoThemeFor, useTheme } from "./theme";
+import { defineSnakepitThemes, monacoThemeFor, useTheme } from "./theme";
 import styles from "./diagnostic-layout.module.css";
 import { DiagnosticPrompt } from "./diagnostic-prompt";
 import {
@@ -126,7 +126,7 @@ export function ConceptSandbox({ studio, session, item, run, onRun, onStop }: {
     <div className="editor-toolbar"><span>main.py <small>Python sandbox</small></span><button className="text-button" onClick={() => setPlainEditor(!plainEditor)}>{plainEditor ? "Use code editor" : "Use plain text"}</button></div>
     <div className="editor-canvas">{plainEditor
       ? <textarea className="plain-editor" aria-label="Python code" value={code} spellCheck={false} onChange={event => scratch.onChange(event.target.value)} />
-      : <Editor path={`diagnostic/${session.id}/${item.id}/main.py`} language="python" theme={monacoTheme} value={code}
+      : <Editor path={`diagnostic/${session.id}/${item.id}/main.py`} language="python" theme={monacoTheme} beforeMount={defineSnakepitThemes} value={code}
         onChange={value => scratch.onChange(value ?? "")}
         loading={<p className="editor-loading">Loading code editor… You can also choose “Use plain text”.</p>}
         options={{ minimap: { enabled: false }, fontFamily: "IBM Plex Mono, monospace", fontSize: 13, lineHeight: 22, padding: { top: 16 }, scrollBeyondLastLine: false, automaticLayout: true, wordWrap: "on", tabSize: 4, ariaLabel: "Scratch Python editor. This code is never graded. Press Escape then Tab to leave the editor.", accessibilitySupport: "on", fixedOverflowWidgets: true }} />}</div>
@@ -406,7 +406,7 @@ function CodingItem({ studio, session, item }: { studio: Studio; session: Diagno
       <div className="editor-toolbar"><span>main.py <small>Python</small></span><button className="text-button" onClick={() => setPlainEditor(!plainEditor)}>{plainEditor ? "Use code editor" : "Use plain text"}</button></div>
       <div className="editor-canvas">{plainEditor
         ? <textarea className="plain-editor" aria-label="Python code" value={code} spellCheck={false} onChange={event => studio.updateDiagnosticDraft({ code: event.target.value })} />
-        : <Editor path={`diagnostic/${session.id}/${item.id}/main.py`} language="python" theme={monacoTheme} value={code}
+        : <Editor path={`diagnostic/${session.id}/${item.id}/main.py`} language="python" theme={monacoTheme} beforeMount={defineSnakepitThemes} value={code}
           onChange={value => studio.updateDiagnosticDraft({ code: value ?? "" })}
           loading={<p className="editor-loading">Loading code editor… You can also choose “Use plain text”.</p>}
           options={{ minimap: { enabled: false }, fontFamily: "IBM Plex Mono, monospace", fontSize: 13, lineHeight: 22, padding: { top: 16 }, scrollBeyondLastLine: false, automaticLayout: true, wordWrap: "on", tabSize: 4, ariaLabel: "Python code editor. Press Escape then Tab to leave the editor.", accessibilitySupport: "on", fixedOverflowWidgets: true }} />}</div>

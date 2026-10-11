@@ -1,9 +1,6 @@
 import { z } from "zod";
 
-/** Structured tutor response. Matches the spec's suggested schema exactly.
- *  Both the deterministic tutor and the OpenRouter provider path return this
- *  shape; the route zod-validates provider output against it and falls back
- *  to the deterministic tutor on any mismatch. */
+/** Structured response returned by the deterministic tutor. */
 export const tutorReferenceSchema = z.object({
   label: z.string().min(1),
   url: z.string().min(1),
@@ -42,8 +39,7 @@ export interface TutorContext {
  *  the app. Fragment-only links never navigate away; slash paths must start
  *  with a single "/" and contain no control chars or backslashes (WHATWG URL
  *  parsing strips tabs/newlines, so "/\n/evil" would normalize to "//evil").
- *  Kept local (not imported from tutor-provider) so client modules never pull
- *  in the server-only provider. */
+ */
 export function isSafeTutorReference(url: string): boolean {
   if (url.startsWith("#")) return true;
   if (!/^\/(?![\\/])/.test(url)) return false;

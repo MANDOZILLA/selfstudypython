@@ -89,8 +89,7 @@ const FOUNDATIONS_TASKS: AssessmentTask[] = [
       "but it crashes on real data. Fix clean_users(rows) so it:\n" +
       "- skips rows that are not dicts, and rows whose name is missing or not a string\n" +
       "- strips whitespace from each kept name, and skips names that are empty after stripping\n" +
-      "- parses each age with int() inside a try block whose except clause names ValueError " +
-      "(int() raises ValueError on non-numeric text, not KeyError)\n" +
+      "- parses each age safely and skips values that cannot be converted\n" +
       "- skips rows whose age is missing, cannot be parsed, or is negative\n" +
       '- returns the cleaned [{"name": ..., "age": ...}] list in order, [] for an empty or non-list input — never raises\n\n' +
       "def clean_users(rows):\n" +

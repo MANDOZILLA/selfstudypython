@@ -13,12 +13,12 @@ describe("resolveTheme", () => {
     expect(resolveTheme("dark", false)).toBe("dark");
     expect(resolveTheme("light", true)).toBe("light");
   });
-  it("falls back to the system preference when nothing usable is stored", () => {
+  it("defaults to dark when nothing usable is stored", () => {
     expect(resolveTheme(null, true)).toBe("dark");
-    expect(resolveTheme(null, false)).toBe("light");
+    expect(resolveTheme(null, false)).toBe("dark");
     expect(resolveTheme(undefined, true)).toBe("dark");
     expect(resolveTheme("banana", true)).toBe("dark");
-    expect(resolveTheme("banana", false)).toBe("light");
+    expect(resolveTheme("banana", false)).toBe("dark");
   });
   it("only accepts light/dark as preferences", () => {
     expect(isThemePreference("light")).toBe(true);
@@ -29,10 +29,10 @@ describe("resolveTheme", () => {
 });
 
 describe("Monaco theme mapping", () => {
-  it("uses Monaco's built-in themes so dark editors get VS Code-like Python colours", () => {
-    expect(MONACO_THEMES).toEqual({ light: "vs", dark: "vs-dark" });
-    expect(monacoThemeFor("dark")).toBe("vs-dark");
-    expect(monacoThemeFor("light")).toBe("vs");
+  it("uses the custom Snakepit themes for both appearances", () => {
+    expect(MONACO_THEMES).toEqual({ light: "snakepit-light", dark: "snakepit-dark" });
+    expect(monacoThemeFor("dark")).toBe("snakepit-dark");
+    expect(monacoThemeFor("light")).toBe("snakepit-light");
   });
 
   it("keeps every non-diagnostic editor on the shared theme instead of a hardcoded one", () => {
@@ -45,12 +45,12 @@ describe("Monaco theme mapping", () => {
 });
 
 describe("no-flash inline script", () => {
-  it("reads the same storage key the hook writes, then the system preference", () => {
+  it("reads the saved choice and otherwise defaults to dark", () => {
     expect(THEME_INIT_SCRIPT).toContain(`localStorage.getItem(${JSON.stringify(THEME_STORAGE_KEY)})`);
-    expect(THEME_INIT_SCRIPT).toContain("prefers-color-scheme: dark");
+    expect(THEME_INIT_SCRIPT).toContain('var t="dark"');
     expect(THEME_INIT_SCRIPT).toContain('setAttribute("data-theme"');
     // Always leaves data-theme set, even when storage is unavailable.
-    expect(THEME_INIT_SCRIPT).toMatch(/catch\(e\)\{document\.documentElement\.setAttribute\("data-theme","light"\)\}/);
+    expect(THEME_INIT_SCRIPT).toContain('setAttribute("data-theme",t)');
   });
 
   it("is shipped by the root layout before the body paints", () => {
@@ -66,13 +66,12 @@ describe("ThemeToggle", () => {
 
   it("is a labelled toggle button announcing its pressed state", () => {
     expect(html).toContain('type="button"');
-    expect(html).toContain('aria-pressed="false"');
-    expect(html).toContain("Dark theme");
-    expect(html).toContain("Switch to the dark theme");
+    expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain("Daylight");
+    expect(html).toContain("Switch to daylight");
   });
 
-  it("renders the system-default light state during SSR so hydration matches", () => {
-    expect(html).toContain("☀");
-    expect(html).not.toContain("☾");
+  it("renders the dark default during SSR so hydration matches", () => {
+    expect(html).toContain("Daylight");
   });
 });

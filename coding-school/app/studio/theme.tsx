@@ -8,7 +8,7 @@ import {
 } from "./theme-shared";
 
 export {
-  MONACO_THEMES, SYSTEM_SCHEME_QUERY, THEME_ATTRIBUTE, THEME_INIT_SCRIPT, THEME_STORAGE_KEY,
+  MONACO_THEMES, SYSTEM_SCHEME_QUERY, THEME_ATTRIBUTE, THEME_INIT_SCRIPT, THEME_STORAGE_KEY, defineSnakepitThemes,
   isThemePreference, monacoThemeFor, resolveTheme,
 } from "./theme-shared";
 export type { MonacoTheme, ThemePreference } from "./theme-shared";
@@ -20,7 +20,7 @@ const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : us
 // The live theme lives on <html data-theme>, not in React state, so the
 // inline script can set it before paint. This module-level store keeps every
 // hook and editor in sync without a provider.
-let themeSnapshot: ThemePreference = "light";
+let themeSnapshot: ThemePreference = "dark";
 const listeners = new Set<() => void>();
 
 const subscribe = (listener: () => void) => {
@@ -28,7 +28,7 @@ const subscribe = (listener: () => void) => {
   return () => { listeners.delete(listener); };
 };
 const getSnapshot = () => themeSnapshot;
-const getServerSnapshot = (): ThemePreference => "light";
+const getServerSnapshot = (): ThemePreference => "dark";
 
 function commit(theme: ThemePreference) {
   if (themeSnapshot === theme) return;
@@ -110,10 +110,10 @@ export function ThemeToggle({ className }: { className?: string }) {
     type="button"
     className={className ? `theme-toggle ${className}` : "theme-toggle"}
     aria-pressed={isDark}
-    title={isDark ? "Switch to the light theme" : "Switch to the dark theme"}
+    title={isDark ? "Switch to daylight" : "Switch to the dark theme"}
     onClick={toggleTheme}
   >
     <span className="theme-toggle-icon" aria-hidden="true">{isDark ? "☾" : "☀"}</span>
-    <span className="theme-toggle-text">Dark theme</span>
+    <span className="theme-toggle-text">{isDark ? "Daylight" : "Dark theme"}</span>
   </button>;
 }
