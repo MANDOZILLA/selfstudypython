@@ -71,7 +71,7 @@ export function SkillTree({ state }: { state: LearningState }) {
         })}
       </svg>
     </div>
-    {selected && <aside className={css.detail} aria-live="polite"><h3>{selected.name}</h3><p>{selected.readiness}</p><p><strong>Prerequisites:</strong> {selected.prerequisites.map(p => p.name).join(", ") || "None"}</p><p><strong>Next review:</strong> {selected.nextReviewAt ?? "Not scheduled"}</p>{selected.evidenceTasks.length > 0 && <><h4>Evidence tasks</h4><ul>{selected.evidenceTasks.map((task, i) => <li key={`${task.taskId}-${i}`}>{task.title} · {task.passed ? "passed" : "needs work"}</li>)}</ul></>}</aside>}
+    {selected && <aside className={css.detail} aria-live="polite"><h3>{selected.name}</h3><p>{selected.readiness}</p><p><strong>Prerequisites:</strong> {selected.prerequisites.map(p => p.name).join(", ") || "None"}</p><p><strong>Next review:</strong> {selected.nextReviewAt?.slice(0, 10) ?? "Not scheduled"}</p>{selected.evidenceTasks.length > 0 && <><h4>Evidence tasks</h4><ul>{selected.evidenceTasks.map((task, i) => <li key={`${task.taskId}-${i}`}>{task.title} · {task.passed ? "passed" : "needs work"}</li>)}</ul></>}</aside>}
     <details><summary>About mastery</summary><p>Mastery needs independent evidence across varied tasks and later practice. Placement alone never grants status.</p></details>
   </section>;
 }

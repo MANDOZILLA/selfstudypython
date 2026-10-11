@@ -161,8 +161,9 @@ function Completion({ studio }: { studio: Studio }) {
   const next = recommendNext(studio.state);
   const nextMission = next.missionId ? curriculum.missions.find(item => item.id === next.missionId) : undefined;
   const nextLabel = nextMission?.title ?? (next.action === "assessment" ? "Open your next checkpoint" : "Choose a mission");
-  const passed = rows.filter(row => row.attempt.passed && row.attempt.executionOk).length;
-  const graded = rows.filter(row => row.attempt.purpose !== "instruction" && row.attempt.purpose !== "reflection").length;
+  const gradedRows = rows.filter(row => row.attempt.purpose !== "instruction" && row.attempt.purpose !== "reflection");
+  const passed = gradedRows.filter(row => row.attempt.passed && row.attempt.executionOk).length;
+  const graded = gradedRows.length;
   const checksLine = graded ? `${passed}/${graded} passed` : "saved";
   return <><PageHeading label="RUN COMPLETE" title="Run complete.">Your effort is recorded. Skill status still comes from evidence.</PageHeading><MissionComplete checks={checksLine} artifact={artifact} xp={xp} levelUp={currentLevel > beforeLevel ? `LEVEL UP · ${levelFor(totalXp).title}` : undefined} next={nextLabel} primary={<button className="primary" onClick={() => next.action === "assessment" ? studio.navigate("assessment") : nextMission ? studio.start(nextMission.id) : studio.navigate("lessons")}>Next mission →</button>} secondary={<button className="secondary" onClick={() => studio.navigate("today")}>Home</button>} />
     {run.mode === "review" && <section className="document"><h2>Review results</h2>{rows.filter(row => row.attempt.purpose === "retrieval").map(row => <article key={row.attempt.id}><h3>{row.title}</h3><p>{row.attempt.passed ? "Passed" : "Needs changes"} · {row.attempt.checks.filter(c => c.passed).length} of {row.attempt.checks.length} checks passed · {row.assistance}</p></article>)}</section>}
