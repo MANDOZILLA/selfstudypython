@@ -47,8 +47,8 @@ export type DiagnosticSkillId = (typeof DIAGNOSTIC_CORE_SKILLS)[number];
 
 /** Display metadata for the probed skills. Titles are learner-facing. */
 export const DIAGNOSTIC_SKILLS: { id: DiagnosticSkillId; title: string }[] = [
-  { id: "csp-foundations", title: "AP CSP: programs and algorithms" },
-  { id: "csp-data-systems", title: "AP CSP: data, systems, and impacts" },
+  { id: "csp-foundations", title: "Programs and algorithms" },
+  { id: "csp-data-systems", title: "Data, systems, and impacts" },
   { id: "python-functions", title: "Functions and return contracts" },
   { id: "python-exceptions", title: "Exceptions and error handling" },
   { id: "data-structures", title: "Ordered record transformations" },

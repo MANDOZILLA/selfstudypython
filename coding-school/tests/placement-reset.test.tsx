@@ -261,7 +261,7 @@ describe("reset placement presentation", () => {
   it("offers a confirmed reset that names exactly what is kept", () => {
     const markup = todayMarkup(placementState());
     expect(markup).toContain("Reset placement");
-    expect(markup).toContain("Clears your diagnostic sessions and placement summary");
+    expect(markup).toContain("Clears your placement sessions and placement summary");
     expect(markup).toContain("Missions, checkpoints, your evidence log, and portfolio snapshots are kept.");
     expect(markup).toContain("START OVER");
     expect(markup).toContain('aria-label="Reset placement"');
@@ -274,7 +274,7 @@ describe("reset placement presentation", () => {
     const start = source.indexOf('aria-label="Confirm placement reset"');
     expect(start).toBeGreaterThan(-1);
     const confirm = source.slice(start);
-    expect(confirm).toContain("This permanently clears {sessions.length} saved diagnostic session{sessions.length === 1 ? \"\" : \"s\"}");
+    expect(confirm).toContain("This permanently clears {sessions.length} saved placement session{sessions.length === 1 ? \"\" : \"s\"}");
     expect(confirm).toContain("Missions, checkpoint assessments, your evidence log, and portfolio snapshots are not affected.");
     expect(confirm).toContain("Yes, reset placement");
     expect(confirm).toContain("Keep my placement");

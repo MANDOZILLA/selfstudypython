@@ -24,7 +24,9 @@ import {
   type ConceptGrader,
   type DiagnosticSession,
 } from "../lib/diagnostic";
-import { DIAGNOSTIC_CORE_SKILLS, DIAGNOSTIC_ITEMS, type DiagnosticItem } from "../curriculum/diagnostic-items";
+import { DIAGNOSTIC_CORE_SKILLS, DIAGNOSTIC_ITEMS, DIAGNOSTIC_SKILLS, type DiagnosticItem } from "../curriculum/diagnostic-items";
+
+const skillTitle = (id: string) => DIAGNOSTIC_SKILLS.find(s => s.id === id)?.title ?? id;
 
 const alwaysCorrect: ConceptGrader = () => ({ correct: true, detail: "stub" });
 const byId = new Map(DIAGNOSTIC_ITEMS.map(i => [i.id, i]));
@@ -660,10 +662,14 @@ describe("honest evidence: gaps, wrong answers, and hints", () => {
     expect(evidence["csp-data-systems"].wrong).toBeGreaterThan(0);
     expect(evidence["python-functions"].hinted).toBeGreaterThan(0);
     expect(recommendation).toContain("useful gaps, not mistakes");
-    expect(recommendation).toContain("Some areas could use more practice");
+    const gapsLine = /Knowledge gaps[^:]*: ([^.]+)\./.exec(recommendation)?.[1] ?? "";
+    const practiceLine = /Needs practice: ([^.]+)\./.exec(recommendation)?.[1] ?? "";
+    expect(gapsLine).toContain(skillTitle("json-validation"));
+    expect(practiceLine).toContain(skillTitle("csp-data-systems"));
+    expect(practiceLine).not.toContain(skillTitle("json-validation"));
+    expect(recommendation).toContain(`Hint-dependent: ${skillTitle("python-functions")}`);
     expect(recommendation).not.toContain("json-validation");
     expect(recommendation).not.toContain("csp-data-systems");
-    expect(recommendation).toContain("Hints helped in some areas");
   });
 
   it("reports the answer tally and current placement wording", () => {
@@ -678,7 +684,7 @@ describe("honest evidence: gaps, wrong answers, and hints", () => {
       'Answers: 1 correct on your own, 1 correct after hints, 1 incorrect, 1 declared "I do not know".',
     );
     expect(recommendation).toContain("Your scan starts with Python foundations");
-    expect(recommendation).toContain("Your skill tree tracks learning over time");
+    expect(recommendation).toMatch(/never grants mission completion or mastery/i);
   });
 });
 
@@ -873,8 +879,10 @@ describe("placement wording separates solid ground from assisted success", () =>
     expect(hintDependent).toContain("python-functions");
     expect(hintDependent).not.toContain("data-structures");
 
-    expect(recommendation).toContain("strong signals in some areas");
-    expect(recommendation).toContain("Hints helped in some areas");
+    const solid = /Solid ground: ([^.]+)\./.exec(recommendation)?.[1] ?? "";
+    expect(solid).toContain(skillTitle("data-structures"));
+    expect(solid).not.toContain(skillTitle("python-functions"));
+    expect(recommendation).toMatch(new RegExp(`Hint-dependent: ${skillTitle("python-functions")}[^.]*practice, not solid ground`));
     expect(recommendation).not.toContain("data-structures");
     expect(recommendation).not.toContain("python-functions");
   });
@@ -887,6 +895,6 @@ describe("placement wording separates solid ground from assisted success", () =>
     ]);
     const { recommendation, hintDependent } = deriveDiagnosticProfile(session);
     expect(hintDependent).not.toContain("csv-cleaning");
-    expect(recommendation).toContain("strong signals in some areas");
+    expect(recommendation).toContain(`Solid ground: ${skillTitle("csv-cleaning")}`);
   });
 });

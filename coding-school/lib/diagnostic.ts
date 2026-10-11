@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DIAGNOSTIC_CORE_SKILLS, DIAGNOSTIC_ITEMS, type DiagnosticItem } from "../curriculum/diagnostic-items";
+import { DIAGNOSTIC_CORE_SKILLS, DIAGNOSTIC_ITEMS, DIAGNOSTIC_SKILLS, type DiagnosticItem } from "../curriculum/diagnostic-items";
 import { getGrader } from "../public/grading/catalog.js";
 
 /** Bump when the item bank or a diagnostic grader changes meaningfully.
@@ -397,22 +397,23 @@ export function deriveDiagnosticProfile(session: DiagnosticSession): {
     evidence[id].independent === 0 && evidence[id].hinted > 0);
   const uncertain = DIAGNOSTIC_CORE_SKILLS.filter(id => profile[id] === "uncertain");
   const untested = DIAGNOSTIC_CORE_SKILLS.filter(id => profile[id] === "untested");
+  const names = (ids: readonly string[]) => ids.map(id => DIAGNOSTIC_SKILLS.find(s => s.id === id)?.title ?? id).join(", ");
   const parts = [
-    `Placement from ${placedCount} responses on ${session.completedAt ?? session.startedAt}.`,
+    `Placement from ${placedCount} responses on ${(session.completedAt ?? session.startedAt).slice(0, 10)}.`,
     "Your scan starts with Python foundations, then explores more advanced skills.",
     placedCount
       ? `Answers: ${totals.independent} correct on your own, ${totals.hinted} correct after hints, ${totals.wrong} incorrect, ${totals.unknown} declared "${DIAGNOSTIC_UNKNOWN_ANSWER}".`
       : "",
-    strong.length ? "You already have strong signals in some areas." : "",
+    strong.length ? `Solid ground: ${names(strong)}.` : "",
     knowledgeGaps.length
-      ? `You marked ${DIAGNOSTIC_UNKNOWN_ANSWER} in some areas. Those are useful gaps, not mistakes.`
+      ? `Knowledge gaps (you said “${DIAGNOSTIC_UNKNOWN_ANSWER}” — useful gaps, not mistakes): ${names(knowledgeGaps)}.`
       : "",
-    weak.length ? "Some areas could use more practice. Start with a mission that covers the basics." : "",
-    hintDependent.length ? "Hints helped in some areas. Keep practicing to build confidence." : "",
-    uncertain.length ? "Some areas are still uncertain." : "",
-    untested.length ? "Some skills have not come up yet." : "",
+    weak.length ? `Needs practice: ${names(weak)}. Start with the earliest mission that covers these.` : "",
+    hintDependent.length ? `Hint-dependent: ${names(hintDependent)} — correct only with hints, which counts as practice, not solid ground.` : "",
+    uncertain.length ? `Still uncertain: ${names(uncertain)}.` : "",
+    untested.length ? `Not tested yet: ${names(untested)}.` : "",
     legacyCount ? `${legacyCount} earlier answer(s) could not be used for placement. You can rerun those questions in a new scan.` : "",
-    "Your placement guides practice. Your skill tree tracks learning over time.",
+    "Placement guides where you start. It never grants mission completion or mastery: those need independent project evidence over time.",
   ];
   return {
     profile, recommendation: parts.filter(Boolean).join(" "), legacyCount,

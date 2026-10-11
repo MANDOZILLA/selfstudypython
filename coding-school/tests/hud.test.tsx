@@ -25,6 +25,6 @@ describe("progress HUD", () => {
     const state = createDefaultState();
     state.attempts.push(passingProject());
     const markup = renderToStaticMarkup(<Hud state={state} />);
-    expect(markup).toContain("150 XP");
+    expect(markup).toContain("150 / 183 XP");
   });
 });
