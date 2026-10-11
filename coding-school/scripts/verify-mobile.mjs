@@ -35,7 +35,7 @@ async function noOverflow(page, label) {
 async function goNav(page, name) {
   const link = page.getByRole("link", { name, exact: true });
   if (!(await link.isVisible().catch(() => false))) {
-    await page.getByRole("button", { name: /Navigate|Close menu/ }).click();
+    await page.getByRole("button", { name: /^(Menu|Close menu)$/i }).click();
   }
   await link.click();
 }
@@ -87,21 +87,21 @@ async function journey(browser) {
   await page.waitForSelector('[aria-label="Recommended next step"]', { timeout: 20000 });
 
   check("today's recommendation offers a mission on mobile",
-    await page.getByRole("button", { name: /Start \d+-minute mission|Resume/ }).first().isVisible());
+    await page.getByRole("button", { name: /Start mission|Resume mission/ }).first().isVisible());
   await noOverflow(page, "mobile dashboard");
 
-  await goNav(page, "What I Learned");
+  await goNav(page, "SKILL TREE");
   check("skill graph visible on mobile", await page.getByRole("heading", { name: /skill graph/i }).isVisible());
   await noOverflow(page, "mobile skill graph");
 
-  await goNav(page, "Curriculum");
+  await goNav(page, "MISSIONS");
   await page.waitForFunction(() => document.querySelector(".lesson-row"), null, { timeout: 15000 });
   check("mobile lessons library lists missions", (await page.locator(".lesson-row").count()) >= 10);
   await noOverflow(page, "mobile lessons");
 
   // Mission workbench on mobile: tab panels (instructions / code / checks).
-  await goNav(page, "Today");
-  await page.getByRole("button", { name: /Start \d+-minute mission/ }).click();
+  await goNav(page, "HOME");
+  await page.getByRole("button", { name: /Start mission/ }).click();
   await page.waitForFunction(() => document.querySelector(".plain-editor, #reflection, .stage-document, .reading-layout, .coding-layout"), null, { timeout: 15000 });
   const continueLearn = page.getByRole("button", { name: /Continue to Learn/ });
   if (await continueLearn.isVisible().catch(() => false)) await continueLearn.click();
@@ -119,7 +119,7 @@ async function journey(browser) {
   await page.screenshot({ path: "/tmp/journey-mobile-code.png" });
   await noOverflow(page, "mobile workbench code");
 
-  await goNav(page, "Self-Assessment");
+  await goNav(page, "CHECKPOINTS");
   await sleep(600);
   check("mobile assessment view renders", await page.locator("#main-content").isVisible());
   await noOverflow(page, "mobile self-assessment");

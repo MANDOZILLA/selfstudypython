@@ -237,17 +237,26 @@ async function noOverflow(page, label, width) {
   check(`${label}: no horizontal overflow`, scrollWidth <= width, `scrollWidth=${scrollWidth}`);
 }
 
+async function openFirstMission(page) {
+  const missions = page.getByRole("link", { name: /MISSIONS/ });
+  if (!(await missions.isVisible().catch(() => false))) {
+    await page.getByRole("button", { name: /^(Menu|Close menu)$/i }).click();
+  }
+  await missions.click();
+  await page.getByRole("button", { name: "Open mission" }).first().click();
+}
+
 /** csv-foundations, blank profile, fully through the real UI and Python worker. */
 async function desktopSmoke(browser) {
   console.log("\n--- desktop 1280x720: csv-foundations smoke ---");
+  await resetServerState();
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   const errors = [];
   watchErrors(page, errors);
   await page.goto(BASE_URL, { waitUntil: "networkidle" });
 
-  const startButton = page.getByRole("button", { name: /Start \d+-minute mission/ });
-  check("dashboard offers the first mission", await startButton.isVisible());
-  await startButton.click();
+  await openFirstMission(page);
+  check("missions library opens the first mission", await page.locator(".workbench-heading").isVisible());
   await page.waitForFunction(() => document.querySelector(".plain-editor, #reflection, .stage-document, .reading-layout, .coding-layout"), null, { timeout: 15000 });
 
   // Review: nothing due yet -> Continue to Learn.
@@ -265,13 +274,13 @@ async function desktopSmoke(browser) {
   await page.locator("#reflection").fill("I split parsing from validation so quoted commas survive DictReader, then reject bad money with Decimal instead of floats. Remaining uncertainty: ragged rows with extra columns.");
   await page.getByRole("button", { name: /Save reflection & finish/ }).click();
   await page.waitForFunction(() => window.location.hash.startsWith("#summary?run="), null, { timeout: 15000 });
-  check("mission completion summary shown", await page.getByText("MISSION COMPLETE").isVisible());
+  check("mission completion summary shown", await page.getByRole("heading", { name: "Run complete." }).isVisible());
 
   // The finished mission shows as Completed in the lesson library.
-  await page.getByRole("link", { name: "Curriculum" }).click();
+  await page.getByRole("link", { name: /MISSIONS/ }).click();
   const row = page.locator(".lesson-row", { hasText: "From small functions to a clean payments CSV" });
   check("library lists the finished mission", await row.isVisible());
-  check("finished mission shows Completed", (await row.innerText()).includes("Completed"));
+  check("finished mission shows CLEARED", (await row.innerText()).includes("CLEARED"));
   await noOverflow(page, "desktop library", 1280);
   await page.screenshot({ path: "/tmp/missions-desktop.png" });
   check("zero console/page errors on desktop smoke", errors.length === 0, errors.join(" | ").slice(0, 300));
@@ -299,11 +308,13 @@ async function pandasOffline(browser) {
   watchErrors(page, errors);
   await page.goto(BASE_URL, { waitUntil: "networkidle" });
 
-  const startButton = page.getByRole("button", { name: /Start \d+-minute mission/ });
-  check("dashboard offers pandas-missing-data after seeded prerequisites", await startButton.isVisible());
-  const missionTitle = await page.locator(".mission-document #mission-title").innerText().catch(() => "");
-  check("next mission is Missing Data, Found Data", missionTitle.includes("Missing Data"), missionTitle);
-  await startButton.click();
+  const missions = page.getByRole("link", { name: /MISSIONS/ });
+  await missions.click();
+  const pandasRow = page.locator(".lesson-row").filter({ has: page.getByRole("heading", { name: "Missing Data, Found Data", exact: true }) });
+  check("missions library unlocks pandas-missing-data after seeded prerequisites", await pandasRow.isVisible());
+  const missionTitle = await pandasRow.locator("h3").innerText();
+  check("unlocked mission is Missing Data, Found Data", missionTitle.includes("Missing Data"), missionTitle);
+  await pandasRow.getByRole("button", { name: "Open mission" }).click();
   await page.waitForFunction(() => document.querySelector(".plain-editor, #reflection, .stage-document, .reading-layout, .coding-layout"), null, { timeout: 15000 });
 
   // Review + learn instruction click-throughs.
@@ -330,7 +341,7 @@ async function mobileFlow(browser) {
   watchErrors(page, errors);
   await page.goto(BASE_URL, { waitUntil: "networkidle" });
   await noOverflow(page, "mobile dashboard", 375);
-  await page.getByRole("button", { name: /Start \d+-minute mission/ }).click();
+  await openFirstMission(page);
   await page.waitForFunction(() => document.querySelector(".plain-editor, #reflection, .stage-document, .reading-layout, .coding-layout"), null, { timeout: 15000 });
   await noOverflow(page, "mobile review", 375);
   await page.getByRole("button", { name: /Continue to Learn/ }).click();

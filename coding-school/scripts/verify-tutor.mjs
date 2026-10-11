@@ -5,7 +5,7 @@
  * Covers:
  *   - guided-practice code task shows the "Stuck?" tutor affordance
  *   - "Ask tutor" returns the built-in (deterministic) tutor, labeled as such
- *   - Learning Mode hides the tutor affordance and hints entirely
+ *   - Independent mode hides the tutor affordance and hints entirely
  *   - POST /api/tutor with independentMode:true is rejected with 403
  *   - POST /api/tutor with independentMode:false returns a tutor answer
  *   - zero console/page errors throughout
@@ -46,7 +46,7 @@ async function main() {
 }
 
 async function tutorFlow(browser) {
-  console.log("\n--- desktop 1280x720: tutor fallback + Learning Mode ---");
+  console.log("\n--- desktop 1280x720: tutor fallback + Independent mode ---");
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   const errors = [];
   watchErrors(page, errors);
@@ -54,7 +54,7 @@ async function tutorFlow(browser) {
   await page.goto(BASE_URL, { waitUntil: "networkidle" });
 
   // Reach a guided-practice code task: dashboard -> first mission -> Learn.
-  const startButton = page.getByRole("button", { name: /Start \d+-minute mission/ });
+  const startButton = page.getByRole("button", { name: /Start mission/ });
   check("dashboard offers the first mission", await startButton.isVisible());
   await startButton.click();
   await page.waitForFunction(() => document.querySelector(".plain-editor, #reflection, .stage-document, .reading-layout, .coding-layout"), null, { timeout: 15000 });
@@ -64,34 +64,34 @@ async function tutorFlow(browser) {
   if (await ack.isVisible().catch(() => false)) await ack.click();
   await page.waitForFunction(() => document.querySelector(".plain-editor, .coding-layout"), null, { timeout: 15000 });
 
-  // Learning Mode defaults ON for a fresh profile (use-studio.ts): establish
+  // Independent mode defaults ON for a fresh profile (use-studio.ts): establish
   // an explicit baseline before any visibility assertion.
   await page.locator(".learning-toggle input").setChecked(false);
   await sleep(400);
 
-  // Tutor affordance is visible outside Learning Mode.
+  // Tutor affordance is visible outside Independent mode.
   const tutorSection = page.locator('section[aria-label="Tutor"]');
   check("tutor affordance visible on a code task", await tutorSection.isVisible());
   const hintsVisible = await page.getByText("Need a nudge?").isVisible().catch(() => false);
-  check("hints visible outside Learning Mode", hintsVisible);
+  check("hints visible outside Independent mode", hintsVisible);
 
-  // Learning Mode FIRST: asking the tutor permanently records AI assistance,
+  // Independent mode FIRST: asking the tutor permanently records AI assistance,
   // and the app correctly keeps a task "recorded as assisted" once help was
   // used — so the independent-mode assertions must run before any help.
   await page.locator(".learning-toggle input").setChecked(true);
   await sleep(400);
-  check("tutor affordance hidden in Learning Mode", !(await tutorSection.isVisible().catch(() => false)));
-  check("hints hidden in Learning Mode", !(await page.getByText("Need a nudge?").isVisible().catch(() => false)));
+  check("tutor affordance hidden in Independent mode", !(await tutorSection.isVisible().catch(() => false)));
+  check("hints hidden in Independent mode", !(await page.getByText("Need a nudge?").isVisible().catch(() => false)));
   check(
     "independent-mode notice shown",
-    await page.getByText(/Independent work/).first().isVisible().catch(() => false),
+    await page.getByText(/Independent mode is on/).first().isVisible().catch(() => false),
   );
   await page.screenshot({ path: "/tmp/tutor-learning-mode.png" });
 
   // Back to normal mode: the tutor affordance returns.
   await page.locator(".learning-toggle input").setChecked(false);
   await sleep(400);
-  check("tutor affordance returns after leaving Learning Mode", await tutorSection.isVisible());
+  check("tutor affordance returns after leaving Independent mode", await tutorSection.isVisible());
 
   // Ask the deterministic tutor.
   await page.getByRole("button", { name: /Ask tutor/ }).click();

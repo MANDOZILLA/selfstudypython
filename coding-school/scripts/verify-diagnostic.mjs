@@ -55,6 +55,19 @@ async function waitForServer(url, tries = 60) {
   throw new Error(`Server never came up at ${url}`);
 }
 
+async function waitForDiagnosticState(sessionId, expectedResponses) {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const response = await fetch(`${BASE_URL}/api/state`);
+    if (response.ok) {
+      const snapshot = await response.json();
+      const session = snapshot.state?.diagnosticSessions?.find(item => item.id === sessionId);
+      if (session && session.responses.length >= expectedResponses) return session;
+    }
+    await sleep(500);
+  }
+  throw new Error(`Diagnostic state did not sync ${expectedResponses} responses for ${sessionId}`);
+}
+
 async function main() {
   const { chromium } = await import("playwright");
   let server;
@@ -87,7 +100,7 @@ async function desktopFlow(browser) {
 
   // The shared server may already host an in-progress session (retakes and
   // concurrent runs persist server-side), so accept resume as well as start.
-  const startButton = page.getByRole("button", { name: /take the placement diagnostic|resume diagnostic/i });
+  const startButton = page.getByRole("button", { name: /start placement scan|resume scan/i });
   // Dashboard boots from the server snapshot asynchronously; wait for the
   // entry to render instead of racing the first paint.
   await startButton.waitFor({ timeout: 15000 }).catch(() => {});
@@ -101,7 +114,7 @@ async function desktopFlow(browser) {
   // current question (nothing to answer or run). The blocked panel offers
   // "Start a fresh retake", which commits a new session without clearing
   // history or touching the placement reset — take it and carry on.
-  const retakeButton = page.getByRole("button", { name: /start a fresh retake/i });
+  const retakeButton = page.getByRole("button", { name: /start a fresh scan/i });
   await retakeButton.waitFor({ timeout: 3000 }).catch(() => {});
   const answerBox = page.getByRole("button", { name: /submit answer/i });
   const runChecks = page.getByRole("button", { name: /run checks/i });
@@ -117,8 +130,7 @@ async function desktopFlow(browser) {
   }
 
   // Seed successes from the meta line so an already-progressed session counts.
-  const seedMeta = await page.locator(".diagnostic-meta").innerText();
-  let codingSuccesses = Number(/(\d+) successful Python run/.exec(seedMeta)?.[1] ?? 0);
+  let codingSuccesses = (await waitForDiagnosticState(/diagnostic\?session=([^&]+)/.exec(page.url())?.[1], 0)).codingSuccessCount;
   // Step budget: the AP CSP foundation tier serves ~5 concept questions
   // before the first coding item, and the second coding item sits behind
   // several more two-question skills — 30 covers the path with headroom.
@@ -141,8 +153,7 @@ async function desktopFlow(browser) {
       if (await toggleAfter.isVisible()) await toggleAfter.click();
       const restored = await page.locator(".plain-editor").inputValue().catch(() => "");
       check("code draft restored after reload", restored.includes("def "), `item ${itemId}`);
-      const metaBeforeRun = await page.locator(".diagnostic-meta").innerText();
-      const answeredBefore = Number(/(\d+) of up to 25/.exec(metaBeforeRun)?.[1] ?? -1);
+      const answeredBefore = Number(await page.getByRole("progressbar", { name: "Placement scan progress" }).getAttribute("aria-valuenow"));
       const promptBefore = await page.locator(".diagnostic-prompt").textContent();
       await page.getByRole("button", { name: /run checks/i }).click();
       // A graded run records its response and advances the session in the same
@@ -152,18 +163,18 @@ async function desktopFlow(browser) {
       // appears (nothing recorded, item stays current).
       await page.waitForFunction((before) => {
         if (document.querySelector(".diagnostic-infra")) return true;
-        if (document.querySelector('[aria-label="Finish diagnostic"]')) return true;
+        if (document.querySelector('[aria-label="Finish placement scan"]')) return true;
         const prompt = document.querySelector(".diagnostic-prompt");
         return !!prompt && prompt.textContent !== before;
       }, promptBefore, { timeout: 180000 });
       const infra = await page.locator(".diagnostic-infra").isVisible().catch(() => false);
       check("coding run completes without infra failure", !infra);
-      const metaAfter = await page.locator(".diagnostic-meta").innerText();
-      const answeredAfter = Number(/(\d+) of up to 25/.exec(metaAfter)?.[1] ?? -1);
+      const answeredAfter = Number(await page.getByRole("progressbar", { name: "Placement scan progress" }).getAttribute("aria-valuenow"));
       check("response recorded in progress", answeredAfter === answeredBefore + 1, `${answeredBefore} -> ${answeredAfter}`);
-      const successes = Number(/(\d+) successful Python run/.exec(metaAfter)?.[1] ?? -1);
-      check("successful runs counted", successes >= 0, metaAfter.replace(/\n/g, " "));
-      codingSuccesses = Math.max(codingSuccesses, successes);
+      const sessionId = /diagnostic\?session=([^&]+)/.exec(page.url())?.[1];
+      const savedSession = await waitForDiagnosticState(sessionId, answeredAfter);
+      check("successful runs counted", savedSession.codingSuccessCount > codingSuccesses, `${codingSuccesses} -> ${savedSession.codingSuccessCount}`);
+      codingSuccesses = savedSession.codingSuccessCount;
     } else {
       const answer = page.locator("#diagnostic-answer");
       if (!(await answer.isVisible().catch(() => false))) break;
@@ -199,7 +210,7 @@ async function mobileFlow(browser) {
   const page = await browser.newPage({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true });
   const pageErrors = watchErrors(page);
   await page.goto(BASE_URL, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: /take the placement diagnostic|resume diagnostic/i }).click();
+  await page.getByRole("button", { name: /start placement scan|resume scan/i }).click();
   await page.waitForURL(/diagnostic\?session=/);
   const noOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= 375);
   check("no horizontal overflow at 375px (question view)", noOverflow,

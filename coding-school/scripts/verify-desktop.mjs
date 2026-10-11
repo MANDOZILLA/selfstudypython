@@ -105,22 +105,22 @@ async function journey(browser) {
   await page.waitForSelector('[aria-label="Recommended next step"]', { timeout: 20000 });
 
   // 1. Dashboard: today's recommendation, then the skill graph under What I Learned.
-  const startButton = page.getByRole("button", { name: /Start \d+-minute mission|Resume/ });
+  const startButton = page.getByRole("button", { name: /Start mission|Resume mission/ });
   check("today's recommendation offers a mission", await startButton.first().isVisible());
   await noOverflow(page, "dashboard", 1280);
-  await page.getByRole("link", { name: "What I Learned", exact: true }).click();
+  await page.getByRole("link", { name: /SKILL TREE/ }).click();
   check("skill graph visible under What I Learned", await page.getByRole("heading", { name: /skill graph/i }).isVisible());
   await noOverflow(page, "skill graph", 1280);
 
   // 2. Lessons library.
-  await page.getByRole("link", { name: "Curriculum" }).click();
+  await page.getByRole("link", { name: /MISSIONS/ }).click();
   await page.waitForFunction(() => document.querySelector(".lesson-row"), null, { timeout: 15000 });
   check("lessons library lists missions", (await page.locator(".lesson-row").count()) >= 10);
   await noOverflow(page, "lessons library", 1280);
 
   // 3. Mission workbench: IDE + real Python run.
-  await page.getByRole("link", { name: "Today", exact: true }).click();
-  await page.getByRole("button", { name: /Start \d+-minute mission/ }).click();
+  await page.getByRole("link", { name: /HOME/ }).click();
+  await page.getByRole("button", { name: /Start mission/ }).click();
   await page.waitForFunction(() => document.querySelector(".plain-editor, #reflection, .stage-document, .reading-layout, .coding-layout"), null, { timeout: 15000 });
   const continueLearn = page.getByRole("button", { name: /Continue to Learn/ });
   if (await continueLearn.isVisible().catch(() => false)) await continueLearn.click();
@@ -146,7 +146,7 @@ async function journey(browser) {
   check("guided task passes via the desktop IDE", failed === 0 && passed > 0, `${passed} passed, ${failed} failed`);
 
   // 4. Self-Assessment checkpoint.
-  await page.getByRole("link", { name: "Self-Assessment" }).click();
+  await page.getByRole("link", { name: /CHECKPOINTS/ }).click();
   await page.waitForFunction(() => document.querySelector(".assessment-document, .checkpoint"), null, { timeout: 15000 }).catch(() => {});
   const checkpointVisible = await page.getByText(/checkpoint/i).first().isVisible().catch(() => false);
   check("assessment checkpoints listed", checkpointVisible);
@@ -160,7 +160,7 @@ async function journey(browser) {
   await noOverflow(page, "portfolio", 1280);
 
   // 6. What I Learned log records the completed evidence.
-  await page.getByRole("link", { name: "What I Learned" }).click();
+  await page.getByRole("link", { name: /SKILL TREE/ }).click();
   await sleep(500);
   check("learning log renders", await page.locator("#main-content").isVisible());
   await noOverflow(page, "what i learned", 1280);
