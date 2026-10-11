@@ -218,12 +218,15 @@ async function fillCode(page, solution) {
 /** Run checks and require every required check to pass. */
 async function runChecksExpectPass(page, label) {
   await page.locator("#run-checks").click();
+  // Wait for the run to actually start (button disabled) before waiting for it
+  // to settle; otherwise a first-run Pyodide/pandas load can be sampled mid-flight.
+  await page.waitForFunction(() => !!document.querySelector("#run-checks:disabled"), null, { timeout: 10000 }).catch(() => {});
+  await page.waitForFunction(() => !document.querySelector("#run-checks:disabled"), null, { timeout: 180000 });
   await page.waitForSelector(".check-results", { timeout: 180000 });
-  // The worker streams progress text; wait until the run settles (button re-enabled).
-  await page.waitForFunction(() => !document.querySelector("#run-checks:disabled"), null, { timeout: 180000 }).catch(() => {});
   const failed = await page.locator(".check-results .check-fail").count();
   const passed = await page.locator(".check-results .check-pass").count();
-  check(`${label}: all required checks pass`, failed === 0 && passed > 0, `${passed} passed, ${failed} failed`);
+  const failText = failed ? ` :: ${(await page.locator(".check-results .check-fail").allInnerTexts()).join(" | ").slice(0, 400)}` : "";
+  check(`${label}: all required checks pass`, failed === 0 && passed > 0, `${passed} passed, ${failed} failed${failText}`);
 }
 
 async function continueTo(page, namePattern) {

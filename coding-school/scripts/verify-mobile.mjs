@@ -33,7 +33,8 @@ async function noOverflow(page, label) {
 
 /** Below ~1024px the nav links hide behind the "Navigate" menu button. */
 async function goNav(page, name) {
-  const link = page.getByRole("link", { name, exact: true });
+  // Nav links read "[n] LABEL"; match the label at the end of the accessible name.
+  const link = page.getByRole("link", { name: new RegExp(`(^|\] )${name}$`, "i") });
   if (!(await link.isVisible().catch(() => false))) {
     await page.getByRole("button", { name: /^(Menu|Close menu)$/i }).click();
   }
@@ -91,7 +92,7 @@ async function journey(browser) {
   await noOverflow(page, "mobile dashboard");
 
   await goNav(page, "SKILL TREE");
-  check("skill graph visible on mobile", await page.getByRole("heading", { name: /skill graph/i }).isVisible());
+  check("skill tree visible on mobile", await page.getByRole("heading", { name: /^Skill tree$/i }).isVisible());
   await noOverflow(page, "mobile skill graph");
 
   await goNav(page, "MISSIONS");

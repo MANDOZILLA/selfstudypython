@@ -103,7 +103,7 @@ function RecommendationCard({ studio }: { studio: Studio }) {
     <p>{rec.reason}</p>
     <div className={homeCss.chips}><span className="chip chip-cyan">{mission?.estimatedMinutes ?? 5} MIN</span><span className="chip chip-violet">+XP</span></div>
     {mission && <ol className={homeCss.pipeline} aria-label="Mission stages"><li>BRIEF</li><li>BUILD</li><li>CHECK</li><li>SHIP</li></ol>}
-    <div className="button-row"><button className={`primary ${homeCss.cta}`} onClick={action.run}>{action.label} →</button></div>
+    <div className="button-row"><button className={`primary ${homeCss.cta}`} onClick={action.run}>{action.label} →</button>{rec.action === "diagnostic" && <button className="secondary" onClick={() => studio.start()}>Start mission 01 instead</button>}</div>
   </section>;
 }
 

@@ -193,9 +193,10 @@ describe("tutor panel presentation", () => {
     const markup = renderToStaticMarkup(<TutorPanel {...props} visible={true} />);
     expect(markup).toContain("Ask tutor");
   });
-  it("labels AI suggestions visibly", () => {
+  it("labels tutor suggestions visibly as the built-in tutor, to be verified", () => {
     const markup = renderToStaticMarkup(<TutorResponseView tutor={validTutorJson} />);
-    expect(markup).toContain("AI suggestion");
+    expect(markup).toContain("built-in tutor");
+    expect(markup).toContain("verify against the checks");
     expect(markup).toContain("Provider summary.");
   });
 });

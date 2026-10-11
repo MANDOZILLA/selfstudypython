@@ -239,7 +239,7 @@ export async function generatePortfolioZip(
   const files = buildExportFileList(projectId, snapshots);
   const zip = new JSZip();
   for (const file of files) {
-    zip.file(file.path, file.content, { date: ZIP_ENTRY_DATE, compression: "STORE" });
+    zip.file(file.path, file.content, { date: ZIP_ENTRY_DATE, compression: "STORE", createFolders: false });
   }
   if (output === "blob") return zip.generateAsync({ type: "blob" });
   const buffer = await zip.generateAsync({ type: "nodebuffer" });

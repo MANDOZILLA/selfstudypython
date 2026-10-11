@@ -31,7 +31,7 @@ export function TutorResponseView({ tutor, source }: { tutor: TutorResponse; sou
   return (
     <div className="tutor-response" data-source={source} role="status" aria-label="AI tutor suggestion">
       <p className="tutor-label">
-        <strong>tutor&gt; AI suggestion</strong>
+        <strong>tutor&gt; built-in tutor (offline)</strong>
         {" — verify against the checks."}
       </p>
       <p>{tutor.summary}</p>

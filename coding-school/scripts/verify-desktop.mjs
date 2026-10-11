@@ -109,7 +109,7 @@ async function journey(browser) {
   check("today's recommendation offers a mission", await startButton.first().isVisible());
   await noOverflow(page, "dashboard", 1280);
   await page.getByRole("link", { name: /SKILL TREE/ }).click();
-  check("skill graph visible under What I Learned", await page.getByRole("heading", { name: /skill graph/i }).isVisible());
+  check("skill tree visible under Skill Tree", await page.getByRole("heading", { name: /^Skill tree$/i }).isVisible() && await page.getByRole("group", { name: /Skills arranged by prerequisite depth/ }).isVisible());
   await noOverflow(page, "skill graph", 1280);
 
   // 2. Lessons library.

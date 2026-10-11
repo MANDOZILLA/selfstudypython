@@ -72,7 +72,9 @@ async function tutorFlow(browser) {
   // Tutor affordance is visible outside Independent mode.
   const tutorSection = page.locator('section[aria-label="Tutor"]');
   check("tutor affordance visible on a code task", await tutorSection.isVisible());
-  const hintsVisible = await page.getByText("Need a nudge?").isVisible().catch(() => false);
+  // Hints live in a collapsed "// HINTS" disclosure: its summary is the affordance.
+  const hintsSummary = page.locator(".hint-section > summary");
+  const hintsVisible = await hintsSummary.isVisible().catch(() => false);
   check("hints visible outside Independent mode", hintsVisible);
 
   // Independent mode FIRST: asking the tutor permanently records AI assistance,
@@ -81,7 +83,7 @@ async function tutorFlow(browser) {
   await page.locator(".learning-toggle input").setChecked(true);
   await sleep(400);
   check("tutor affordance hidden in Independent mode", !(await tutorSection.isVisible().catch(() => false)));
-  check("hints hidden in Independent mode", !(await page.getByText("Need a nudge?").isVisible().catch(() => false)));
+  check("hints hidden in Independent mode", !(await hintsSummary.isVisible().catch(() => false)));
   check(
     "independent-mode notice shown",
     await page.getByText(/Independent mode is on/).first().isVisible().catch(() => false),
