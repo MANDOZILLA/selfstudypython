@@ -7,8 +7,8 @@ import type { GradeResult } from "./runner";
 
 export type Destination = "today" | "lessons" | "learned" | "assessment" | "portfolio";
 export const destinations: { id: Destination; label: string }[] = [
-  { id: "today", label: "Today" }, { id: "lessons", label: "Curriculum" },
-  { id: "learned", label: "What I Learned" }, { id: "assessment", label: "Self-Assessment" },
+  { id: "today", label: "Home" }, { id: "lessons", label: "Missions" },
+  { id: "learned", label: "Skill Tree" }, { id: "assessment", label: "Checkpoints" },
   { id: "portfolio", label: "Portfolio" },
 ];
 export const unassisted = { hintsUsed: 0, aiAssisted: false, solutionViewed: false };
@@ -39,7 +39,10 @@ export function getLibraryRows(state: LearningState) {
     const status = active?.missionId === mission.id ? "In progress" : completed.has(mission.id) ? "Completed" : "Not started";
     const prerequisite = mission.prerequisites.find(id => !completed.has(id));
     const blockedReason = prerequisite ? `Complete ${getMission(prerequisite)?.title} first.` : active && active.missionId !== mission.id ? "Finish your current mission before starting another." : null;
-    return { mission, status, blockedReason, artifact: mission.stages[2].tasks[0]?.title ?? mission.summary };
+    const xp = mission.stages.flatMap(stage => stage.tasks).reduce((sum, task) => {
+      return sum + (task?.purpose === "project" ? 150 : task?.purpose === "guided-practice" ? 40 : task?.purpose === "retrieval" ? 30 : task?.purpose === "reflection" ? 15 : 5);
+    }, 0);
+    return { mission, status, blockedReason, xp, artifact: mission.stages[2].tasks[0]?.title ?? mission.summary };
   });
 }
 

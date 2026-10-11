@@ -31,13 +31,13 @@ export function TutorResponseView({ tutor, source }: { tutor: TutorResponse; sou
   return (
     <div className="tutor-response" role="status" aria-label="AI tutor suggestion">
       <p className="tutor-label">
-        <strong>AI suggestion (built-in tutor)</strong>
+        <strong>tutor&gt; AI suggestion</strong>
         {" — verify against the checks."}
       </p>
       <p>{tutor.summary}</p>
       {tutor.diagnosis.length > 0 && (
         <div>
-          <h4>What I see</h4>
+        <h4>tutor&gt; what I see</h4>
           <ul>
             {tutor.diagnosis.map((line, i) => (
               <li key={i}>{line}</li>
@@ -47,7 +47,7 @@ export function TutorResponseView({ tutor, source }: { tutor: TutorResponse; sou
       )}
       {tutor.nextSteps.length > 0 && (
         <div>
-          <h4>Next steps</h4>
+        <h4>tutor&gt; next steps</h4>
           <ol>
             {tutor.nextSteps.map((line, i) => (
               <li key={i}>{line}</li>
@@ -116,15 +116,15 @@ export function TutorPanel(props: TutorPanelProps) {
   return (
     <section className="tutor-section" aria-label="Tutor">
       <div className="section-heading">
-        <h3>Stuck?</h3>
+        <h3>tutor&gt; Stuck?</h3>
         <span className="muted">Asking records AI assistance for this task.</span>
       </div>
       {panel.status === "idle" && (
         <button className="secondary" onClick={ask}>
-          Ask tutor
+          tutor&gt; Ask tutor
         </button>
       )}
-      {panel.status === "loading" && <p className="muted" role="status">The tutor is thinking…</p>}
+      {panel.status === "loading" && <p className="muted" role="status">tutor&gt; thinking…</p>}
       {panel.status === "error" && (
         <div>
           <p className="error" role="alert">{panel.message}</p>

@@ -1,0 +1,2 @@
+import css from "./mission-complete.module.css";
+export function MissionComplete({ checks, artifact, xp, next, primary, secondary }: { checks: string; artifact: string; xp: number; next: string; primary: React.ReactNode; secondary: React.ReactNode }) { return <section className={css.panel} aria-live="polite"><h2>RUN COMPLETE</h2><ol><li>&gt; checks .... {checks}</li><li>&gt; sealed .... {artifact}</li><li>&gt; XP ........ +{xp} XP</li><li>&gt; next ...... {next}</li></ol><div>{primary}{secondary}</div></section>; }

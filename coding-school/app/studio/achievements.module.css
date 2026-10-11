@@ -1,0 +1,1 @@
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.75rem}.plaque{padding:1rem;min-height:9rem}.locked{opacity:.55}.unlocked{border-color:var(--neon-violet)}

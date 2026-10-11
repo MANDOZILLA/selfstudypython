@@ -312,7 +312,7 @@ export function canCompleteDiagnostic(session: DiagnosticSession): { ok: boolean
   if (session.status === "completed") return { ok: true, reasons: [] };
   const reasons: string[] = [];
   const count = session.responses.length;
-  if (count < DIAGNOSTIC_MIN_ITEMS) reasons.push(`answer at least ${DIAGNOSTIC_MIN_ITEMS} items (answered ${count})`);
+  if (count < DIAGNOSTIC_MIN_ITEMS) reasons.push(`Answer a few more questions (${count} answered).`);
   if (count < DIAGNOSTIC_MAX_ITEMS) {
     // Early stopping: the diagnostic ends while the evidence is fresh, not by
     // grinding every skill to certainty. A probed skill is one with
@@ -323,9 +323,9 @@ export function canCompleteDiagnostic(session: DiagnosticSession): { ok: boolean
       session.responses.some(r => r.skillId === skillId && !r.legacy));
     const observed = probed.filter(skillId => diagnosticSkillState(session, skillId) === "observed");
     const uncertain = probed.filter(skillId => diagnosticSkillState(session, skillId) === "uncertain");
-    if (probed.length < 6) reasons.push(`probe at least 6 different skills (probed ${probed.length} so far)`);
-    if (observed.length < 5) reasons.push(`show clear evidence on at least 5 skills (observed ${observed.length} so far)`);
-    if (uncertain.length < 1) reasons.push(`leave at least one probed skill still uncertain — the diagnostic stops while some areas are honestly unresolved (observed ${observed.length}, uncertain 0)`);
+    if (probed.length < 6) reasons.push(`Answer questions across a few more skill areas (${probed.length} so far).`);
+    if (observed.length < 5) reasons.push(`Show a clear signal in more skill areas (${observed.length} so far).`);
+    if (uncertain.length < 1) reasons.push(`Leave one area uncertain so your starting point stays realistic (${observed.length} clear so far).`);
   }
   // The coding gate is absolute but never impossible: the diagnostic may not
   // complete with zero honest coding evidence. Two distinct coding questions
@@ -339,7 +339,7 @@ export function canCompleteDiagnostic(session: DiagnosticSession): { ok: boolean
   if (codingEvidence < DIAGNOSTIC_CODING_QUOTA) {
     const runs = session.codingSuccessCount;
     const declarations = codingUnknownCount(session);
-    reasons.push(`coding quota: ${DIAGNOSTIC_CODING_QUOTA} pieces of coding evidence on distinct coding questions — a successful Python run or an honest "${DIAGNOSTIC_UNKNOWN_ANSWER}" declaration, either kind (have ${runs} run${runs === 1 ? "" : "s"}, ${declarations} declaration${declarations === 1 ? "" : "s"})`);
+    reasons.push(`Answer ${DIAGNOSTIC_CODING_QUOTA} coding questions: run working code or choose “${DIAGNOSTIC_UNKNOWN_ANSWER}” (${runs} successful runs, ${declarations} unknown answers so far).`);
   }
   return { ok: reasons.length === 0, reasons };
 }
@@ -398,21 +398,21 @@ export function deriveDiagnosticProfile(session: DiagnosticSession): {
   const uncertain = DIAGNOSTIC_CORE_SKILLS.filter(id => profile[id] === "uncertain");
   const untested = DIAGNOSTIC_CORE_SKILLS.filter(id => profile[id] === "untested");
   const parts = [
-    `Placement from ${placedCount} diagnostic responses on ${session.completedAt ?? session.startedAt}.`,
-    "Starting level: AP Computer Science Principles foundations adapted to Python, branching into advanced skills.",
+    `Placement from ${placedCount} responses on ${session.completedAt ?? session.startedAt}.`,
+    "Your scan starts with Python foundations, then explores more advanced skills.",
     placedCount
       ? `Answers: ${totals.independent} correct on your own, ${totals.hinted} correct after hints, ${totals.wrong} incorrect, ${totals.unknown} declared "${DIAGNOSTIC_UNKNOWN_ANSWER}".`
       : "",
-    strong.length ? `Solid ground: ${strong.join(", ")}.` : "",
+    strong.length ? "You already have strong signals in some areas." : "",
     knowledgeGaps.length
-      ? `Knowledge gaps (you said "${DIAGNOSTIC_UNKNOWN_ANSWER}" — gaps, not mistakes): ${knowledgeGaps.join(", ")}.`
+      ? `You marked ${DIAGNOSTIC_UNKNOWN_ANSWER} in some areas. Those are useful gaps, not mistakes.`
       : "",
-    weak.length ? `Needs practice: ${weak.join(", ")} — wrong answers worth reworking; start with the earliest mission covering these.` : "",
-    hintDependent.length ? `Hint-dependent: ${hintDependent.join(", ")} — correct only after hints: emerging, assisted success, not solid ground.` : "",
-    uncertain.length ? `Still uncertain: ${uncertain.join(", ")}.` : "",
-    untested.length ? `Untested: ${untested.join(", ")}.` : "",
-    legacyCount ? `${legacyCount} response(s) used a legacy grader version and are marked Legacy / unverified; they did not affect placement.` : "",
-    "The diagnostic sets placement only. It never grants mission completion or mastery — those need independent project evidence over time.",
+    weak.length ? "Some areas could use more practice. Start with a mission that covers the basics." : "",
+    hintDependent.length ? "Hints helped in some areas. Keep practicing to build confidence." : "",
+    uncertain.length ? "Some areas are still uncertain." : "",
+    untested.length ? "Some skills have not come up yet." : "",
+    legacyCount ? `${legacyCount} answer(s) could not be used for placement. You can rerun those questions in a new scan.` : "",
+    "Your placement guides practice. Your skill tree tracks learning over time.",
   ];
   return {
     profile, recommendation: parts.filter(Boolean).join(" "), legacyCount,

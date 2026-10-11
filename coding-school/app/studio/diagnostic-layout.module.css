@@ -29,6 +29,26 @@
   min-height: 0;
 }
 
+.segmentedProgress {
+  display: grid;
+  grid-template-columns: repeat(25, minmax(0, 1fr));
+  gap: 3px;
+  margin-top: 12px;
+}
+
+.segmentedProgress > span {
+  height: 7px;
+  background: var(--hairline);
+  border-radius: 1px;
+}
+
+.segmentedProgress > .segmentFilled { background: var(--neon-cyan); box-shadow: var(--glow-cyan); }
+
+.questionMeta { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.unknownOption { border-color: var(--neon-amber) !important; color: var(--neon-amber) !important; background: var(--panel-2) !important; }
+.unknownOption:hover, .unknownOption:focus-visible { box-shadow: var(--glow-violet); }
+.untestedChip { color: var(--dim); border-color: var(--dim); }
+
 /* Console output after a run: always visible in the checks pane, never
    tucked behind a collapsed disclosure. Layered on the global
    .console-output rules with a compound selector so it wins regardless of

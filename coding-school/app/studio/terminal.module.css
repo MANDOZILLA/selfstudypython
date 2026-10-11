@@ -1,0 +1,36 @@
+.header { position: relative; display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding-block: 6px 8px; }
+.header :global(.workbench-topline), .header :global(.workbench-title) { grid-column: 1 / -1; min-height: 32px; }
+.header :global(.workbench-title) h1 { font: 600 16px/1.3 var(--font-mono, var(--mono)); }
+.header :global(.mode-description) { display: none; }
+.sync { color: var(--neon-lime, var(--success)); font: 0 var(--font-mono, var(--mono)); }
+.sync::before { content: "●"; font-size: 16px; }
+.mode { position: absolute; right: 52px; top: 8px; }
+.mode summary { cursor: help; border: 1px solid var(--hairline, var(--line)); border-radius: 50%; width: 22px; height: 22px; display: grid; place-items: center; font: 12px var(--font-mono, var(--mono)); }
+.mode p { position: absolute; z-index: 5; right: 0; width: min(300px, 80vw); padding: 12px; background: var(--panel, var(--surface)); border: 1px solid var(--hairline, var(--line)); box-shadow: var(--glow-cyan); font-size: 12px; }
+.pipeline { grid-column: 1 / -1; display: flex; list-style: none; gap: 0; margin: 4px 0 0; padding: 0; font: 10px var(--font-mono, var(--mono)); color: var(--dim, var(--secondary)); }
+.pipeline li { flex: 1; padding: 6px 4px; border-bottom: 1px solid var(--hairline, var(--line)); }
+.pipeline li + li::before { content: ">"; margin-right: 8px; }
+.pipeline .current { color: var(--neon-cyan, var(--action)); border-color: currentColor; text-shadow: var(--glow-cyan); }
+.pipeline .done { color: var(--neon-lime, var(--success)); }
+.instructions details { border-bottom: 1px solid var(--hairline, var(--line)); padding: 8px 0; }
+.instructions details > summary { cursor: pointer; color: var(--neon-cyan, var(--action)); font: 11px var(--font-mono, var(--mono)); list-style: none; }
+.instructions details > summary::-webkit-details-marker { display: none; }
+.instructions details > summary::before { content: "+ "; }
+.instructions details[open] > summary::before { content: "- "; }
+.checks .term-prompt { color: var(--neon-cyan, var(--action)); font: 12px var(--font-mono, var(--mono)); }
+.checks :global(.check-pass) strong { color: var(--neon-lime, var(--success)); }
+.checks :global(.check-fail) strong { color: var(--neon-magenta, var(--error)); }
+.checks :global(.run-status) { font-family: var(--font-mono, var(--mono)); }
+.checks :global(.run-status)::after { content: " ▋"; animation: caret 1s steps(2, start) infinite; }
+.checks:not(:global([aria-busy="true"])) :global(.run-status)::after { content: ""; animation: none; }
+.fileTabs { gap: 0; border-bottom: 1px solid var(--hairline, var(--line)); }
+.fileTab { border-radius: 3px 3px 0 0; border: 1px solid transparent; font-family: var(--font-mono, var(--mono)); }
+.fileTab:global(.active) { background: var(--panel-2, var(--surface-alt)); border-color: var(--hairline, var(--line)); border-bottom-color: var(--panel-2, var(--surface-alt)); }
+.tree { background: var(--panel-2, var(--surface-alt)); font-family: var(--font-mono, var(--mono)); }
+.tree :global(.tree-item) { font-family: inherit; }
+.fileGlyph { display: inline-block; min-width: 28px; color: var(--neon-cyan, var(--action)); font: 10px var(--font-mono, var(--mono)); }
+.instructions :global(.hint-section) { border-top: 0; margin-top: 0; padding-top: 8px; }
+.instructions :global(.assistance-disclosure) { margin-top: 0; }
+.instructions :global(.tutor-section) { margin-top: 12px; padding-top: 8px; }
+@keyframes caret { to { visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) { .checks :global(.run-status)::after { animation: none; } }

@@ -4,6 +4,7 @@ import Editor from "@monaco-editor/react";
 import { useMemo, useState } from "react";
 import type { Studio } from "./use-studio";
 import { defineSnakepitThemes, monacoThemeFor, useTheme } from "./theme";
+import terminal from "./terminal.module.css";
 import {
   addProjectFile, createResetBackup, deleteProjectFile, editableFiles, resolveEntrypoint, sanitizeProjectFiles,
   type IdeProject, type IdeVariantExtras,
@@ -142,12 +143,12 @@ export function IdePane({ studio, onAfterRun }: { studio: Studio; onAfterRun?: (
       <button className="text-button" onClick={() => setShowTree(!showTree)} aria-expanded={showTree} aria-controls="ide-file-tree">
         {showTree ? "Hide files" : "Files"}
       </button>
-      <div className="file-tabs" role="tablist" aria-label="Project files">
+      <div className={`file-tabs ${terminal.fileTabs}`} role="tablist" aria-label="Project files">
         {names.map((name, index) => <button key={name} id={`file-tab-${index}`} role="tab"
           aria-selected={name === project.activeFile && !viewing} tabIndex={name === project.activeFile && !viewing ? 0 : -1}
-          className={name === project.activeFile && !viewing ? "file-tab active" : "file-tab"}
+          className={`${name === project.activeFile && !viewing ? "file-tab active" : "file-tab"} ${terminal.fileTab}`}
           onClick={() => activate(name)} onKeyDown={event => onFileTabKeyDown(event, name)}>
-          {name}{name === project.entrypoint && <span className="entrypoint-dot" title="Entrypoint: this file runs first" aria-label=" (entrypoint)"> ●</span>}
+          {name}{name === project.entrypoint && <span className="entrypoint-dot" title="Entrypoint: the file that runs first" aria-label=" (entrypoint)"> <span className="chip chip-cyan" title="Entrypoint means this file runs first">entrypoint</span></span>}
         </button>)}
       </div>
       <label className="entrypoint-picker">Run from
@@ -157,11 +158,11 @@ export function IdePane({ studio, onAfterRun }: { studio: Studio; onAfterRun?: (
       </label>
       <button className="text-button" onClick={() => setPlainEditor(!plainEditor)}>{plainEditor ? "Use code editor" : "Use plain text"}</button>
     </div>
-    {showTree && <div className="ide-file-tree" id="ide-file-tree">
+    {showTree && <div className={`ide-file-tree ${terminal.tree}`} id="ide-file-tree">
       <div className="tree-section"><h3>Source files</h3><ul>
         {names.map(name => <li key={name}><button className={name === project.activeFile && !viewing ? "tree-item active" : "tree-item"} onClick={() => activate(name)}>
-          <span aria-hidden="true">{name.endsWith(".py") ? "🐍" : "📄"}</span> {name}
-          {name === project.entrypoint && <span className="badge">entrypoint</span>}
+          <span aria-hidden="true" className={terminal.fileGlyph}>{name.endsWith(".py") ? ".py" : name.endsWith(".json") ? "{}" : name.endsWith(".csv") ? "csv" : "txt"}</span> {name}
+          {name === project.entrypoint && <span className="chip chip-cyan" title="Entrypoint means this file runs first">entrypoint</span>}
         </button>{confirmingDelete === name
           ? <span className="inline-confirm"><button className="text-button danger" onClick={() => submitDeleteFile(name)}>Confirm delete</button><button className="text-button" onClick={() => setConfirmingDelete(null)}>Cancel</button></span>
           : <button className="text-button danger" onClick={() => setConfirmingDelete(name)} aria-label={`Delete ${name}`}>Delete</button>}</li>)}
@@ -172,7 +173,7 @@ export function IdePane({ studio, onAfterRun }: { studio: Studio; onAfterRun?: (
       </form></div>
       {fixtureNames.length > 0 && <div className="tree-section"><h3>Project data (read-only)</h3><ul>
         {fixtureNames.map(name => <li key={name}><button className={name === viewingFixture ? "tree-item active" : "tree-item"} onClick={() => { setViewingFixture(name); }}>
-          <span aria-hidden="true">🗂️</span> {name} <span className="badge">fixture</span>
+          <span aria-hidden="true" className={terminal.fileGlyph}>{name.endsWith(".csv") ? "csv" : "{}"}</span> {name} <span className="chip chip-violet" title="Fixture means read-only example data">fixture</span>
         </button></li>)}
       </ul></div>}
       {fileError && <p className="file-error" role="alert">{fileError}</p>}
@@ -190,8 +191,8 @@ export function IdePane({ studio, onAfterRun }: { studio: Studio; onAfterRun?: (
           onMount={editor => { editor.onKeyDown(event => { if (event.code === "Escape") { event.preventDefault(); document.getElementById("run-checks")?.focus(); } }); }} />}
     </div>
     <div className="editor-actions">
-      <button id="run-checks" className="primary" disabled={studio.busy} onClick={() => { studio.runChecks(project.entrypoint); onAfterRun?.(); }}>{studio.busy ? studio.status : "Run checks"}<span aria-hidden="true"> ▷</span></button>
-      <button id="run-code" className="secondary" disabled={studio.busy} onClick={() => { studio.runCode(project.entrypoint); onAfterRun?.(); }}>{studio.busy && studio.status === "Running code" ? studio.status : "Run"}<span aria-hidden="true"> ▶</span></button>
+      <button id="run-checks" className="primary btn-neon" title="Run checks · press Esc in the editor to focus" disabled={studio.busy} onClick={() => { studio.runChecks(project.entrypoint); onAfterRun?.(); }}>RUN CHECKS<span aria-hidden="true"> ▸</span></button>
+      <button id="run-code" className="secondary" title="Run code · press Esc in the editor to focus Run checks" disabled={studio.busy} onClick={() => { studio.runCode(project.entrypoint); onAfterRun?.(); }}>RUN<span aria-hidden="true"> ▶</span></button>
       {studio.busy
         ? <button className="secondary desktop-stop" onClick={studio.stopRun}>Stop run</button>
         : workbench?.taskComplete && !studio.storageError && <button className="secondary continue-button" onClick={studio.continueStage}>{continueLabel} →</button>}

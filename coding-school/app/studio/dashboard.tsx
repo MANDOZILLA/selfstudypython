@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import { useState } from "react";
 import { curriculum } from "../../lib/curriculum";
 import { DIAGNOSTIC_SKILLS } from "../../curriculum";
@@ -11,6 +11,10 @@ import { buildSkillGraph, type GraphSkillStatus } from "../../lib/skill-graph";
 import { getDashboardModel, getEvidenceRows, getLibraryRows, getPortfolioModel, getProjectReview } from "../../lib/studio";
 import type { Studio } from "./use-studio";
 import { StageRail } from "./stage-rail";
+import { Hud } from "./hud";
+import { SkillTree } from "./skill-tree";
+import { Achievements } from "./achievements";
+import { getProgressSummary } from "../../lib/progress";
 import { AssessmentWorkbench } from "./assessment-workbench";
 
 const formatDate = (value: string) => new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
@@ -24,25 +28,25 @@ function PlacementCard({ studio }: { studio: Studio }) {
   const latest = latestCompletedDiagnosticSession(sessions);
   if (inProgress) return <section className="document" aria-label="Placement diagnostic">
     <div className="section-heading"><h2>Placement diagnostic</h2><span className="eyebrow">IN PROGRESS</span></div>
-    <p>You’ve answered {inProgress.responses.length} question{inProgress.responses.length === 1 ? "" : "s"} — your current question and drafts are exactly where you left them.</p>
-    <div className="button-row"><button className="primary" onClick={() => studio.openDiagnosticSession(inProgress.id)}>Resume diagnostic →</button></div>
+    <p>Youâ€™ve answered {inProgress.responses.length} question{inProgress.responses.length === 1 ? "" : "s"} â€” your current question and drafts are exactly where you left them.</p>
+    <div className="button-row"><button className="primary" onClick={() => studio.openDiagnosticSession(inProgress.id)}>Resume diagnostic â†’</button></div>
   </section>;
   if (latest) {
     const { recommendation, legacyCount } = deriveDiagnosticProfile(latest);
     return <section className="document" aria-label="Placement diagnostic">
       <div className="section-heading"><h2>Placement diagnostic</h2><span className="eyebrow">COMPLETED {formatDate(latest.completedAt ?? latest.startedAt).toUpperCase()}</span></div>
       <p>{recommendation}</p>
-      {legacyCount > 0 && <p className="muted"><strong>Legacy / unverified:</strong> {legacyCount} response{legacyCount === 1 ? "" : "s"} used an older grader and didn’t affect placement.</p>}
+      {legacyCount > 0 && <p className="muted"><strong>Legacy / unverified:</strong> {legacyCount} response{legacyCount === 1 ? "" : "s"} used an older grader and didnâ€™t affect placement.</p>}
       <div className="button-row">
-        <button className="primary" onClick={() => studio.openDiagnosticSession(latest.id)}>View placement →</button>
+        <button className="primary" onClick={() => studio.openDiagnosticSession(latest.id)}>View placement â†’</button>
         <button className="secondary" onClick={studio.retakeDiagnostic}>Retake</button>
       </div>
     </section>;
   }
   return <section className="document" aria-label="Placement diagnostic">
     <div className="section-heading"><h2>Placement diagnostic</h2><span className="eyebrow">RECOMMENDED FIRST</span></div>
-    <p>Twelve to twenty-five adaptive questions start at the AP Computer Science Principles (AP CSP) foundation tier, adapted to Python, then branch across {DIAGNOSTIC_SKILLS.length} skills to find your starting point. Wrong answers only move you to easier material — they never block you. Coding evidence is flexible: {DIAGNOSTIC_CODING_QUOTA} successful Python runs, {DIAGNOSTIC_CODING_QUOTA} honest “{DIAGNOSTIC_UNKNOWN_ANSWER}” declarations, or one of each.</p>
-    <div className="button-row"><button className="primary" onClick={studio.startDiagnostic}>Take the placement diagnostic →</button></div>
+    <p>Twelve to twenty-five adaptive questions start at the AP Computer Science Principles (AP CSP) foundation tier, adapted to Python, then branch across {DIAGNOSTIC_SKILLS.length} skills to find your starting point. Wrong answers only move you to easier material â€” they never block you. Coding evidence is flexible: {DIAGNOSTIC_CODING_QUOTA} successful Python runs, {DIAGNOSTIC_CODING_QUOTA} honest â€œ{DIAGNOSTIC_UNKNOWN_ANSWER}â€ declarations, or one of each.</p>
+    <div className="button-row"><button className="primary" onClick={studio.startDiagnostic}>Take the placement diagnostic â†’</button></div>
   </section>;
 }
 
@@ -69,26 +73,9 @@ function ResetPlacement({ studio }: { studio: Studio }) {
 }
 
 function Today({ studio }: { studio: Studio }) {
-  const model = getDashboardModel(studio.state);
-  const reviewOnly = model.selection.kind === "review" || model.run?.mode === "review";
-  const available = model.selection.kind !== "complete" && model.mission;
-  return <>
-    <PageHeading label="TODAY" title="Make room for useful practice.">A small lesson. A working artifact. A clearer understanding of your code.</PageHeading>
-    <RecommendationCard studio={studio} />
-    {available && model.mission ? <section className="mission-document" aria-labelledby="mission-title">
-      <div className="mission-topline"><span className="eyebrow">{reviewOnly && model.run ? "YOUR REVIEW IN PROGRESS" : model.run ? "YOUR MISSION IN PROGRESS" : reviewOnly ? "YOUR SCHEDULED REVIEW" : "YOUR NEXT MISSION"}</span><span className="duration">{reviewOnly ? model.mission.stages[0].estimatedMinutes : model.mission.estimatedMinutes} min <span>· suggested pace</span></span></div>
-      <div className="mission-intro"><div><h2 id="mission-title">{reviewOnly ? "Bring a familiar pattern back to mind" : model.mission.title}</h2><p>{reviewOnly ? "Revisit the skills scheduled from your saved attempts. A short retrieval will show what needs practice." : model.mission.summary}</p></div>{!reviewOnly && <div className="artifact-preview" aria-label="Mission artifact"><span className="file-symbol" aria-hidden="true">.py</span><div><small>YOU’LL BUILD</small><strong>{model.mission.stages[2].tasks[0]?.title}</strong><span>Python · main.py</span></div></div>}</div>
-      <StageRail mission={model.mission} run={model.run} reviewOnly={reviewOnly} />
-      <div className="mission-action"><div><strong>{model.run ? `Pick up at ${model.mission.stages[model.run.stageIndex].title}` : "Begin with a clear plan"}</strong><p>{model.run ? "Your saved code, hints, and place are ready." : model.selection.reviewTaskIds.length ? "Your scheduled retrieval comes first." : "No review is due yet. Start with the mission overview."}</p></div><button className="primary" onClick={() => studio.start()}>{model.run ? reviewOnly ? "Resume review" : "Resume mission" : reviewOnly ? "Start review" : `Start ${model.mission.estimatedMinutes}-minute mission`}<span aria-hidden="true"> →</span></button></div>
-    </section> : <section className="document empty-state"><span className="eyebrow">UP TO DATE</span><h2>You’ve completed the available missions.</h2><p>Your next retrieval appears when a saved skill review is due. Revisit your work in the evidence log.</p><button className="secondary" onClick={() => studio.navigate("learned")}>View your evidence</button></section>}
-    <PlacementCard studio={studio} />
-    <ResetPlacement studio={studio} />
-    <div className="dashboard-columns"><section className="document"><div className="section-heading"><h2>Your learning record</h2><button className="text-button" onClick={() => studio.navigate("learned")}>View log →</button></div>{model.evidence.length ? <ul className="skill-list">{model.evidence.map(skill => <li key={skill.skillId}><span>{skill.title}</span><span className="status-label">{skill.status}</span></li>)}</ul> : <div className="empty-copy"><span className="empty-mark" aria-hidden="true">[ ]</span><h3>Your first evidence starts here.</h3><p>No attempts saved yet. A completed lesson records exposure; independent project checks show what you can do.</p></div>}</section>
-      <section className="document"><div className="section-heading"><h2>Coming back to it</h2><span className="eyebrow">REVIEW</span></div>{model.reviews.length ? <ul className="review-list">{model.reviews.map(review => <li key={review.skillId}><strong>{curriculum.skills.find(s => s.id === review.skillId)?.title}</strong><span>{formatDate(review.dueAt)} · {review.reason}</span></li>)}</ul> : <div className="empty-copy"><h3>No reviews scheduled yet.</h3><p>Reviews are scheduled from your actual learning and attempts. They’ll appear here as you work.</p></div>}</section></div>
-    <p className="page-footnote">Your work is saved on this computer in SQLite. Reading, practice, and independent evidence are recorded separately.</p>
-  </>;
+ const model=getDashboardModel(studio.state); const progress=getProgressSummary(studio.state);
+ return <><PageHeading label="HOME" title="Your next run starts here.">One clear next step. Your progress stays yours.</PageHeading><Hud state={studio.state}/><RecommendationCard studio={studio}/><aside className="home-queue hud-panel"><h2>QUEUE</h2><p>{model.reviews.filter(r=>r.dueAt<=new Date().toISOString()).length} reviews due</p><p>{progress.recent[0] ? `+${progress.recent[0].xp} XP · ${progress.recent[0].label}` : "Your XP events will appear here."}</p><p>{progress.unlocked} achievements unlocked</p><button className="secondary" onClick={()=>studio.navigate("assessment")}>Open checkpoints</button></aside><details className="system-disclosure"><summary>System</summary><PlacementCard studio={studio}/><ResetPlacement studio={studio}/><p>Your work saves on this device and syncs when online.</p></details></>;
 }
-
 const RECOMMENDATION_EYEBROW: Record<RecommendationAction, string> = {
   resume: "RESUME", diagnostic: "PLACEMENT", "start-mission": "NEXT MISSION",
   repair: "REPAIR", retrieval: "RETRIEVAL", assessment: "CHECKPOINT", complete: "COMPLETE",
@@ -109,15 +96,15 @@ function RecommendationCard({ studio }: { studio: Studio }) {
   const action = actions[rec.action];
   return <section className="document" aria-label="Recommended next step">
     <div className="section-heading"><h2>Recommended next</h2><span className="eyebrow">{RECOMMENDATION_EYEBROW[rec.action]}</span></div>
-    {mission && <p className="muted">{mission.title}{rec.blockedMissionId ? " · blocked until the repair is done" : ""}</p>}
+    {mission && <p className="muted">{mission.title}{rec.blockedMissionId ? " Â· blocked until the repair is done" : ""}</p>}
     <p>{rec.reason}</p>
-    <div className="button-row"><button className="primary" onClick={action.run}>{action.label} →</button></div>
+    <div className="button-row"><button className="primary" onClick={action.run}>{action.label} â†’</button></div>
   </section>;
 }
 
 function Lessons({ studio }: { studio: Studio }) {
-  return <><PageHeading label="CURRICULUM" title="Build your way into machine learning.">Start with a Python diagnostic, then learn each concept through a project that needs it.</PageHeading><section className="document lesson-library" aria-labelledby="library-title"><div className="library-group"><h2 id="library-title">Coding practice missions</h2><p>Graded exercises currently available in the workbench</p></div>{getLibraryRows(studio.state).map((row, index) => <article className="lesson-row" key={row.mission.id}>
-      <span className="lesson-index" aria-label={`Mission ${index + 1}`}>{String(index + 1).padStart(2, "0")}</span><div className="lesson-description"><span className="status-label">{row.status}</span><h3>{row.mission.title}</h3><p>{row.mission.summary}</p><span className="artifact-label">Artifact · {row.artifact}</span>{row.blockedReason && <p className="prerequisite">{row.blockedReason}</p>}</div><div className="lesson-action"><span className="duration">{row.mission.estimatedMinutes} min</span><button className="secondary" disabled={Boolean(row.blockedReason)} onClick={() => studio.start(row.mission.id)}>{row.status === "In progress" ? "Resume mission" : row.status === "Completed" ? "Practice again" : "Open mission"}<span aria-hidden="true"> →</span></button></div>
+  return <><PageHeading label="MISSIONS" title="Choose your next mission.">Clear missions in order. Each run earns effort XP.</PageHeading><section className="document lesson-library" aria-labelledby="library-title"><div className="library-group"><h2 id="library-title">Coding practice missions</h2><p>Graded exercises currently available in the workbench</p></div>{getLibraryRows(studio.state).map((row, index) => <article className="lesson-row" key={row.mission.id}>
+      <span className="lesson-index" aria-label={`Mission ${index + 1}`}>{String(index + 1).padStart(2, "0")}</span><div className="lesson-description"><span className="chip">{row.blockedReason ? "LOCKED" : row.status === "Completed" ? "CLEARED" : row.status === "In progress" ? "ACTIVE" : "READY"}</span><span className="chip chip-violet">+{row.xp} XP</span><h3>{row.mission.title}</h3><p>{row.mission.summary}</p><span className="artifact-label">Artifact Â· {row.artifact}</span>{row.blockedReason && <p className="prerequisite">{row.blockedReason}</p>}</div><div className="lesson-action"><span className="duration">{row.mission.estimatedMinutes} min</span><button className="secondary" disabled={Boolean(row.blockedReason)} onClick={() => studio.start(row.mission.id)}>{row.status === "In progress" ? "Resume mission" : row.status === "Completed" ? "Practice again" : "Open mission"}<span aria-hidden="true"> â†’</span></button></div>
     </article>)}</section><p className="page-footnote">The roadmap above follows the supplied curriculum. The coding practice missions are existing graded exercises and do not cover every unit yet.</p></>;
 }
 
@@ -134,15 +121,15 @@ function SkillGraphSection({ studio }: { studio: Studio }) {
   const graph = buildSkillGraph(studio.state);
   return <section className="document" aria-labelledby="skill-graph-title">
     <div className="section-heading"><h2 id="skill-graph-title">Skill graph</h2><span className="eyebrow">ADAPTIVE</span></div>
-    <p className="muted">One qualitative status per skill — never a percentage. Status comes from independent evidence: project work, later retrieval in new contexts, and spaced reviews. Placement only suggests where to start; it never grants status.</p>
+    <p className="muted">One qualitative status per skill â€” never a percentage. Status comes from independent evidence: project work, later retrieval in new contexts, and spaced reviews. Placement only suggests where to start; it never grants status.</p>
     {graph.map(node => <details className="evidence-entry" key={node.skillId}>
-      <summary><div className="evidence-description"><h2>{node.name}</h2><p>{node.evidenceCount} evidence · {node.lastDemonstratedAt ? `last demonstrated ${formatDate(node.lastDemonstratedAt)}` : "not yet demonstrated"}</p></div><span className="status-label">{SKILL_STATUS_LABELS[node.status]}</span><span className="details-chevron" aria-hidden="true">⌄</span></summary>
+      <summary><div className="evidence-description"><h2>{node.name}</h2><p>{node.evidenceCount} evidence Â· {node.lastDemonstratedAt ? `last demonstrated ${formatDate(node.lastDemonstratedAt)}` : "not yet demonstrated"}</p></div><span className="status-label">{SKILL_STATUS_LABELS[node.status]}</span><span className="details-chevron" aria-hidden="true">âŒ„</span></summary>
       <div className="evidence-details">
         <p><strong>Prerequisites:</strong> {node.prerequisites.length ? node.prerequisites.map(p => p.name).join(", ") : "None"}</p>
-        <p><strong>Next review:</strong> {node.nextReviewAt ? `${formatDate(node.nextReviewAt)} · ${node.nextReviewReason}` : "Not scheduled"}</p>
+        <p><strong>Next review:</strong> {node.nextReviewAt ? `${formatDate(node.nextReviewAt)} Â· ${node.nextReviewReason}` : "Not scheduled"}</p>
         <p>{node.readiness}</p>
-        {node.placement !== "untested" && <p className="muted">Placement signal: {node.placement} — placement only, not a status.</p>}
-        {node.evidenceTasks.length > 0 && <><h3>Tasks providing evidence</h3><ul className="saved-checks">{node.evidenceTasks.map(task => <li key={`${task.taskId}-${task.completedAt}`}>{task.title} · {task.kind} · {formatDate(task.completedAt)} · {task.passed ? "passed" : "needs changes"}{task.independent ? "" : " · assisted"}</li>)}</ul></>}
+        {node.placement !== "untested" && <p className="muted">Placement signal: {node.placement} â€” placement only, not a status.</p>}
+        {node.evidenceTasks.length > 0 && <><h3>Tasks providing evidence</h3><ul className="saved-checks">{node.evidenceTasks.map(task => <li key={`${task.taskId}-${task.completedAt}`}>{task.title} Â· {task.kind} Â· {formatDate(task.completedAt)} Â· {task.passed ? "passed" : "needs changes"}{task.independent ? "" : " Â· assisted"}</li>)}</ul></>}
       </div>
     </details>)}
   </section>;
@@ -150,11 +137,11 @@ function SkillGraphSection({ studio }: { studio: Studio }) {
 
 function Learned({ studio }: { studio: Studio }) {
   const rows = getEvidenceRows(studio.state);
-  return <><PageHeading label="EVIDENCE LOG" title="Your work, with the receipts.">Saved attempts show what you tried, what passed, and how much help you used.</PageHeading><SkillGraphSection studio={studio} />{rows.length ? <section className="evidence-list" aria-label="Saved attempts">{rows.map(row => {
+  return <><PageHeading label="EVIDENCE LOG" title="Your work, with the receipts.">Saved attempts show what you tried, what passed, and how much help you used.</PageHeading><SkillTree state={studio.state} /><Achievements items={getProgressSummary(studio.state).achievements} />{rows.length ? <section className="evidence-list" aria-label="Saved attempts">{rows.map(row => {
     const code = row.attempt.purpose !== "instruction" && row.attempt.purpose !== "reflection";
     const label = row.attempt.purpose === "instruction" ? "Lesson read" : row.attempt.purpose === "reflection" ? "Reflection saved" : row.attempt.passed ? "Passed" : row.attempt.executionOk ? "Needs changes" : "Couldn't run";
-    return <details className="document evidence-entry" key={row.attempt.id}><summary><div className="evidence-date"><time dateTime={row.attempt.completedAt}>{formatDate(row.attempt.completedAt)}</time><span>{new Date(row.attempt.completedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span></div><div className="evidence-description"><h2>{row.title}</h2><p>{row.attempt.purpose.replaceAll("-", " ")} · {row.assistance}</p><span>{code ? `${row.attempt.checks.filter(c => c.passed).length}/${row.attempt.checks.length} checks passed` : "Not a graded skill claim"}{row.nextReview ? ` · Next review ${formatDate(row.nextReview)}` : " · No review scheduled"}</span></div><span className={`result-label ${code ? row.attempt.passed ? "success" : "failure" : ""}`}>{label}</span><span className="details-chevron" aria-hidden="true">⌄</span></summary><div className="evidence-details"><p className="muted">{row.missionTitle}{row.attempt.duplicateOf ? " · Repeated submission; no additional mastery credit." : ""}</p>{Object.entries(row.attempt.sourceFiles).map(([file, source]) => <div key={file}><h3>{file}</h3><pre>{source}</pre></div>)}{row.attempt.response && <div><h3>Your reflection</h3><p>{row.attempt.response}</p></div>}{row.attempt.checks.length > 0 && <ul className="saved-checks">{row.attempt.checks.map(check => <li key={check.id}><strong>{check.passed ? "Passed" : "Needs changes"}: {check.name}</strong>{check.detail && <p>{check.detail}</p>}</li>)}</ul>}<p className="muted">{row.assistance}. {row.attempt.purpose === "guided-practice" ? "Guided practice does not establish independent project evidence." : row.attempt.purpose === "project" && row.attempt.passed ? "Mastery requires varied independent evidence and later retrieval." : "This is a record of this attempt only."}</p></div></details>;
-  })}</section> : <section className="document large-empty"><span className="empty-mark" aria-hidden="true">[ ]</span><h2>No saved attempts yet.</h2><p>Start a mission to create your first learning record. Your code, check results, hints, and reflections will appear here.</p><button className="primary" onClick={() => studio.start()}>Start your first mission →</button></section>}</>;
+    return <details className="document evidence-entry" key={row.attempt.id}><summary><div className="evidence-date"><time dateTime={row.attempt.completedAt}>{formatDate(row.attempt.completedAt)}</time><span>{new Date(row.attempt.completedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span></div><div className="evidence-description"><h2>{row.title}</h2><p>{row.attempt.purpose.replaceAll("-", " ")} Â· {row.assistance}</p><span>{code ? `${row.attempt.checks.filter(c => c.passed).length}/${row.attempt.checks.length} checks passed` : "Not a graded skill claim"}{row.nextReview ? ` Â· Next review ${formatDate(row.nextReview)}` : " Â· No review scheduled"}</span></div><span className={`result-label ${code ? row.attempt.passed ? "success" : "failure" : ""}`}>{label}</span><span className="details-chevron" aria-hidden="true">âŒ„</span></summary><div className="evidence-details"><p className="muted">{row.missionTitle}{row.attempt.duplicateOf ? " Â· Repeated submission; no additional mastery credit." : ""}</p>{Object.entries(row.attempt.sourceFiles).map(([file, source]) => <div key={file}><h3>{file}</h3><pre>{source}</pre></div>)}{row.attempt.response && <div><h3>Your reflection</h3><p>{row.attempt.response}</p></div>}{row.attempt.checks.length > 0 && <ul className="saved-checks">{row.attempt.checks.map(check => <li key={check.id}><strong>{check.passed ? "Passed" : "Needs changes"}: {check.name}</strong>{check.detail && <p>{check.detail}</p>}</li>)}</ul>}<p className="muted">{row.assistance}. {row.attempt.purpose === "guided-practice" ? "Guided practice does not establish independent project evidence." : row.attempt.purpose === "project" && row.attempt.passed ? "Mastery requires varied independent evidence and later retrieval." : "This is a record of this attempt only."}</p></div></details>;
+  })}</section> : <section className="document large-empty"><span className="empty-mark" aria-hidden="true">[ ]</span><h2>No saved attempts yet.</h2><p>Start a mission to create your first learning record. Your code, check results, hints, and reflections will appear here.</p><button className="primary" onClick={() => studio.start()}>Start your first mission â†’</button></section>}</>;
 }
 
 function ProjectReview({ studio, runId, actions }: { studio: Studio; runId?: string; actions?: React.ReactNode }) {
@@ -184,32 +171,41 @@ function Completion({ studio }: { studio: Studio }) {
   const rows = getEvidenceRows(studio.state).filter(row => row.attempt.runId === run.id);
   const checks = rows.filter(row => row.attempt.purpose === "retrieval");
   return <><PageHeading label={run.mode === "review" ? "REVIEW COMPLETE" : "MISSION COMPLETE"} title={run.mode === "review" ? "Your review is saved." : "Your project and reflection are saved."}>{run.mode === "review" ? "Your actual retrieval results update the next practice date." : "Review the outcome and evidence before choosing what to practise next."}</PageHeading>
-    {run.mode === "review" ? <section className="document"><h2>Retrieval results</h2>{checks.map(row => <article key={row.attempt.id}><h3>{row.title}</h3><p>{row.attempt.passed ? "Passed" : "Needs changes"} · {row.attempt.checks.filter(c => c.passed).length} of {row.attempt.checks.length} checks passed · {row.assistance}</p><p>{row.nextReview ? `Next review: ${formatDate(row.nextReview)}` : "No review scheduled."}</p></article>)}<p>Your completed project history is unchanged.</p></section> : <><ProjectReview studio={studio} runId={run.id} actions={<><button className="primary" onClick={() => studio.navigate("learned")}>Go to What I Learned →</button><button className="secondary" onClick={() => studio.navigate("today")}>Back to Today</button></>} /><section className="document completion-record"><h2>What changed</h2><p>{curriculum.missions.find(m => m.id === run.missionId)?.title} is now Completed in Lessons.</p><ul className="saved-checks">{rows.map(row => <li key={row.attempt.id}>{row.title}: {row.assistance}{row.attempt.purpose === "instruction" || row.attempt.purpose === "reflection" ? " · saved" : row.attempt.passed ? " · passed" : " · needs changes"}</li>)}</ul><p>Skill status above comes from independent evidence. Reading, assisted practice, and reflection alone do not establish mastery.</p></section></>}
-    {run.mode === "review" && <div className="button-row summary-actions"><button className="primary" onClick={() => studio.navigate("learned")}>Go to What I Learned →</button><button className="secondary" onClick={() => studio.navigate("today")}>Back to Today</button></div>}</>;
+    {run.mode === "review" ? <section className="document"><h2>Retrieval results</h2>{checks.map(row => <article key={row.attempt.id}><h3>{row.title}</h3><p>{row.attempt.passed ? "Passed" : "Needs changes"} Â· {row.attempt.checks.filter(c => c.passed).length} of {row.attempt.checks.length} checks passed Â· {row.assistance}</p><p>{row.nextReview ? `Next review: ${formatDate(row.nextReview)}` : "No review scheduled."}</p></article>)}<p>Your completed project history is unchanged.</p></section> : <><ProjectReview studio={studio} runId={run.id} actions={<><button className="primary" onClick={() => studio.navigate("learned")}>Go to What I Learned â†’</button><button className="secondary" onClick={() => studio.navigate("today")}>Back to Today</button></>} /><section className="document completion-record"><h2>What changed</h2><p>{curriculum.missions.find(m => m.id === run.missionId)?.title} is now Completed in Lessons.</p><ul className="saved-checks">{rows.map(row => <li key={row.attempt.id}>{row.title}: {row.assistance}{row.attempt.purpose === "instruction" || row.attempt.purpose === "reflection" ? " Â· saved" : row.attempt.passed ? " Â· passed" : " Â· needs changes"}</li>)}</ul><p>Skill status above comes from independent evidence. Reading, assisted practice, and reflection alone do not establish mastery.</p></section></>}
+    {run.mode === "review" && <div className="button-row summary-actions"><button className="primary" onClick={() => studio.navigate("learned")}>Go to What I Learned â†’</button><button className="secondary" onClick={() => studio.navigate("today")}>Back to Today</button></div>}</>;
 }
 
 function Portfolio({ studio }: { studio: Studio }) {
   const projects = getPortfolioModel(studio.state);
   const completedCount = projects.reduce((n, p) => n + p.snapshots.length, 0);
-  return <><PageHeading label="PORTFOLIO" title="Ship it. Prove it.">Finished portfolio projects are sealed into immutable snapshots — your source, the fixtures, the named tests, and your reflection. Download any project as a GitHub-ready zip.</PageHeading>{completedCount ? <div>{projects.map(({ project, snapshots, complete }) => {
+  return <><PageHeading label="PORTFOLIO" title="Ship it. Prove it.">Finished portfolio projects are sealed into shipped crates â€” your source, the fixtures, the named tests, and your reflection. Download any project as a ZIP.</PageHeading>{completedCount ? <div>{projects.map(({ project, snapshots, complete }) => {
     const byComponent = new Map(snapshots.map(s => [s.componentId, s]));
     const missingTitles = project.components.filter(c => !byComponent.has(c.taskId)).map(c => c.title).join(", ");
     return <section className="document" aria-label={project.title} key={project.id}>
       <span className="eyebrow">PORTFOLIO PROJECT</span>
       <h2>{project.title}</h2>
       <p>{project.objective}</p>
-      <p className="muted">{snapshots.length} of {project.components.length} components completed{complete ? " · Project complete" : ""}</p>
+      <p className="muted">{snapshots.length} of {project.components.length} components completed{complete ? " Â· Project complete" : ""}</p>
       <ul className="saved-checks">{project.components.map(component => {
         const snapshot = byComponent.get(component.taskId);
-        return <li key={component.taskId}><strong>{snapshot ? "Completed" : "Not completed yet"}: {component.title}</strong>{snapshot && <p>Sealed {formatDate(snapshot.completedAt)} · {snapshot.tests.filter(t => t.passed).length}/{snapshot.tests.length} checks passed · {snapshot.assistance.hintsUsed} hints used</p>}</li>;
+        return <li key={component.taskId}><strong>{snapshot ? "Completed" : "Not completed yet"}: {component.title}</strong>{snapshot && <p>Sealed {formatDate(snapshot.completedAt)} Â· {snapshot.tests.filter(t => t.passed).length}/{snapshot.tests.length} checks passed Â· {snapshot.assistance.hintsUsed} hints used</p>}</li>;
       })}</ul>
       {complete
-        ? <div className="button-row"><button className="primary" onClick={() => studio.downloadPortfolio(project.id)}>Download ZIP<span aria-hidden="true"> ↓</span></button></div>
-        : snapshots.length > 0 && <p className="muted">Complete {missingTitles} to unlock the GitHub-ready ZIP export.</p>}
+        ? <div className="button-row"><button className="primary" onClick={() => studio.downloadPortfolio(project.id)}>Download ZIP<span aria-hidden="true"> â†“</span></button></div>
+        : snapshots.length > 0 && <p className="muted">Complete {missingTitles} to unlock the ZIP export export.</p>}
     </section>;
-  })}</div> : <section className="document large-empty"><span className="empty-mark" aria-hidden="true">[ ]</span><h2>No portfolio snapshots yet.</h2><p>Complete a mission whose build project feeds a portfolio project — for example, the payments CSV mission. Its snapshot appears here the moment the mission completes.</p><button className="primary" onClick={() => studio.navigate("lessons")}>Browse missions →</button></section>}</>;
+  })}</div> : <section className="document large-empty"><span className="empty-mark" aria-hidden="true">[ ]</span><h2>No portfolio snapshots yet.</h2><p>Complete a mission whose build project feeds a portfolio project â€” for example, the payments CSV mission. Its snapshot appears here the moment the mission completes.</p><button className="primary" onClick={() => studio.navigate("lessons")}>Browse missions â†’</button></section>}</>;
 }
 
 export function Dashboard({ studio }: { studio: Studio }) {
   return <main id="main-content" className="dashboard">{studio.route.completedRunId ? <Completion studio={studio} /> : studio.route.destination === "lessons" ? <Lessons studio={studio} /> : studio.route.destination === "learned" ? <Learned studio={studio} /> : studio.route.destination === "assessment" ? <Assessment studio={studio} /> : studio.route.destination === "portfolio" ? <Portfolio studio={studio} /> : <Today studio={studio} />}</main>;
 }
+
+
+
+
+
+
+
+
+

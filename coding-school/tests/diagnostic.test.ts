@@ -547,7 +547,7 @@ describe("explicit I do not know declarations", () => {
     const completed = completeDiagnosticSession(allDecided);
     // The declaration places its skill as a knowledge gap, never as mastery.
     expect(completed.profile![DIAGNOSTIC_CORE_SKILLS[0]]).toBe("observed");
-    expect(completed.recommendation).toContain("Knowledge gaps");
+    expect(completed.recommendation).toContain("useful gaps, not mistakes");
   });
 
   it("still blocks completion when declarations fall short of the quota", () => {
@@ -651,15 +651,15 @@ describe("honest evidence: gaps, wrong answers, and hints", () => {
     expect(hintDependent).toContain("python-functions");
     expect(hintDependent).not.toContain("csp-foundations"); // one independent correct answer
 
-    // The gap skill is reported as a knowledge gap, not lumped into "needs practice".
-    expect(recommendation).toMatch(/Knowledge gaps .*json-validation/);
-    const needsPractice = /Needs practice: ([^.]+)\./.exec(recommendation)?.[1] ?? "";
-    expect(needsPractice).not.toContain("json-validation");
-    expect(needsPractice).toContain("csp-data-systems");
-    expect(recommendation).toContain("Hint-dependent: python-functions");
+    // Learner copy stays qualitative; skill ids remain available in the data.
+    expect(recommendation).toContain("useful gaps, not mistakes");
+    expect(recommendation).toContain("Some areas could use more practice");
+    expect(recommendation).not.toContain("json-validation");
+    expect(recommendation).not.toContain("csp-data-systems");
+    expect(recommendation).toContain("Hints helped in some areas");
   });
 
-  it("reports the honest tally and the AP CSP starting level", () => {
+  it("reports the answer tally and current placement wording", () => {
     const session = syntheticSession([
       { skillId: "csp-foundations", kind: "concept", correct: true, hintsUsed: 0 },
       { skillId: "csp-foundations", kind: "concept", correct: true, hintsUsed: 2 },
@@ -670,8 +670,8 @@ describe("honest evidence: gaps, wrong answers, and hints", () => {
     expect(recommendation).toContain(
       'Answers: 1 correct on your own, 1 correct after hints, 1 incorrect, 1 declared "I do not know".',
     );
-    expect(recommendation).toContain("Starting level: AP Computer Science Principles foundations");
-    expect(recommendation).toMatch(/never grants mission completion or mastery/i);
+    expect(recommendation).toContain("Your scan starts with Python foundations");
+    expect(recommendation).toContain("Your skill tree tracks learning over time");
   });
 });
 
@@ -831,9 +831,8 @@ describe("real-bank simulation: a learner who declares on every item", () => {
     // Every response is an honest knowledge gap: never a grade, never mastery.
     expect(completed.responses.every(r => r.dontKnow === true && !r.correct)).toBe(true);
     expect(completed.recommendation).not.toContain("Solid ground");
-    expect(completed.recommendation).toMatch(/Knowledge gaps/);
-    const gaps = /Knowledge gaps[^:]*: ([^.]+)\./.exec(completed.recommendation ?? "")?.[1] ?? "";
-    expect(gaps).toContain("csp-foundations");
+    expect(completed.recommendation).toContain("useful gaps, not mistakes");
+    expect(completed.recommendation).not.toContain("csp-foundations");
   });
 
   it("serves coding questions from the real bank in a reachable order", () => {
@@ -867,10 +866,10 @@ describe("placement wording separates solid ground from assisted success", () =>
     expect(hintDependent).toContain("python-functions");
     expect(hintDependent).not.toContain("data-structures");
 
-    const solid = /Solid ground: ([^.]+)\./.exec(recommendation)?.[1] ?? "";
-    expect(solid).toContain("data-structures");
-    expect(solid).not.toContain("python-functions");
-    expect(recommendation).toMatch(/Hint-dependent: python-functions[^.]*emerging, assisted success, not solid ground/);
+    expect(recommendation).toContain("strong signals in some areas");
+    expect(recommendation).toContain("Hints helped in some areas");
+    expect(recommendation).not.toContain("data-structures");
+    expect(recommendation).not.toContain("python-functions");
   });
 
   it("still reports a mixed skill with unaided successes as solid ground", () => {
@@ -881,6 +880,6 @@ describe("placement wording separates solid ground from assisted success", () =>
     ]);
     const { recommendation, hintDependent } = deriveDiagnosticProfile(session);
     expect(hintDependent).not.toContain("csv-cleaning");
-    expect(recommendation).toContain("Solid ground: csv-cleaning");
+    expect(recommendation).toContain("strong signals in some areas");
   });
 });

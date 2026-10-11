@@ -5,6 +5,7 @@ import Editor, { loader } from "@monaco-editor/react";
 import styles from "./assessment-layout.module.css";
 import type { Studio } from "./use-studio";
 import { ASSESSMENTS, type Assessment, type AssessmentTask } from "../../curriculum/assessments";
+import { skills } from "../../curriculum/skills";
 import { getMission } from "../../lib/curriculum";
 import { startGradingRun, type GradeResult } from "../../lib/runner";
 import { gradeAssessmentWritten } from "../../lib/assessment-grading";
@@ -80,10 +81,20 @@ export function buildAssessmentRunRequest(task: AssessmentTask, code: string): A
   };
 }
 
+const ASSESSMENT_SKILL_TITLES: Record<string, string> = {
+    "code-reading": "Code reading", debugging: "Debugging", "scratch-coding": "Write code",
+    "project-building": "Build projects", "design-explanation": "Explain design",
+};
+
+function assessmentSkillTitle(skillId: string): string {
+  return skills.find(skill => skill.id === skillId)?.title ?? ASSESSMENT_SKILL_TITLES[skillId] ?? "Skill";
+}
+
 function SkillChip({ studio, skillId }: { studio: Studio; skillId: string }) {
   const status = getAssessmentSkillStatus(studio.state, skillId);
   const label = status.status === "mastered" ? "Mastered" : status.status === "completed" ? "Completed" : "Not started";
-  return <span className={`skill-chip status-${status.status}`}>{skillId}: {label}</span>;
+  const title = assessmentSkillTitle(skillId);
+  return <span className={`chip ${status.status === "mastered" ? "chip-lime" : status.status === "completed" ? "chip-cyan" : "chip-amber"}`} title={label}>{title} · {label}</span>;
 }
 
 /** Index-based arrow-key navigation for the assessment task tabs, mirroring
@@ -558,7 +569,7 @@ export function TaskRunner({ studio, assessment, task, draft, setDraft, layout: 
     style={{ "--as-left": `${(splits.left * 100).toFixed(3)}%`, "--as-right": `${(splits.right * 100).toFixed(3)}%` } as CSSProperties}
   >
     <div className={styles.pane} id="assessment-pane-instructions">
-      <span className="eyebrow">{task.kind.toUpperCase()} · {task.skillId}</span>
+      <span className="eyebrow">CHECKPOINT TASK · {assessmentSkillTitle(task.skillId).toUpperCase()}</span>
       <h2>{task.title}</h2>
       <pre className="assessment-prompt">{task.prompt}</pre>
 
@@ -569,7 +580,7 @@ export function TaskRunner({ studio, assessment, task, draft, setDraft, layout: 
 
       <section className="hint-section">
         <div className="section-heading"><h3>Need a nudge?</h3><span className="muted">{draft.hintsUsed}/{task.hints.length} hints</span></div>
-        <p className="muted">Reveal one hint at a time. Every hint is saved with your attempt — four or more weakens a full level.</p>
+        <p className="muted">Reveal one hint at a time. Every hint is saved with your attempt.</p>
         {task.hints.slice(0, draft.hintsUsed).map((hint, i) => <p className="hint" key={i}><strong>Hint {i + 1}</strong> {hint}</p>)}
         {draft.hintsUsed < task.hints.length && <button className="secondary" onClick={revealHint}>Reveal hint {draft.hintsUsed + 1}</button>}
         <details className="assistance-disclosure">
@@ -651,12 +662,11 @@ export function TaskRunner({ studio, assessment, task, draft, setDraft, layout: 
       {isCode ? <>
         {draft.grading && <p className="muted">Running your checks…</p>}
         {!draft.grading && !draft.gradeResult && <p className="muted">Run your code to see its checks, standard output, and standard error here.</p>}
-        {draft.gradeResult && <ul className="check-results">
-          {draft.gradeResult.tests.map(check => <li key={check.id} className={check.passed ? "check-pass" : "check-fail"}>
-            <span aria-hidden="true">{check.passed ? "✓" : "×"}</span>
-            <div><strong><span className="visually-hidden">{check.passed ? "Passed" : "Failed"}: </span>{check.name}</strong>{check.detail && <p>{check.detail}</p>}</div>
-          </li>)}
-        </ul>}
+        {draft.gradeResult && <div className="term" aria-label="Check results">
+          {draft.gradeResult.tests.map(check => <p key={check.id} className={check.passed ? "neon-text-lime" : "neon-text-magenta"}>
+            <strong>[{check.passed ? "PASS" : "FAIL"}]</strong> {check.name}{check.detail && <> — {check.detail}</>}
+          </p>)}
+        </div>}
         {draft.gradeResult && <>
           <div className={`console-output ${styles.console}`}>
             <h4 className={styles.consoleHeading}>Standard output</h4>
@@ -737,7 +747,7 @@ export function AssessmentDetail({ studio, assessment, onBack }: { studio: Studi
           onClick={() => setTaskIndex(i)}
           onKeyDown={onKeyDown}
         >
-          {t.kind}{attempt ? (attempt.mastered ? " ✓" : " ·") : ""}
+          {t.title}{attempt ? (attempt.mastered ? " ✓" : " ·") : ""}
         </button>;
       })}
     </div>
@@ -849,25 +859,29 @@ export function AssessmentWorkbench({ studio }: { studio: Studio }) {
     <h1 ref={hubHeadingRef} tabIndex={-1}>Prove it in a new context.</h1>
     <p>Each checkpoint re-tests the mission skills with fresh scenarios: read code, debug planted bugs, write from scratch, build a small project, and explain your reasoning. No solutions are shown — hints, AI use, and solution views are all recorded.</p>
     <div className="assessment-cards">
-      {ASSESSMENTS.map(a => <article key={a.id} className="assessment-card">
+      {ASSESSMENTS.map((a, index) => {
+        const attempts = a.tasks.map(task => studio.state.assessmentAttempts.filter(item => item.taskId === task.id).at(-1));
+        const cleared = attempts.every(attempt => attempt?.passed);
+        const started = attempts.some(Boolean);
+        const previousCleared = index === 0 || ASSESSMENTS[index - 1].tasks.every(task =>
+          studio.state.assessmentAttempts.filter(item => item.taskId === task.id).at(-1)?.passed);
+        const locked = !previousCleared;
+        const state = cleared ? "Cleared" : started ? "In progress" : locked ? "Locked" : "Ready";
+        const stateClass = cleared ? "chip-lime" : started ? "chip-cyan" : locked ? "chip-magenta" : "chip-amber";
+        return <article key={a.id} className="assessment-card">
+        <span className={`chip ${stateClass}`}>{state}</span>
         <h2>{a.title}</h2>
         <p>{a.description}</p>
         <div className="skill-chips">
           {[...new Set(a.tasks.map(t => t.skillId))].map(skillId => <SkillChip key={skillId} studio={studio} skillId={skillId} />)}
         </div>
-        <button className="primary" onClick={() => setSelectedId(a.id)}>Start checkpoint →</button>
-      </article>)}
+        <button className="primary" disabled={locked} onClick={() => setSelectedId(a.id)}>{started ? "Continue checkpoint" : "Start checkpoint"} →</button>
+      </article>;
+      })}
     </div>
-    <MissionSelfReview studio={studio} />
-    <section className="assessment-mastery">
-      <h2>Cross-checkpoint mastery</h2>
-      <p className="muted">A skill is <strong>completed</strong> with one task attempt and <strong>mastered</strong> with independent work in more than one context and date. Assisted success is practice, never mastery.</p>
-      <ul>
-        {["code-reading", "debugging", "scratch-coding", "project-building", "design-explanation"].map(skillId => {
-          const status = getAssessmentSkillStatus(studio.state, skillId);
-          return <li key={skillId}><strong>{skillId}</strong>: {status.status} ({status.independentTasks} independent / {status.completedTasks} completed)</li>;
-        })}
-      </ul>
-    </section>
+    <details className="assessment-self-review-disclosure">
+      <summary>Review saved mission work</summary>
+      <MissionSelfReview studio={studio} />
+    </details>
   </section>;
 }

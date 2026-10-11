@@ -186,13 +186,18 @@ describe("nextDiagnosticPanel", () => {
 describe("placement copy", () => {
   const html = render(studioFor(sessionOn(conceptItem.id)));
 
-  it("names the AP CSP starting point", () => {
-    expect(html).toContain("AP Computer Science Principles (AP CSP) foundation tier");
+  it("names the placement scan and keeps the intro concise", () => {
+    expect(html).toContain("Placement scan");
+    expect(html).toContain("Your results guide practice");
+    expect(html).not.toContain("AP CSP");
+    expect(html).not.toContain("% complete");
   });
 
-  it("describes coding evidence as runs or honest declarations", () => {
-    expect(html).toContain("pieces of coding evidence needed, either kind");
-    expect(html).toContain(`${DIAGNOSTIC_UNKNOWN_ANSWER}” declaration`);
+  it("shows question number, skill chip, and accessible progress", () => {
+    expect(html).toContain('class="chip chip-cyan">Q 1');
+    expect(html).toContain('class="chip chip-violet"');
+    expect(html).toContain('role="progressbar"');
+    expect(html).not.toContain("of up to");
   });
 });
 

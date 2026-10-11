@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Adaptive recommendation engine: one ordered rule chain that turns learner
  * state into a single next action plus a human-readable, evidence-traceable
  * reason. Pure TypeScript — no DOM, no I/O, no state mutation.
@@ -163,13 +163,13 @@ export function recommendNext(state: LearningState, now: Date = new Date()): Rec
     if (!summary) {
       return {
         ...base, action: "diagnostic",
-        reason: "No attempts recorded yet. Take the placement diagnostic first — it sets your placement baseline across the skill graph so the first mission starts at the right level.",
+        reason: "Start with a placement scan to find a useful first mission.",
       };
     }
     const mission = selection.missionId ? getMission(selection.missionId) : null;
     const reviewTaskIds = capReviews(selection.reviewTaskIds);
     const seated = reviewTaskIds.length
-      ? ` ${reviewTaskIds.length} scheduled review ${reviewTaskIds.length === 1 ? "task is" : "tasks are"} seated first in stage 0.`
+      ? ` ${reviewTaskIds.length} scheduled review ${reviewTaskIds.length === 1 ? "task is" : "tasks are"} seated first in the run.`
       : "";
     return {
       ...base, action: "start-mission", missionId: selection.missionId, reviewTaskIds,
@@ -204,7 +204,7 @@ export function recommendNext(state: LearningState, now: Date = new Date()): Rec
           ...base, action: "repair", missionId: selection.missionId,
           blockedMissionId: selection.missionId, reviewTaskIds,
           reason: `"${mission.title}" is blocked: prerequisite ${cites.join("; ")} needs practice first. ` +
-            `The repair ${reviewTaskIds.length === 1 ? "task is" : "tasks are"} seated first in stage 0 — the mission's build stage stays out of reach until ${blockers.length === 1 ? "it is" : "they are"} done.`,
+            `The repair ${reviewTaskIds.length === 1 ? "task is" : "tasks are"} seated first in the run — the mission's build stage stays out of reach until ${blockers.length === 1 ? "it is" : "they are"} done.`,
         };
       }
     }
@@ -225,7 +225,7 @@ export function recommendNext(state: LearningState, now: Date = new Date()): Rec
       ...base, action: "repair", missionId: selection.missionId, reviewTaskIds,
       reason: `Targeted repair before new material: ${cites.join("; ")}. ` +
         (mission
-          ? `The repair ${reviewTaskIds.length === 1 ? "task is" : "tasks are"} seated first in "${mission.title}" (stage 0).`
+          ? `The repair ${reviewTaskIds.length === 1 ? "task is" : "tasks are"} seated first in "${mission.title}" (the first stage).`
           : "No unlocked mission — running the repair as a review session."),
     };
   }
@@ -245,9 +245,9 @@ export function recommendNext(state: LearningState, now: Date = new Date()): Rec
     return {
       ...base, action: "retrieval", missionId: selection.missionId,
       reviewTaskIds: capReviews(selection.reviewTaskIds),
-      reason: `Retrieval due: ${cites.join("; ")}. ` +
+      reason: `Review due: ${cites.join("; ")}. ` +
         (dueCount > REVIEW_TASK_CAP ? `${dueCount} reviews are due; capped at ${REVIEW_TASK_CAP} so the backlog never consumes the mission. ` : "") +
-        (mission ? `Seated first in "${mission.title}" (stage 0).` : "Running as a review session."),
+        (mission ? `Seated first in "${mission.title}" (the first stage).` : "Running as a review session."),
     };
   }
 
@@ -272,7 +272,7 @@ export function recommendNext(state: LearningState, now: Date = new Date()): Rec
     const mission = getMission(selection.missionId)!;
     const track = trackOfMission(selection.missionId);
     const reviews = selection.reviewTaskIds.length
-      ? ` ${selection.reviewTaskIds.length} review ${selection.reviewTaskIds.length === 1 ? "task" : "tasks"} seated first in stage 0.`
+      ? ` ${selection.reviewTaskIds.length} review ${selection.reviewTaskIds.length === 1 ? "task" : "tasks"} seated first in the run.`
       : "";
     return {
       ...base, action: "start-mission", missionId: selection.missionId,
@@ -283,3 +283,4 @@ export function recommendNext(state: LearningState, now: Date = new Date()): Rec
 
   return { ...base, action: "complete", reason: "Every mission is complete and no reviews are due. The skill graph in What I Learned shows where each skill stands." };
 }
+

@@ -525,7 +525,7 @@ describe("workbench run output in the Checks pane", () => {
 
   it("shows stdout and stderr immediately, with no disclosure to open", () => {
     const checks = renderChecks(runResult);
-    expect(checks).toContain("Console output");
+    expect(checks).toContain("--- stdout ---");
     expect(checks).not.toContain("<details");
     expect(checks).not.toContain("<summary");
     expect(checks).toContain("Standard output");
@@ -542,7 +542,7 @@ describe("workbench run output in the Checks pane", () => {
   });
 
   it("keeps the console block out of the pane before a run", () => {
-    expect(renderChecks(null, "Needs changes")).not.toContain("Console output");
+    expect(renderChecks(null, "Needs changes")).not.toContain("--- stdout ---");
     expect(renderChecks(null, "Needs changes")).not.toContain("<details");
   });
 

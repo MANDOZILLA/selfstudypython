@@ -73,7 +73,7 @@ describe("progressive hints on non-code tasks", () => {
     expect(html).toContain('class="hint-section"');
     expect(html).toContain("0/2 hints");
     expect(html).toContain("Reveal hint 1");
-    expect(html).toContain("Record other help");
+    expect(html).toContain("// HELP USED");
     expect(revealedHints(html)).toBe(0);
     expect(html).not.toContain("First rung."); // rungs stay hidden until revealed
     expect(html).not.toContain('class="hint"');
@@ -91,7 +91,7 @@ describe("progressive hints on non-code tasks", () => {
     for (const kind of [instructionTask, explanationTask]) {
       const html = render(<Workbench studio={studio(kind)} />);
       expect(html).not.toContain("tutor-section");
-      expect(html).not.toContain("Ask tutor");
+      expect(html).not.toContain("tutor&gt; Ask tutor");
     }
   });
 
@@ -162,14 +162,14 @@ describe("Learning Mode and assistance accounting for non-code tasks", () => {
   it("leaves code tasks with their tutor alongside the same ladder", () => {
     const html = render(<Workbench studio={studio(codeTask)} />);
     expect(html).toContain('class="hint-section"');
-    expect(html).toContain("Ask tutor");
+    expect(html).toContain("tutor&gt; Ask tutor");
     expect(html).toContain("Reveal hint 1");
   });
 
   it("hides the tutor from code tasks that are still independent", () => {
     const html = render(<Workbench studio={studio(codeTask, { learningMode: true })} />);
     expect(html).toContain("independent-note");
-    expect(html).not.toContain("Ask tutor");
+    expect(html).not.toContain("tutor&gt; Ask tutor");
     expect(html).not.toContain('class="hint-section"');
   });
 });
