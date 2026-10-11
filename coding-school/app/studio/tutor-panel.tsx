@@ -29,7 +29,7 @@ type PanelState =
  *  against the checks. Pure presentational component for testability. */
 export function TutorResponseView({ tutor, source }: { tutor: TutorResponse; source?: string }) {
   return (
-    <div className="tutor-response" role="status" aria-label="AI tutor suggestion">
+    <div className="tutor-response" data-source={source} role="status" aria-label="AI tutor suggestion">
       <p className="tutor-label">
         <strong>tutor&gt; AI suggestion</strong>
         {" — verify against the checks."}

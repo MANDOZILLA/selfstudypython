@@ -34,10 +34,10 @@ export function SkillTree({ state }: { state: LearningState }) {
       columns.set(depth, [...(columns.get(depth) ?? []), node]);
     });
     const maxRows = Math.max(1, ...[...columns.values()].map(nodes => nodes.length));
-    const width = Math.max(760, (Math.max(...depths.values(), 0) + 1) * 230 + 40);
-    const height = Math.max(360, maxRows * 100 + 45);
+    const width = Math.max(820, (Math.max(...depths.values(), 0) + 1) * 270 + 40);
+    const height = Math.max(380, maxRows * 116 + 45);
     const positions = new Map<string, { x: number; y: number }>();
-    columns.forEach((nodes, depth) => nodes.forEach((node, row) => positions.set(node.skillId, { x: 30 + depth * 230, y: 30 + row * 100 })));
+    columns.forEach((nodes, depth) => nodes.forEach((node, row) => positions.set(node.skillId, { x: 30 + depth * 270, y: 30 + row * 116 })));
     return { width, height, positions };
   }, [graph]);
   return <section className={`document ${css.section}`} aria-labelledby="skill-tree-title">
@@ -48,16 +48,16 @@ export function SkillTree({ state }: { state: LearningState }) {
         {graph.flatMap(node => node.prerequisites.map(prereq => {
           const from = layout.positions.get(prereq.skillId); const to = layout.positions.get(node.skillId);
           if (!from || !to) return [];
-          const mid = (from.x + 174 + to.x) / 2;
-          return <path key={`${prereq.skillId}-${node.skillId}`} className={`${css.edge} ${lit(byStatus(graph, prereq.skillId)) ? css.edgeLit : ""}`} d={`M ${from.x + 174} ${from.y + 32} C ${mid} ${from.y + 32}, ${mid} ${to.y + 32}, ${to.x} ${to.y + 32}`} />;
+          const mid = (from.x + 220 + to.x) / 2;
+          return <path key={`${prereq.skillId}-${node.skillId}`} className={`${css.edge} ${lit(byStatus(graph, prereq.skillId)) ? css.edgeLit : ""}`} d={`M ${from.x + 220} ${from.y + 42} C ${mid} ${from.y + 42}, ${mid} ${to.y + 42}, ${to.x} ${to.y + 42}`} />;
         }))}
         {graph.map(node => {
           const pos = layout.positions.get(node.skillId)!;
           const statusClass = node.status === "untested" ? css.untested : node.status === "needs-practice" ? css.needsPractice : node.status === "mastered" ? css.mastered : css.evidence;
           return <g key={node.skillId} className={`${css.node} ${statusClass} ${selected?.skillId === node.skillId ? css.selected : ""}`} role="button" tabIndex={0} aria-label={`${node.name}: ${labels[node.status]}`} aria-pressed={selected?.skillId === node.skillId} onClick={() => setId(node.skillId)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setId(node.skillId); } }} transform={`translate(${pos.x} ${pos.y})`}>
-            <rect width="174" height="64" rx="4" />
-            <text x="10" y="25">{node.name.length > 22 ? `${node.name.slice(0, 21)}…` : node.name}</text>
-            <text className={css.status} x="10" y="47">{labels[node.status]}</text>
+            <rect width="220" height="84" rx="4" />
+            <text x="10" y="24"><tspan>{node.name.length > 27 ? node.name.slice(0, 27) : node.name}</tspan>{node.name.length > 27 && <tspan x="10" dy="16">{node.name.slice(27)}</tspan>}</text>
+            <text className={css.status} x="10" y="68">{labels[node.status]}</text>
           </g>;
         })}
       </svg>

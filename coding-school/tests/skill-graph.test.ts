@@ -198,7 +198,7 @@ describe("skill graph", () => {
     const node = nodeFor(state, "csv-cleaning");
     expect(node.nextReviewAt).toBe("2026-09-13T12:00:00.000Z");
     expect(node.nextReviewReason).toBe("retrieval");
-    expect(node.readiness).toMatch(/retrieval/i);
+    expect(node.readiness).toMatch(/review/i);
   });
 
   it("uses diagnostic placement for readiness without fabricating mastery", () => {

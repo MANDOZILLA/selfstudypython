@@ -515,18 +515,16 @@ function DiagnosticBody({ studio }: { studio: Studio }) {
     <p>It may have been cleared with your browser data.</p>
     <div className="button-row">
       <button className="primary" onClick={studio.startDiagnostic}>Start a new placement scan</button>
-      <button className="secondary" onClick={() => studio.navigate("today")}>Back to Today</button>
+      <button className="secondary" onClick={() => studio.navigate("today")}>Back to Home</button>
     </div>
   </section>;
 
   const latestId = studio.state.diagnosticSessions.at(-1)?.id;
   const interactive = session.status === "in-progress" && session.id === latestId;
   const currentItem = session.currentItemId ? DIAGNOSTIC_ITEMS.find(i => i.id === session.currentItemId) : undefined;
-  const declarations = codingUnknownCount(session);
-
   return <>
     <div className="page-heading">
-      <button className="text-button" onClick={() => studio.navigate("today")}>← Today</button>
+      <button className="text-button" onClick={() => studio.navigate("today")}>← Home</button>
       <h1 id="page-title" tabIndex={-1}>Placement scan</h1>
       <p>Answer a few questions to find a useful place to begin. Your results guide practice and never limit what you can try.</p>
     </div>

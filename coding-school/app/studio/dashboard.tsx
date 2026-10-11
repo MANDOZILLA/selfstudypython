@@ -5,10 +5,8 @@ import {
   deriveDiagnosticProfile, latestCompletedDiagnosticSession, type DiagnosticSession,
 } from "../../lib/diagnostic";
 import { recommendNext, type RecommendationAction } from "../../lib/recommend";
-import { buildSkillGraph, type GraphSkillStatus } from "../../lib/skill-graph";
 import { getDashboardModel, getEvidenceRows, getLibraryRows, getPortfolioModel, getProjectReview } from "../../lib/studio";
 import type { Studio } from "./use-studio";
-import { StageRail } from "./stage-rail";
 import { Hud } from "./hud";
 import { SkillTree } from "./skill-tree";
 import { Achievements } from "./achievements";
@@ -59,12 +57,12 @@ function ResetPlacement({ studio }: { studio: Studio }) {
   if (!sessions.length && !studio.state.diagnostic.completed) return null;
   if (!confirming) return <section className="document" aria-label="Reset placement">
     <div className="section-heading"><h2>Reset placement</h2><span className="eyebrow">START OVER</span></div>
-    <p className="muted">Clears your diagnostic sessions and placement summary so a new scan starts fresh. Missions, checkpoints, your evidence log, and portfolio snapshots are kept.</p>
+    <p className="muted">Clears your placement sessions and placement summary so a new scan starts fresh. Missions, checkpoints, your evidence log, and portfolio snapshots are kept.</p>
     <div className="button-row"><button className="text-button danger" onClick={() => setConfirming(true)}>Reset placement</button></div>
   </section>;
   return <section className="document" aria-label="Confirm placement reset">
     <div className="section-heading"><h2>Reset placement?</h2><span className="eyebrow">CONFIRM</span></div>
-    <p role="alert">This permanently clears {sessions.length} saved diagnostic session{sessions.length === 1 ? "" : "s"} and your placement summary. Missions, checkpoint assessments, your evidence log, and portfolio snapshots are not affected.</p>
+    <p role="alert">This permanently clears {sessions.length} saved placement session{sessions.length === 1 ? "" : "s"} and your placement summary. Missions, checkpoint assessments, your evidence log, and portfolio snapshots are not affected.</p>
     <div className="button-row">
       <button className="secondary danger" onClick={() => { setConfirming(false); studio.resetPlacement(); }}>Yes, reset placement</button>
       <button className="secondary" onClick={() => setConfirming(false)}>Keep my placement</button>
@@ -78,7 +76,7 @@ function Today({ studio }: { studio: Studio }) {
   const locked = getLibraryRows(studio.state).find(row => row.blockedReason);
   const checkpointsReady = recommendNext(studio.state).action === "assessment" ? 1 : 0;
   const achievements = progress.achievements.filter(item => item.unlocked).slice(-3).reverse();
-  return <><PageHeading label="HOME" title="Your next run starts here.">One clear next step. Your progress stays yours.</PageHeading><Hud state={studio.state} reviewsDue={due.length} checkpointsReady={checkpointsReady}/><div className={homeCss.layout}><div><RecommendationCard studio={studio}/></div><aside className={`home-queue hud-panel ${homeCss.queue}`} aria-label="Your queue"><h2>QUEUE</h2><section><h3>Due reviews</h3>{due.length ? <ul>{due.slice(0, 3).map(item => <li key={item.skillId}>{curriculum.skills.find(skill => skill.id === item.skillId)?.title ?? "Skill review"} · {formatDate(item.dueAt)}</li>)}</ul> : <p>Nothing due</p>}</section><section><h3>Next locked mission</h3>{locked ? <p>{locked.mission.title} · {locked.blockedReason}</p> : <p>No locked mission</p>}</section><section><h3>Recent XP</h3>{progress.recent.length ? <ul>{progress.recent.slice(0, 3).map(event => <li key={event.id}>+{event.xp} XP · {event.label}</li>)}</ul> : <p>Your first XP arrives with a completed run.</p>}</section><section><h3>Latest achievements</h3>{achievements.length ? <ul>{achievements.map(item => <li key={item.id}>{item.glyph} {item.title}</li>)}</ul> : <p>Your first achievement is waiting.</p>}</section></aside></div><details className="system-disclosure"><summary>System</summary><PlacementCard studio={studio}/><ResetPlacement studio={studio}/><p>Your work saves on this device and syncs when online.</p></details></>;
+  return <><PageHeading label="HOME" title="Your next run starts here.">One clear next step. Your progress stays yours.</PageHeading><div className={homeCss.layout}><div className={homeCss.primaryColumn}><Hud state={studio.state} reviewsDue={due.length} checkpointsReady={checkpointsReady}/><RecommendationCard studio={studio}/></div><aside className={`home-queue hud-panel ${homeCss.queue}`} aria-label="Your queue"><h2>QUEUE</h2><section><h3>Due reviews</h3>{due.length ? <ul>{due.slice(0, 3).map(item => <li key={item.skillId}>{curriculum.skills.find(skill => skill.id === item.skillId)?.title ?? "Skill review"} · {formatDate(item.dueAt)}</li>)}</ul> : <p>Nothing due</p>}</section><section><h3>Next locked mission</h3>{locked ? <p>{locked.mission.title} · {locked.blockedReason}</p> : <p>No locked mission</p>}</section><section><h3>Recent XP</h3>{progress.recent.length ? <ul>{progress.recent.slice(0, 3).map(event => <li key={event.id}>+{event.xp} XP · {event.label}</li>)}</ul> : <p>Your first XP arrives with a completed run.</p>}</section><section><h3>Latest achievements</h3>{achievements.length ? <ul>{achievements.map(item => <li key={item.id}>{item.glyph} {item.title}</li>)}</ul> : <p>Your first achievement is waiting.</p>}</section></aside></div><details className="system-disclosure"><summary>System</summary><PlacementCard studio={studio}/><ResetPlacement studio={studio}/><p>Your work saves on this device and syncs when online.</p></details></>;
 }
 const RECOMMENDATION_EYEBROW: Record<RecommendationAction, string> = {
   resume: "RESUME", diagnostic: "PLACEMENT SCAN", "start-mission": "NEXT MISSION",
@@ -98,45 +96,21 @@ function RecommendationCard({ studio }: { studio: Studio }) {
     complete: { label: "Review skill graph", run: () => studio.navigate("learned") },
   };
   const action = actions[rec.action];
-  return <section className="document" aria-label="Recommended next step">
-    <div className="section-heading"><h2>Recommended next</h2><span className="eyebrow">{RECOMMENDATION_EYEBROW[rec.action]}</span></div>
-    {mission && <p className="muted">{mission.title}{rec.blockedMissionId ? " · complete the warm-up first" : ""}</p>}
+  return <section className={`document ${homeCss.hero}`} aria-label="Recommended next step">
+    <div className={homeCss.terminalBar}><span aria-hidden="true">● ● ●</span><span>next_run.sh</span></div>
+    <div className="section-heading"><span className="eyebrow">{RECOMMENDATION_EYEBROW[rec.action]}</span></div>
+    <h2>{mission?.title ?? (rec.action === "diagnostic" ? "Find your starting point" : rec.action === "assessment" ? "Clear your next checkpoint" : "Your next step")}</h2>
     <p>{rec.reason}</p>
-    <div className="button-row"><button className="primary" onClick={action.run}>{action.label} →</button></div>
+    <div className={homeCss.chips}><span className="chip chip-cyan">{mission?.estimatedMinutes ?? 5} MIN</span><span className="chip chip-violet">+XP</span></div>
+    {mission && <ol className={homeCss.pipeline} aria-label="Mission stages"><li>BRIEF</li><li>BUILD</li><li>CHECK</li><li>SHIP</li></ol>}
+    <div className="button-row"><button className={`primary ${homeCss.cta}`} onClick={action.run}>{action.label} →</button></div>
   </section>;
 }
 
 function Lessons({ studio }: { studio: Studio }) {
-  return <><PageHeading label="MISSIONS" title="Choose your next mission.">Clear missions in order. Each run earns effort XP.</PageHeading><section className="document lesson-library" aria-labelledby="library-title"><div className="library-group"><h2 id="library-title">Coding practice missions</h2><p>Graded exercises currently available in the workbench</p></div>{getLibraryRows(studio.state).map((row, index) => <article className="lesson-row" key={row.mission.id}>
-      <span className="lesson-index" aria-label={`Mission ${index + 1}`}>{String(index + 1).padStart(2, "0")}</span><div className="lesson-description"><span className="chip">{row.blockedReason ? "LOCKED" : row.status === "Completed" ? "CLEARED" : row.status === "In progress" ? "ACTIVE" : "READY"}</span><span className="chip chip-violet">+{row.xp} XP</span><h3>{row.mission.title}</h3><p>{row.mission.summary}</p><span className="artifact-label">Artifact · {row.artifact}</span>{row.blockedReason && <p className="prerequisite">{row.blockedReason}</p>}</div><div className="lesson-action"><span className="duration">{row.mission.estimatedMinutes} min</span><button className="secondary" disabled={Boolean(row.blockedReason)} onClick={() => studio.start(row.mission.id)}>{row.status === "In progress" ? "Resume mission" : row.status === "Completed" ? "Practice again" : "Open mission"}<span aria-hidden="true"> →</span></button></div>
-    </article>)}</section><p className="page-footnote">The roadmap above follows the supplied curriculum. The coding practice missions are existing graded exercises and do not cover every unit yet.</p></>;
-}
-
-const SKILL_STATUS_LABELS: Record<GraphSkillStatus, string> = {
-  untested: "Untested",
-  "needs-practice": "Needs practice",
-  "working-evidence": "Working evidence",
-  "demonstrated-in-project": "Demonstrated in project",
-  "demonstrated-again-later": "Demonstrated again later",
-  mastered: "Mastered",
-};
-
-function SkillGraphSection({ studio }: { studio: Studio }) {
-  const graph = buildSkillGraph(studio.state);
-  return <section className="document" aria-labelledby="skill-graph-title">
-    <div className="section-heading"><h2 id="skill-graph-title">Skill graph</h2><span className="eyebrow">ADAPTIVE</span></div>
-    <p className="muted">One qualitative status per skill — never a percentage. Status comes from independent evidence: project work, later retrieval in new contexts, and spaced reviews. Placement only suggests where to start; it never grants status.</p>
-    {graph.map(node => <details className="evidence-entry" key={node.skillId}>
-      <summary><div className="evidence-description"><h2>{node.name}</h2><p>{node.evidenceCount} evidence · {node.lastDemonstratedAt ? `last demonstrated ${formatDate(node.lastDemonstratedAt)}` : "not yet demonstrated"}</p></div><span className="status-label">{SKILL_STATUS_LABELS[node.status]}</span><span className="details-chevron" aria-hidden="true">⌄</span></summary>
-      <div className="evidence-details">
-        <p><strong>Prerequisites:</strong> {node.prerequisites.length ? node.prerequisites.map(p => p.name).join(", ") : "None"}</p>
-        <p><strong>Next review:</strong> {node.nextReviewAt ? `${formatDate(node.nextReviewAt)} · ${node.nextReviewReason}` : "Not scheduled"}</p>
-        <p>{node.readiness}</p>
-        {node.placement !== "untested" && <p className="muted">Placement signal: {node.placement} — placement only, not a status.</p>}
-        {node.evidenceTasks.length > 0 && <><h3>Tasks providing evidence</h3><ul className="saved-checks">{node.evidenceTasks.map(task => <li key={`${task.taskId}-${task.completedAt}`}>{task.title} · {task.kind} · {formatDate(task.completedAt)} · {task.passed ? "passed" : "needs changes"}{task.independent ? "" : " · assisted"}</li>)}</ul></>}
-      </div>
-    </details>)}
-  </section>;
+  return <><PageHeading label="MISSIONS" title="Choose your next mission.">Clear missions in order. Each run earns effort XP.</PageHeading><section className="document lesson-library" aria-labelledby="library-title"><div className="library-group"><h2 id="library-title">Coding practice missions</h2><p>Graded exercises currently available in the workbench</p></div>{getLibraryRows(studio.state).map((row, index) => <article className={`lesson-row${row.blockedReason ? " locked" : ""}`} key={row.mission.id}>
+      <span className="lesson-index" aria-label={`Mission ${index + 1}`}>{String(index + 1).padStart(2, "0")}</span>{row.blockedReason && <span className="lesson-lock" aria-label="Locked">🔒</span>}<div className="lesson-description"><span className="chip">{row.blockedReason ? "LOCKED" : row.status === "Completed" ? "CLEARED" : row.status === "In progress" ? "ACTIVE" : "READY"}</span><span className="chip chip-violet">+{row.xp} XP</span><h3>{row.mission.title}</h3><p>{row.mission.summary}</p><span className="artifact-label">Artifact · {row.artifact}</span>{row.blockedReason && <p className="prerequisite">{row.blockedReason}</p>}</div><div className="lesson-action"><span className="duration">{row.mission.estimatedMinutes} min</span><button className="secondary" disabled={Boolean(row.blockedReason)} onClick={() => studio.start(row.mission.id)}>{row.status === "In progress" ? "Resume mission" : row.status === "Completed" ? "Practice again" : "Open mission"}<span aria-hidden="true"> →</span></button></div>
+    </article>)}</section></>;
 }
 
 function Learned({ studio }: { studio: Studio }) {
@@ -144,8 +118,7 @@ function Learned({ studio }: { studio: Studio }) {
   const [filter, setFilter] = useState<"all" | "passed" | "needs-work">("all");
   const gradedRows = rows.filter(row => row.attempt.purpose !== "instruction" && row.attempt.purpose !== "reflection");
   const visibleRows = gradedRows.filter(row => filter === "all" || (filter === "passed" ? row.attempt.passed : !row.attempt.passed));
-  return <><PageHeading label="EVIDENCE LOG" title="Your work, with the receipts.">Saved attempts show what you tried, what passed, and how much help you used.</PageHeading><SkillTree state={studio.state} /><Achievements items={getProgressSummary(studio.state).achievements} />{gradedRows.length ? <><section className="evidence-filters" aria-label="Filter evidence">{(["all", "passed", "needs-work"] as const).map(value => <button key={value} type="button" className={filter === value ? "chip chip-cyan" : "chip"} aria-pressed={filter === value} onClick={() => setFilter(value)}>{value === "needs-work" ? "Needs work" : value}</button>)}</section><section className="evidence-list" aria-label="Saved attempts">{visibleRows.map(row => {
-    const code = row.attempt.purpose !== "instruction" && row.attempt.purpose !== "reflection";
+  return <><PageHeading label="SKILL TREE" title="Your skills, mapped.">Skill status grows from evidence over time. XP tracks effort.</PageHeading><SkillTree state={studio.state} /><h2 className={homeCss.syslog}>syslog</h2><Achievements items={getProgressSummary(studio.state).achievements} />{gradedRows.length ? <><section className="evidence-filters" aria-label="Filter evidence">{(["all", "passed", "needs-work"] as const).map(value => <button key={value} type="button" className={filter === value ? "chip chip-cyan" : "chip"} aria-pressed={filter === value} onClick={() => setFilter(value)}>{value === "needs-work" ? "Needs work" : value}</button>)}</section><section className="evidence-list" aria-label="Saved attempts">{visibleRows.map(row => {
     const label = row.attempt.purpose === "instruction" ? "Lesson read" : row.attempt.purpose === "reflection" ? "Reflection saved" : row.attempt.passed ? "Passed" : row.attempt.executionOk ? "Needs changes" : "Couldn't run";
     const purpose = row.attempt.purpose === "retrieval" ? "Review" : row.attempt.purpose === "guided-practice" ? "Guided practice" : "Project";
     return <details className="document evidence-entry" key={row.attempt.id}><summary><div className="evidence-date"><time dateTime={row.attempt.completedAt}>{formatDate(row.attempt.completedAt)}</time><span>{new Date(row.attempt.completedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span></div><div className="evidence-description"><h2>{row.title}</h2><p>{purpose} · {row.assistance}</p><span>{`${row.attempt.checks.filter(c => c.passed).length}/${row.attempt.checks.length} checks passed`}{row.nextReview ? ` · Next review ${formatDate(row.nextReview)}` : " · No review scheduled"}</span></div><span className={`result-label ${row.attempt.passed ? "success" : "failure"}`}>{label}</span><span className="details-chevron" aria-hidden="true">⌄</span></summary><div className="evidence-details"><p className="muted">{row.missionTitle}{row.attempt.duplicateOf ? " · Repeated submission; no additional mastery credit." : ""}</p><details><summary>View source files</summary>{Object.entries(row.attempt.sourceFiles).map(([file, source]) => <div key={file}><h3>{file}</h3><pre>{source}</pre></div>)}</details>{row.attempt.response && <div><h3>Your reflection</h3><p>{row.attempt.response}</p></div>}{row.attempt.checks.length > 0 && <ul className="saved-checks">{row.attempt.checks.map(check => <li key={check.id}><strong>{check.passed ? "Passed" : "Needs changes"}: {check.name}</strong>{check.detail && <p>{check.detail}</p>}</li>)}</ul>}<p className="muted">{row.assistance}. {row.attempt.purpose === "guided-practice" ? "Guided practice does not establish independent project evidence." : row.attempt.purpose === "project" && row.attempt.passed ? "Mastery requires varied independent evidence and later review." : "This is a record of this attempt only."}</p></div></details>;
@@ -161,7 +134,7 @@ function ProjectReview({ studio, runId, actions }: { studio: Studio; runId?: str
     <span className="eyebrow">LATEST PROJECT REVIEW</span><h2>{review.title}</h2>
     <section className="review-outcome" aria-labelledby="review-outcome-title"><h3 id="review-outcome-title">Outcome</h3><p>{review.project.passed ? "The required checks passed for this saved project." : "This saved project needs changes."} {passedChecks} of {review.project.checks.length} verified checks passed.</p><p className="review-meta">Project assistance: {review.assistance}. Completed {formatDate(review.project.completedAt)}.</p></section>
     <h3>Evidence-backed strengths</h3>{review.skills.some(s => s.evidenceAttemptIds.length) ? <ul className="skill-list">{review.skills.filter(s => s.evidenceAttemptIds.length).map(s => <li key={s.skillId}><span>{s.title}</span><span>{s.status}</span></li>)}</ul> : <p>No independent project strengths established yet. Assisted work remains practice.</p>}
-    <h3>Remaining practice</h3>{review.remaining.length ? <ul className="saved-checks">{review.remaining.map(item => <li key={item}>{item}</li>)}</ul> : <p>No failed checks on this latest project and no reviews due now. Future retrieval will test retention.</p>}
+    <h3>Remaining practice</h3>{review.remaining.length ? <ul className="saved-checks">{review.remaining.map(item => <li key={item}>{item}</li>)}</ul> : <p>No failed checks on this latest project and no reviews due now. Future reviews will test retention.</p>}
     <h3>Your reflection</h3><p className="review-reflection">{review.reflection?.response || "No reflection saved for this project yet."}</p>
     {actions && <div className="button-row summary-actions review-actions">{actions}</div>}
     <details className="review-disclosure saved-artifact-disclosure"><summary><span>Saved artifact</span><span>View source files</span></summary><div className="review-disclosure-content">{Object.entries(review.project.sourceFiles).map(([name, source]) => <div className="saved-artifact" key={name}><strong>{name}</strong><pre>{source}</pre></div>)}</div></details>

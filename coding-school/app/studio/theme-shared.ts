@@ -20,6 +20,7 @@ export function isThemePreference(value: unknown): value is ThemePreference {
 
 /** The stored preference wins; otherwise start in dark mode. */
 export function resolveTheme(stored: string | null | undefined, prefersDark: boolean): ThemePreference {
+  void prefersDark; // New installs start in dark mode; retain the parameter for API compatibility.
   return isThemePreference(stored) ? stored : "dark";
 }
 

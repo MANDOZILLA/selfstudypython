@@ -136,12 +136,12 @@ function readinessText(node: Omit<SkillGraphNode, "readiness">, weakSkillIds: Se
     : node.placement === "uncertain"
       ? " Placement was uncertain for this skill — early mission attempts will settle it."
       : node.placement === "strong"
-        ? " Placement showed solid ground; a mission attempt will confirm it."
+        ? " Placement showed solid ground; a mission run will confirm it."
         : "";
   const dateOf = (iso: string | null) => (iso ? DAY_LABEL(iso) : "unknown date");
   switch (node.status) {
     case "untested":
-      return `No attempts recorded yet.${placementClause || " Take the placement diagnostic or start the first mission to generate evidence."}${prereqClause}`;
+      return `No attempts recorded yet.${placementClause || " Take the placement scan or start the first mission to generate evidence."}${prereqClause}`;
     case "needs-practice": {
       const latest = node.evidenceTasks.at(-1);
       const detail = latest
@@ -155,14 +155,14 @@ function readinessText(node: Omit<SkillGraphNode, "readiness">, weakSkillIds: Se
     }
     case "demonstrated-in-project": {
       const witness = node.evidenceTasks.find(t => t.completedAt === node.lastDemonstratedAt) ?? node.evidenceTasks.at(-1);
-      return `Demonstrated in project on ${dateOf(node.lastDemonstratedAt)}${witness ? ` (${witness.title})` : ""}. Later retrieval in a new context builds toward mastery.${node.nextReviewAt ? ` Next retrieval ${dateOf(node.nextReviewAt)}.` : ""}${prereqClause}`;
+      return `Demonstrated in project on ${dateOf(node.lastDemonstratedAt)}${witness ? ` (${witness.title})` : ""}. Later practice in a new context builds toward mastery.${node.nextReviewAt ? ` Next review ${dateOf(node.nextReviewAt)}.` : ""}${prereqClause}`;
     }
     case "demonstrated-again-later": {
       const latest = node.evidenceTasks.at(-1);
-      return `Demonstrated again${latest ? ` on ${dateOf(latest.completedAt)} in a new context (${latest.title})` : ""}. Delayed retrieval will establish mastery.${node.nextReviewAt ? ` Next retrieval ${dateOf(node.nextReviewAt)}.` : ""}${prereqClause}`;
+      return `Demonstrated again${latest ? ` on ${dateOf(latest.completedAt)} in a new context (${latest.title})` : ""}. Later practice will establish mastery.${node.nextReviewAt ? ` Next review ${dateOf(node.nextReviewAt)}.` : ""}${prereqClause}`;
     }
     case "mastered":
-      return `Mastered: independent project evidence plus delayed retrieval across distinct contexts (last demonstration ${dateOf(node.lastDemonstratedAt)}).${prereqClause}`;
+      return `Mastered: independent project evidence plus later practice across distinct contexts (last demonstration ${dateOf(node.lastDemonstratedAt)}).${prereqClause}`;
   }
 }
 

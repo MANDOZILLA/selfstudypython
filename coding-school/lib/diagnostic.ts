@@ -411,7 +411,7 @@ export function deriveDiagnosticProfile(session: DiagnosticSession): {
     hintDependent.length ? "Hints helped in some areas. Keep practicing to build confidence." : "",
     uncertain.length ? "Some areas are still uncertain." : "",
     untested.length ? "Some skills have not come up yet." : "",
-    legacyCount ? `${legacyCount} answer(s) could not be used for placement. You can rerun those questions in a new scan.` : "",
+    legacyCount ? `${legacyCount} earlier answer(s) could not be used for placement. You can rerun those questions in a new scan.` : "",
     "Your placement guides practice. Your skill tree tracks learning over time.",
   ];
   return {
