@@ -10,6 +10,15 @@ const labels: Record<GraphSkillStatus, string> = {
 };
 const lit = (status: GraphSkillStatus) => status === "mastered" || status.startsWith("demonstrated-");
 
+/** Splits a label into at most two lines on word boundaries; the second line is ellipsized. */
+function wrapLabel(text: string, max: number): string[] {
+  if (text.length <= max) return [text];
+  const cut = text.lastIndexOf(" ", max);
+  const first = cut > 0 ? text.slice(0, cut) : text.slice(0, max);
+  const rest = text.slice(first.length).trim();
+  return [first, rest.length > max ? `${rest.slice(0, max - 1)}…` : rest];
+}
+
 export function SkillTree({ state }: { state: LearningState }) {
   const graph = buildSkillGraph(state);
   const [id, setId] = useState(graph[0]?.skillId);
@@ -56,7 +65,7 @@ export function SkillTree({ state }: { state: LearningState }) {
           const statusClass = node.status === "untested" ? css.untested : node.status === "needs-practice" ? css.needsPractice : node.status === "mastered" ? css.mastered : css.evidence;
           return <g key={node.skillId} className={`${css.node} ${statusClass} ${selected?.skillId === node.skillId ? css.selected : ""}`} role="button" tabIndex={0} aria-label={`${node.name}: ${labels[node.status]}`} aria-pressed={selected?.skillId === node.skillId} onClick={() => setId(node.skillId)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setId(node.skillId); } }} transform={`translate(${pos.x} ${pos.y})`}>
             <rect width="220" height="84" rx="4" />
-            <text x="10" y="24"><tspan>{node.name.length > 27 ? node.name.slice(0, 27) : node.name}</tspan>{node.name.length > 27 && <tspan x="10" dy="16">{node.name.slice(27)}</tspan>}</text>
+            <text x="10" y="24">{wrapLabel(node.name, 27).map((line, i) => <tspan key={i} x="10" dy={i ? 16 : 0}>{line}</tspan>)}</text>
             <text className={css.status} x="10" y="68">{labels[node.status]}</text>
           </g>;
         })}

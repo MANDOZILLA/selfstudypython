@@ -652,3 +652,11 @@ button { border-radius: var(--radius); transition: transform 150ms ease, box-sha
   .studio-shell, .studio-content, .dashboard, .layout, .document { min-width: 0; max-width: 100%; }
   .dashboard { overflow-x: clip; }
 }
+
+/* Wordmark: the underscore itself blinks; no extra block caret, never wraps. */
+.brand-mark { white-space: nowrap; }
+.brand-mark .caret::after { content: none; }
+.brand-mark .caret { color: var(--neon-cyan); animation: caret-blink 1s steps(2, start) infinite; }
+.nav-controls .mobile-level { display: none; }
+@media (max-width: 1023px) { .nav-controls .mobile-level { display: inline-flex; } }
+@media (prefers-reduced-motion: reduce) { .brand-mark .caret { animation: none; } }
