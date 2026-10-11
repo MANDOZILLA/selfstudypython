@@ -651,7 +651,14 @@ describe("honest evidence: gaps, wrong answers, and hints", () => {
     expect(hintDependent).toContain("python-functions");
     expect(hintDependent).not.toContain("csp-foundations"); // one independent correct answer
 
-    // Learner copy stays qualitative; skill ids remain available in the data.
+    // Preserve each original classification assertion through structured data
+    // and learner-facing skill titles instead of exposing raw ids in copy.
+    expect(knowledgeGaps).toContain("json-validation");
+    expect(knowledgeGaps).not.toContain("csp-data-systems");
+    expect(hintDependent).toContain("python-functions");
+    expect(hintDependent).not.toContain("csp-foundations");
+    expect(evidence["csp-data-systems"].wrong).toBeGreaterThan(0);
+    expect(evidence["python-functions"].hinted).toBeGreaterThan(0);
     expect(recommendation).toContain("useful gaps, not mistakes");
     expect(recommendation).toContain("Some areas could use more practice");
     expect(recommendation).not.toContain("json-validation");

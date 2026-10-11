@@ -157,12 +157,19 @@ describe("tutor route", () => {
   });
 
   it("keeps deterministic tutor references inside the app", () => {
-    for (const url of ["https://phishing.example/task", "//evil.example/x", "javascript:alert(1)", "/\n/evil.example"]) {
+    for (const url of ["http://phishing.example/task", "https://phishing.example/task", "//evil.example/x", "javascript:alert(1)", "data:text/html,evil"]) {
       const tutor = deterministicTutor(baseContext({ taskUrl: url }));
       expect(tutor.references[0].url).toBe("#");
+      expect(tutor.references.some(ref => ref.url === url)).toBe(false);
     }
     expect(deterministicTutor(baseContext({ taskUrl: "#task/x" })).references[0].url).toBe("#task/x");
     expect(deterministicTutor(baseContext({ taskUrl: "/lessons/x" })).references[0].url).toBe("/lessons/x");
+  });
+
+  it("rejects oversized fields and collections", async () => {
+    expect((await POST(tutorRequest(baseBody({ taskTitle: "x".repeat(301) })))).status).toBe(400);
+    expect((await POST(tutorRequest(baseBody({ requirements: Array(51).fill("x") })))).status).toBe(400);
+    expect((await POST(tutorRequest(baseBody({ code: "x".repeat(40001) })))).status).toBe(400);
   });
 });
 describe("tutor panel presentation", () => {

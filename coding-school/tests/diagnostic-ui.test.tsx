@@ -199,6 +199,12 @@ describe("placement copy", () => {
     expect(html).toContain('role="progressbar"');
     expect(html).not.toContain("of up to");
   });
+
+  it("explains the honest unknown path and wires the shared answer constant to its button", () => {
+    expect(html).toContain(`title="Record a knowledge gap instead of answering. It is never graded."`);
+    expect(html).toContain(`>${DIAGNOSTIC_UNKNOWN_ANSWER}</button>`);
+    expect(html).toContain(`Choose “${DIAGNOSTIC_UNKNOWN_ANSWER}”`);
+  });
 });
 
 describe("dark Monaco theme", () => {

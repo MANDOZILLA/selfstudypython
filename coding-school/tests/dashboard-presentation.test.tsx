@@ -1,4 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { Dashboard } from "../app/studio/dashboard";
 import type { Studio } from "../app/studio/use-studio";
@@ -32,6 +34,8 @@ describe("checkpoint assessment presentation", () => {
   it("explains the completion/mastery separation", () => {
     const markup = assessmentMarkup();
     expect(markup).toContain("Complete a mission");
-    expect(markup).toContain("mastery claim");
+    expect(markup).toContain("not a new assessment and not a mastery claim");
+    const source = readFileSync(join(process.cwd(), "app/studio/assessment-workbench.tsx"), "utf8");
+    expect(source).toContain("assisted success is practice, not mastery");
   });
 });

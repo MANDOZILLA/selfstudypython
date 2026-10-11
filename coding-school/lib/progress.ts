@@ -70,11 +70,13 @@ export function getXpEvents(state: LearningState): XpEvent[] {
   const runMode = new Map(state.missionRuns.map(run => [run.id, run.mode]));
 
   // Missions and reviews: the first passing, non-duplicate attempt per task.
-  const seenTasks = new Set<string>();
+  const firstAttempts = new Map<string, AttemptRecord>();
   for (const attempt of state.attempts) {
     if (attempt.duplicateOf !== null || !attempt.passed || !attempt.executionOk) continue;
-    if (seenTasks.has(attempt.taskId)) continue;
-    seenTasks.add(attempt.taskId);
+    const prior = firstAttempts.get(attempt.taskId);
+    if (!prior || attempt.completedAt < prior.completedAt || (attempt.completedAt === prior.completedAt && attempt.id < prior.id)) firstAttempts.set(attempt.taskId, attempt);
+  }
+  for (const attempt of firstAttempts.values()) {
     const task = getTask(attempt.taskId);
     const source: XpSource = runMode.get(attempt.runId) === "review" ? "review" : "mission";
     events.push({
@@ -88,10 +90,13 @@ export function getXpEvents(state: LearningState): XpEvent[] {
   }
 
   // Checkpoints: the first passing record per assessment task.
-  const seenCheckpoints = new Set<string>();
+  const firstCheckpoints = new Map<string, (typeof state.assessmentAttempts)[number]>();
   for (const record of state.assessmentAttempts) {
-    if (!record.passed || seenCheckpoints.has(record.taskId)) continue;
-    seenCheckpoints.add(record.taskId);
+    if (!record.passed) continue;
+    const prior = firstCheckpoints.get(record.taskId);
+    if (!prior || record.completedAt < prior.completedAt || (record.completedAt === prior.completedAt && record.attemptId < prior.attemptId)) firstCheckpoints.set(record.taskId, record);
+  }
+  for (const record of firstCheckpoints.values()) {
     const assessment = ASSESSMENTS.find(candidate => candidate.id === record.assessmentId);
     const label =
       assessment?.tasks.find(task => task.id === record.taskId)?.title ??
@@ -125,10 +130,13 @@ export function getXpEvents(state: LearningState): XpEvent[] {
   }
 
   // Portfolio: the first passing snapshot per component.
-  const seenComponents = new Set<string>();
+  const firstSnapshots = new Map<string, (typeof state.portfolio)[number]>();
   for (const snapshot of state.portfolio) {
-    if (snapshot.result !== "passed" || seenComponents.has(snapshot.componentId)) continue;
-    seenComponents.add(snapshot.componentId);
+    if (snapshot.result !== "passed") continue;
+    const prior = firstSnapshots.get(snapshot.componentId);
+    if (!prior || snapshot.completedAt < prior.completedAt || (snapshot.completedAt === prior.completedAt && snapshot.id < prior.id)) firstSnapshots.set(snapshot.componentId, snapshot);
+  }
+  for (const snapshot of firstSnapshots.values()) {
     events.push({
       id: `portfolio:${snapshot.id}`,
       label: snapshot.title,
@@ -334,7 +342,7 @@ function achievementState(state: LearningState, id: string): { unlocked: boolean
   switch (id) {
     case "first-blood": {
       const first = earliest(
-        state.attempts.filter(a => a.passed && a.executionOk && a.duplicateOf === null),
+        state.attempts.filter(a => a.passed && a.executionOk),
         a => a.completedAt,
       );
       return first ? unlocked(first.completedAt) : locked;

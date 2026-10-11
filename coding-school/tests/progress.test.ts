@@ -97,6 +97,37 @@ describe("progress derivations", () => {
     ]);
   });
 
+  it("chooses earliest passing records per key regardless of array order, with id tie breaks", () => {
+    const state = createDefaultState();
+    const taskId = ASSESSMENTS[0].tasks[0].id;
+    state.attempts = [
+      attempt({ id: "z-later-tie", completedAt: instant(2) }),
+      attempt({ id: "later", completedAt: instant(3) }),
+      attempt({ id: "early-z", completedAt: instant(1) }),
+      attempt({ id: "early-a", completedAt: instant(1) }),
+    ];
+    state.assessmentAttempts = [
+      { attemptId: "later-check", taskId, assessmentId: ASSESSMENTS[0].id, skillId: "x", passed: true, hintsUsed: 0, aiAssisted: false, solutionViewed: false, completedAt: instant(3), date: "2026-02-03", independent: true, weakenedByHints: false, mastered: true },
+      { attemptId: "check-z", taskId, assessmentId: ASSESSMENTS[0].id, skillId: "x", passed: true, hintsUsed: 0, aiAssisted: false, solutionViewed: false, completedAt: instant(1), date: "2026-02-01", independent: true, weakenedByHints: false, mastered: true },
+      { attemptId: "check-a", taskId, assessmentId: ASSESSMENTS[0].id, skillId: "x", passed: true, hintsUsed: 0, aiAssisted: false, solutionViewed: false, completedAt: instant(1), date: "2026-02-01", independent: false, weakenedByHints: false, mastered: false },
+    ];
+    state.portfolio = [
+      snapshot({ id: "portfolio-later", completedAt: instant(3) }),
+      snapshot({ id: "portfolio-z", completedAt: instant(1) }),
+      snapshot({ id: "portfolio-a", completedAt: instant(1) }),
+    ];
+    const events = getXpEvents(state);
+    expect(events.find(event => event.source === "mission")).toMatchObject({ id: "mission:early-a", at: instant(1) });
+    expect(events.find(event => event.source === "checkpoint")).toMatchObject({ id: "checkpoint:check-a", at: instant(1), xp: 25 });
+    expect(events.find(event => event.source === "portfolio")).toMatchObject({ id: "portfolio:portfolio-a", at: instant(1) });
+  });
+
+  it("unlocks First Blood for a passing check even when its record is marked duplicate", () => {
+    const state = createDefaultState();
+    state.attempts = [attempt({ id: "duplicate-pass", duplicateOf: "source-attempt" })];
+    expect(getAchievements(state).find(item => item.id === "first-blood")).toMatchObject({ unlocked: true, unlockedAt: instant(1) });
+  });
+
   it("uses exact cumulative level boundaries and caps at level 20", () => {
     expect(levelFor(99).level).toBe(1);
     expect(levelFor(100)).toMatchObject({ level: 2, floor: 100, next: 283, fill: 0 });
