@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * End-to-end verification for the Task 2 ten-mission curriculum.
+ * End-to-end verification for the beginner and data curriculum.
  *
- * Desktop 1280x720: full guided -> project -> explain smoke on csv-foundations
+ * Desktop 1280x720: full guided -> project -> explain smoke on first-steps
  *   through the real Python worker, starting from a blank profile.
  * Pandas offline: seeded prerequisite completions unlock pandas-missing-data;
  *   the guided pandas task runs with every external (non-localhost) request
@@ -121,6 +121,14 @@ def solve(csv_text):
         {"id": str(i).strip(), "region": str(r), "amount": float(a), "qty": int(q)}
         for i, r, a, q in zip(df["id"], df["region"], df["amount"], df["qty"])
     ]
+`;
+
+const FIRST_STEPS_GUIDED = `def solve(name, age):
+    return f"Hi {name}, next year you will be {age + 1}"
+`;
+const FIRST_STEPS_PROJECT = `def solve(item, price, count):
+    total = price * count
+    return f"{item}: {count} x \${price:.2f} = \${total:.2f}"
 `;
 
 // Completed runs + passed attempts for the five missions that gate
@@ -249,9 +257,9 @@ async function openFirstMission(page) {
   await page.getByRole("button", { name: "Open mission" }).first().click();
 }
 
-/** csv-foundations, blank profile, fully through the real UI and Python worker. */
+/** first-steps, blank profile, fully through the real UI and Python worker. */
 async function desktopSmoke(browser) {
-  console.log("\n--- desktop 1280x720: csv-foundations smoke ---");
+  console.log("\n--- desktop 1280x720: first-steps smoke ---");
   await resetServerState();
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   const errors = [];
@@ -266,22 +274,22 @@ async function desktopSmoke(browser) {
   await continueTo(page, /Continue to Learn/);
   // Learn: instruction then guided practice.
   await acknowledgeInstruction(page);
-  await fillCode(page, CONTACTS_SOLUTION);
-  await runChecksExpectPass(page, "guided contacts");
+  await fillCode(page, FIRST_STEPS_GUIDED);
+  await runChecksExpectPass(page, "guided greeting");
   await continueTo(page, /Continue to Build/);
-  // Build: the payments project.
-  await fillCode(page, PAYMENTS_SOLUTION);
-  await runChecksExpectPass(page, "project payments");
+  // Build: a formatted receipt line.
+  await fillCode(page, FIRST_STEPS_PROJECT);
+  await runChecksExpectPass(page, "project receipt");
   await continueTo(page, /Continue to Explain/);
   // Explain: reflection ends the mission.
-  await page.locator("#reflection").fill("I split parsing from validation so quoted commas survive DictReader, then reject bad money with Decimal instead of floats. Remaining uncertainty: ragged rows with extra columns.");
+  await page.locator("#reflection").fill("A variable lets me reuse a value, and the f-string combines it with other text. I calculated the total before formatting the receipt.");
   await page.getByRole("button", { name: /Save reflection & finish/ }).click();
   await page.waitForFunction(() => window.location.hash.startsWith("#summary?run="), null, { timeout: 15000 });
   check("mission completion summary shown", await page.getByRole("heading", { name: "Run complete." }).isVisible());
 
   // The finished mission shows as Completed in the lesson library.
   await page.getByRole("link", { name: /MISSIONS/ }).click();
-  const row = page.locator(".lesson-row", { hasText: "From small functions to a clean payments CSV" });
+  const row = page.locator(".lesson-row", { hasText: "Your First Python Steps" });
   check("library lists the finished mission", await row.isVisible());
   check("finished mission shows CLEARED", (await row.innerText()).includes("CLEARED"));
   await noOverflow(page, "desktop library", 1280);

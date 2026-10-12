@@ -2,9 +2,8 @@
 /**
  * End-to-end verification for the Task 1 diagnostic system.
  *
- * Covers: dashboard entry -> adaptive flow -> concept grading -> coding runs
- * through the real Python worker -> in-progress restoration after reload ->
- * no infra failures on the happy path -> mobile 375x812 layout.
+ * Covers the curriculum-ordered placement ladder, explicit gap and early-stop
+ * flows, results, dashboard/course placement, and mobile layout.
  *
  * Usage:
  *   node scripts/verify-diagnostic.mjs --serve   # starts `next dev` on :3100
@@ -20,12 +19,6 @@ import { setTimeout as sleep } from "node:timers/promises";
 const PORT = 3100;
 const BASE_URL = process.env.BASE_URL ?? `http://localhost:${PORT}`;
 const SHOULD_SERVE = process.argv.includes("--serve");
-
-const SOLUTIONS = {
-  "diag-fn-callforms": `import json\nfrom math import ceil\ndef solve(payload):\n    try:\n        values = json.loads(payload)\n    except (json.JSONDecodeError, TypeError):\n        return []\n    if type(values) is not list:\n        return []\n    return list(map(ceil, values))\n`,
-  "diag-http-success": `def is_success(status):\n    return 200 <= status < 300\n`,
-  "diag-file-with": `def read_lines(path):\n    with open(path) as f:\n        return f.read().splitlines()\n`,
-};
 
 let failures = 0;
 function check(name, condition, detail = "") {
@@ -91,7 +84,7 @@ async function main() {
   process.exit(failures === 0 ? 0 : 1);
 }
 
-/** Answer questions until two coding runs succeed or we run out of patience. */
+/** Pass the first rung, declare a gap on the next, and inspect placement. */
 async function desktopFlow(browser) {
   console.log("\n--- desktop 1280x720 ---");
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
@@ -110,80 +103,44 @@ async function desktopFlow(browser) {
   let sessionUrl = page.url();
   check("starting creates a session route", /diagnostic\?session=/.test(sessionUrl), sessionUrl);
 
-  // A shared-server resume can land on a quota-blocked session with no
-  // current question (nothing to answer or run). The blocked panel offers
-  // "Start a fresh retake", which commits a new session without clearing
-  // history or touching the placement reset — take it and carry on.
-  const retakeButton = page.getByRole("button", { name: /start a fresh scan/i });
-  await retakeButton.waitFor({ timeout: 3000 }).catch(() => {});
-  const answerBox = page.getByRole("button", { name: /submit answer/i });
-  const runChecks = page.getByRole("button", { name: /run checks/i });
-  const hasActiveItem =
-    (await answerBox.isVisible().catch(() => false)) ||
-    (await runChecks.isVisible().catch(() => false));
-  if (!hasActiveItem && (await retakeButton.isVisible().catch(() => false))) {
-    const staleId = /diagnostic\?session=([^&]+)/.exec(page.url())?.[1];
-    await retakeButton.click();
-    await page.waitForFunction((id) => !location.href.includes(id ?? "@@@"), staleId, { timeout: 15000 }).catch(() => {});
-    check("blocked session escaped via fresh retake", Boolean(staleId) && !page.url().includes(staleId), page.url());
-    sessionUrl = page.url();
-  }
+  const sessionId = /diagnostic\?session=([^&]+)/.exec(page.url())?.[1];
+  const responseCount = async () => (await waitForDiagnosticState(sessionId, 0)).responses.length;
+  const initial = await page.locator(".diagnostic-prompt").innerText();
+  check("placement starts with the beginner values rung", initial.includes("count = 1") || initial.includes("print('hello')"), initial.slice(0, 100));
+  const answer = page.locator("#diagnostic-answer");
+  await answer.fill(initial.includes("count = 1") ? "6" : "hello");
+  await page.getByRole("button", { name: /submit/i }).click();
+  await page.waitForFunction(() => document.querySelector(".diagnostic-prompt")?.textContent?.length > 0);
+  const secondPrompt = await page.locator(".diagnostic-prompt").innerText();
+  check("placement stays on the same rung for its second item", secondPrompt.includes("count = 1") || secondPrompt.includes("print('hello')"), secondPrompt.slice(0, 100));
+  await page.locator("#diagnostic-answer").fill(secondPrompt.includes("count = 1") ? "6" : "hello");
+  await page.getByRole("button", { name: /submit/i }).click();
+  await page.waitForFunction(() => document.querySelector(".diagnostic-prompt")?.textContent?.length > 0);
+  const nextPrompt = await page.locator(".diagnostic-prompt").innerText();
+  check("a passed rung advances to conditionals", nextPrompt.includes("not (3 > 5)") || nextPrompt.includes("4 < 9") || nextPrompt.includes("score = 72"), nextPrompt.slice(0, 100));
+  const beforeUnknown = await responseCount();
+  await page.getByRole("button", { name: /I don.t know this/i }).click();
+  await page.waitForFunction(() => document.querySelector('[aria-label="Finish placement scan"]') !== null);
+  check("one unknown declaration ends the scan", (await waitForDiagnosticState(sessionId, beforeUnknown + 1)).responses.length === beforeUnknown + 1);
+  await page.getByRole("button", { name: /See my placement/i }).click();
+  await page.getByRole("heading", { name: /Your course starts at: Booleans and if/i }).waitFor();
+  check("results list known values concept", await page.getByText("Values, variables, and printing", { exact: true }).isVisible());
+  check("results show the placement start", await page.getByRole("heading", { name: /Your course starts at: Booleans and if/i }).isVisible());
+  await page.getByRole("button", { name: /Start learning/i }).click();
+  check("dashboard recommends the matching mission", await page.getByRole("button", { name: /Start mission|Resume mission/ }).isVisible());
+  await page.getByRole("link", { name: /MISSIONS/i }).click();
+  check("earlier mission is marked placed out", (await page.locator(".lesson-row").filter({ hasText: "Your First Python Steps" }).innerText()).includes("PLACED OUT"));
+  check("placed-out mission remains practiceable", await page.locator(".lesson-row").filter({ hasText: "Your First Python Steps" }).getByRole("button", { name: "Practice again" }).isVisible());
 
-  // Seed successes from the meta line so an already-progressed session counts.
-  let codingSuccesses = (await waitForDiagnosticState(/diagnostic\?session=([^&]+)/.exec(page.url())?.[1], 0)).codingSuccessCount;
-  // Step budget: the AP CSP foundation tier serves ~5 concept questions
-  // before the first coding item, and the second coding item sits behind
-  // several more two-question skills — 30 covers the path with headroom.
-  for (let step = 0; step < 30 && codingSuccesses < 2; step++) {
-    const isCoding = await page.getByRole("button", { name: /run checks/i }).isVisible().catch(() => false);
-    if (isCoding) {
-      const prompt = await page.locator(".diagnostic-prompt").innerText();
-      const itemId = Object.keys(SOLUTIONS).find(id => prompt.includes(id === "diag-fn-callforms" ? "solve(payload)" : id === "diag-http-success" ? "is_success" : "read_lines"));
-      check("coding question is answerable", Boolean(itemId), prompt.slice(0, 60));
-      if (!itemId) break;
-      // Plain-text editor is the reliable automation path.
-      const toggle = page.getByRole("button", { name: /use plain text/i });
-      if (await toggle.isVisible()) await toggle.click();
-      await page.locator(".plain-editor").fill(SOLUTIONS[itemId]);
-      // Draft survives a reload before running (exact in-progress restoration).
-      // The editor mode toggle is intentionally not persisted, so switch back
-      // to plain text after the reload before reading the draft.
-      await page.reload({ waitUntil: "networkidle" });
-      const toggleAfter = page.getByRole("button", { name: /use plain text/i });
-      if (await toggleAfter.isVisible()) await toggleAfter.click();
-      const restored = await page.locator(".plain-editor").inputValue().catch(() => "");
-      check("code draft restored after reload", restored.includes("def "), `item ${itemId}`);
-      const answeredBefore = Number(await page.getByRole("progressbar", { name: "Placement scan progress" }).getAttribute("aria-valuenow"));
-      const promptBefore = await page.locator(".diagnostic-prompt").textContent();
-      await page.getByRole("button", { name: /run checks/i }).click();
-      // A graded run records its response and advances the session in the same
-      // React render that sets the result, so the checks panel only ever mounts
-      // for infra/stale outcomes. Wait for the run to settle instead: either the
-      // question advances (a response was recorded) or the infra/stale banner
-      // appears (nothing recorded, item stays current).
-      await page.waitForFunction((before) => {
-        if (document.querySelector(".diagnostic-infra")) return true;
-        if (document.querySelector('[aria-label="Finish placement scan"]')) return true;
-        const prompt = document.querySelector(".diagnostic-prompt");
-        return !!prompt && prompt.textContent !== before;
-      }, promptBefore, { timeout: 180000 });
-      const infra = await page.locator(".diagnostic-infra").isVisible().catch(() => false);
-      check("coding run completes without infra failure", !infra);
-      const answeredAfter = Number(await page.getByRole("progressbar", { name: "Placement scan progress" }).getAttribute("aria-valuenow"));
-      check("response recorded in progress", answeredAfter === answeredBefore + 1, `${answeredBefore} -> ${answeredAfter}`);
-      const sessionId = /diagnostic\?session=([^&]+)/.exec(page.url())?.[1];
-      const savedSession = await waitForDiagnosticState(sessionId, answeredAfter);
-      check("successful runs counted", savedSession.codingSuccessCount > codingSuccesses, `${codingSuccesses} -> ${savedSession.codingSuccessCount}`);
-      codingSuccesses = savedSession.codingSuccessCount;
-    } else {
-      const answer = page.locator("#diagnostic-answer");
-      if (!(await answer.isVisible().catch(() => false))) break;
-      await answer.fill("I am not sure yet.");
-      await page.getByRole("button", { name: /submit answer/i }).click();
-      await page.waitForFunction(() => document.querySelector("#diagnostic-answer")?.value === "", { timeout: 5000 }).catch(() => {});
-    }
-  }
-  check("two successful coding runs recorded", codingSuccesses >= 2, `${codingSuccesses} succeeded`);
+  // Early stop is available immediately and also ends at the current rung.
+  // A completed placement turns the dashboard entry into "Retake", inside the System disclosure.
+  await page.goto(BASE_URL, { waitUntil: "networkidle" });
+  await page.locator("details.system-disclosure > summary").click();
+  await page.getByRole("button", { name: /^Retake$/ }).click();
+  await page.waitForURL(url => /diagnostic\?session=/.test(url.href) && url.href !== sessionUrl);
+  sessionUrl = page.url();
+  await page.getByRole("button", { name: /Start teaching me here/i }).click();
+  await page.getByRole("heading", { name: /Your course starts at:/i }).waitFor();
 
   // Restoration: reload keeps the same session and progress.
   const before = await page.locator(".diagnostic-meta").innerText();
@@ -210,22 +167,16 @@ async function mobileFlow(browser) {
   const page = await browser.newPage({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true });
   const pageErrors = watchErrors(page);
   await page.goto(BASE_URL, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: /start placement scan|resume scan/i }).click();
+  await page.locator("details.system-disclosure > summary").click();
+  await page.getByRole("button", { name: /^Retake$/ }).click();
   await page.waitForURL(/diagnostic\?session=/);
   const noOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= 375);
   check("no horizontal overflow at 375px (question view)", noOverflow,
     `scrollWidth=${await page.evaluate(() => document.documentElement.scrollWidth)}`);
-  // Answer a few concepts to reach a coding question, then check the editor view.
-  for (let i = 0; i < 10; i++) {
-    if (await page.getByRole("button", { name: /run checks/i }).isVisible().catch(() => false)) break;
-    const answer = page.locator("#diagnostic-answer");
-    if (!(await answer.isVisible().catch(() => false))) break;
-    await answer.fill("I am not sure yet.");
-    await page.getByRole("button", { name: /submit answer/i }).click();
-    await sleep(500);
-  }
-  const editorOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= 375);
-  check("no horizontal overflow at 375px (coding view)", editorOverflow);
+  await page.getByRole("button", { name: /Start teaching me here/i }).click();
+  await page.getByRole("heading", { name: /Your course starts at:/i }).waitFor();
+  const resultOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= 375);
+  check("no horizontal overflow at 375px (placement results)", resultOverflow);
   await page.screenshot({ path: "/tmp/diagnostic-mobile.png", fullPage: true });
   check("zero console/page errors on mobile", pageErrors.length === 0, pageErrors.join(" | ").slice(0, 300));
   await page.close();

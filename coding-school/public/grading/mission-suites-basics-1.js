@@ -2,7 +2,12 @@ const makeSuite = (concept, fixtures) => String.raw`
 import ast, json, traceback
 checks = []
 def check(i, ok, detail=''):
-    checks.append({'id': i, 'name': i, 'required': True, 'passed': bool(ok), 'detail': detail})
+    entry = {'id': i, 'name': i, 'required': True, 'passed': bool(ok), 'detail': detail}
+    for index, existing in enumerate(checks):
+        if existing['id'] == i:
+            checks[index] = entry
+            return
+    checks.append(entry)
 for i in ${JSON.stringify([concept, ...fixtures.map(x => x[0])])}:
     check(i, False, 'Submission did not complete the check.')
 try:

@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { missionTaskSchema } from "../lib/mission-types";
 import { BASICS_REVIEW_TASKS } from "../curriculum/review-basics";
 import { REVIEW_BASICS_CATALOG, REVIEW_BASICS_SUITES } from "../public/grading/review-suites-basics.js";
+import { aggregateResult } from "../public/grading/protocol.js";
 
 const references = [
   `def solve(item, count):\n    return f"{item} x {count}"\n`,
@@ -55,6 +56,7 @@ describe("spaced review for beginner skills", () => {
       };
       const result = await run(references[index]);
       expect(result.tests.filter(test => required.includes(test.id)).every(test => test.passed), `${graderId} reference`).toBe(true);
+      expect(aggregateResult({ requestId: "t", exerciseId: REVIEW_BASICS_CATALOG[graderId].exerciseId, graderId }, result).passed, `${graderId} reference via protocol`).toBe(true);
       const starter = variant.starterFiles["main.py"];
       const starterResult = await run(starter);
       expect(starterResult.tests.some(test => !test.passed), `${graderId} starter`).toBe(true);

@@ -16,28 +16,8 @@ import { createEmptyVerificationState } from "./verification-state.mjs";
 
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:3100";
 
-const CONTACTS_SOLUTION = `def solve(rows):
-    if type(rows) is not list:
-        return []
-    seen = set()
-    out = []
-    for row in rows:
-        if type(row) is not dict:
-            continue
-        email = row.get("email")
-        if type(email) is not str:
-            continue
-        email = email.strip().lower()
-        if any(ch.isspace() for ch in email):
-            continue
-        local, sep, domain = email.partition("@")
-        if not sep or not local or not domain or "@" in domain:
-            continue
-        if email in seen:
-            continue
-        seen.add(email)
-        out.append(email)
-    return out
+const FIRST_STEPS_SOLUTION = `def solve(name, age):
+    return f"Hi {name}, next year you will be {age + 1}"
 `;
 
 let failures = 0;
@@ -137,7 +117,7 @@ async function journey(browser) {
   if (await toggle.isVisible()) await toggle.click();
   const editorVisible = await page.locator(".plain-editor, .monaco-editor").first().isVisible().catch(() => false);
   check("IDE editor renders (Monaco or plain text)", editorVisible);
-  await page.locator(".plain-editor").fill(CONTACTS_SOLUTION);
+  await page.locator(".plain-editor").fill(FIRST_STEPS_SOLUTION);
   await page.locator("#run-checks").click();
   await page.waitForSelector(".check-results", { timeout: 180000 });
   await page.waitForFunction(() => !document.querySelector("#run-checks:disabled"), null, { timeout: 180000 }).catch(() => {});

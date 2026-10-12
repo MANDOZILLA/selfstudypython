@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { missionDefinitionSchema } from "../lib/mission-types";
 import { MISSIONS_BASICS_2 } from "../curriculum/missions-basics-2";
 import { BASICS_2_CATALOG, BASICS_2_SUITES } from "../public/grading/mission-suites-basics-2.js";
+import { aggregateResult } from "../public/grading/protocol.js";
 
 const refs = [
       `def is_even(number=0):\n    return number % 2 == 0\ndef solve(numbers):\n    if type(numbers) is not list: return 0\n    total = 0\n    for number in numbers:\n        if is_even(number): total += 1\n    return total\n`,
@@ -59,6 +60,7 @@ describe("beginner missions 5, 6, and 9", () => {
       };
       const result = await run(refs[index]);
       expect(result.tests.filter(t => entry.requiredTests.includes(t.id)).every(t => t.passed), `${graderId} reference`).toBe(true);
+      expect(aggregateResult({ requestId: "t", exerciseId: entry.exerciseId, graderId }, result).passed, `${graderId} reference via protocol`).toBe(true);
       const mission = MISSIONS_BASICS_2.find(m => m.stages.some(s => s.tasks.some(t => t.variants.some(v => v.graderId === graderId))))!;
       const starter = mission.stages.flatMap(s => s.tasks).flatMap(t => t.variants).find(v => v.graderId === graderId)!.starterFiles["main.py"];
       const starterResult = await run(starter);

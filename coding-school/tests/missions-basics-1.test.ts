@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { MISSIONS_BASICS_1, BASICS_1_REVIEW_TASKS } from "../curriculum/missions-basics-1";
 import { missionDefinitionSchema } from "../lib/mission-types";
 import { BASICS_1_CATALOG, BASICS_1_SUITES } from "../public/grading/mission-suites-basics-1.js";
+import { aggregateResult } from "../public/grading/protocol.js";
 
 let runtime: Awaited<ReturnType<typeof loadPyodide>>;
 beforeAll(async () => { runtime = await loadPyodide({ indexURL: resolve("public/pyodide") }); }, 60000);
@@ -48,6 +49,8 @@ for (const item of cases) {
     const result = await grade(item.reference, item.id);
     expect(result.executionOk).toBe(true);
     expect(result.tests.filter(check => catalog.requiredTests.includes(check.id) && check.passed), JSON.stringify(result.tests)).toHaveLength(catalog.requiredTests.length);
+    // The browser protocol rejects duplicate or missing check ids, so the reference must survive it too.
+    expect(aggregateResult({ requestId: "t", exerciseId: catalog.exerciseId, graderId: item.id }, result).passed, JSON.stringify(result.tests)).toBe(true);
     for (const source of [item.starter, ...item.mutants]) {
       const bad = await grade(source, item.id);
       expect(bad.executionOk && bad.tests.every(check => check.passed)).toBe(false);
