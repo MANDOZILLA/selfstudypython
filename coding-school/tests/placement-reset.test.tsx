@@ -252,6 +252,8 @@ describe("reset placement presentation", () => {
     expect(markup).toContain("A short adaptive scan finds a useful starting point.");
     expect(markup).toContain("Wrong answers only guide you to easier material");
     expect(markup).toContain("never block you");
+    expect(markup.match(/Start placement scan/g)).toHaveLength(1);
+    expect(markup).not.toMatch(/<details class="system-disclosure">[\s\S]*Placement scan/);
   });
 
   it("hides the reset action until there is placement state to clear", () => {
@@ -265,6 +267,8 @@ describe("reset placement presentation", () => {
     expect(markup).toContain("Missions, checkpoints, your evidence log, and portfolio snapshots are kept.");
     expect(markup).toContain("START OVER");
     expect(markup).toContain('aria-label="Reset placement"');
+    expect(markup).toMatch(/<button class="secondary">Retake<\/button>/);
+    expect(markup).not.toMatch(/<details class="system-disclosure">[\s\S]*Retake/);
   });
 
   it("requires a confirmation step that counts sessions and repeats the scope", () => {

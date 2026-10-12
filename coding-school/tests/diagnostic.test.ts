@@ -16,10 +16,14 @@ const answer = (session: ReturnType<typeof createDiagnosticSession>, value: stri
 describe("ladder placement", () => {
   it("uses curriculum order and climbs after two correct answers on a rung", () => {
     let session = createDiagnosticSession();
-    expect(session.currentItemId).toBe("diag-csp-variable");
-    session = answer(session, "6");
+    const firstItem = item(session.currentItemId!);
+    expect(firstItem.skillId).toBe(PLACEMENT_LADDER[0]);
+    expect(firstItem.concept?.expectedOutput).toBeTruthy();
+    session = answer(session, firstItem.concept!.expectedOutput!);
     expect(session.currentItemId).toBeTruthy();
-    session = answer(session, session.currentItemId!.includes("print") ? "hello" : "float");
+    const secondItem = item(session.currentItemId!);
+    expect(secondItem.skillId).toBe(PLACEMENT_LADDER[0]);
+    session = answer(session, secondItem.concept!.expectedOutput!);
     expect(derivePlacement(session)).toMatchObject({ knownSkillIds: ["py-values"], gapSkillId: "py-conditionals" });
     expect(item(session.currentItemId!).skillId).toBe("py-conditionals");
   });
@@ -28,7 +32,7 @@ describe("ladder placement", () => {
     let session = createDiagnosticSession();
     session = answer(session, "wrong");
     const secondItem = item(session.currentItemId!);
-    session = answer(session, secondItem.id.includes("print") ? "hello" : secondItem.id.includes("type") ? "float" : "6");
+    session = answer(session, secondItem.concept!.expectedOutput!);
     expect(session.currentItemId).toBeTruthy();
     session = answer(session, "wrong");
     expect(derivePlacement(session).gapSkillId).toBe("py-values");

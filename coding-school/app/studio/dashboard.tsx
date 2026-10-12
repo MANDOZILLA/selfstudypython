@@ -20,7 +20,7 @@ function PageHeading({ label, title, children }: { label: string; title: string;
   return <header className="page-heading"><span className="eyebrow">{label}</span><h1 id="page-title" tabIndex={-1}>{title}</h1><p>{children}</p></header>;
 }
 
-function PlacementCard({ studio }: { studio: Studio }) {
+function PlacementCard({ studio, showStart = true }: { studio: Studio; showStart?: boolean }) {
   const sessions = studio.state.diagnosticSessions;
   const inProgress: DiagnosticSession | undefined = [...sessions].reverse().find(s => s.status === "in-progress");
   const latest = latestCompletedDiagnosticSession(sessions);
@@ -44,7 +44,7 @@ function PlacementCard({ studio }: { studio: Studio }) {
   return <section className="document" aria-label="Placement scan">
     <div className="section-heading"><h2>Placement scan</h2><span className="eyebrow">RECOMMENDED FIRST</span></div>
     <p>A short adaptive scan finds a useful starting point. Wrong answers only guide you to easier material; they never block you.</p>
-    <div className="button-row"><button className="primary" onClick={studio.startDiagnostic}>Start placement scan →</button></div>
+    {showStart && <div className="button-row"><button className="primary" onClick={studio.startDiagnostic}>Start placement scan →</button></div>}
   </section>;
 }
 
@@ -76,7 +76,8 @@ function Today({ studio }: { studio: Studio }) {
   const locked = getLibraryRows(studio.state).find(row => row.blockedReason);
   const checkpointsReady = recommendNext(studio.state).action === "assessment" ? 1 : 0;
   const achievements = progress.achievements.filter(item => item.unlocked).slice(-3).reverse();
-  return <><PageHeading label="HOME" title="Your next run starts here.">One clear next step. Your progress stays yours.</PageHeading><div className={homeCss.layout}><div className={homeCss.primaryColumn}><Hud state={studio.state} reviewsDue={due.length} checkpointsReady={checkpointsReady}/><RecommendationCard studio={studio}/></div><aside className={`home-queue hud-panel ${homeCss.queue}`} aria-label="Your queue"><h2>QUEUE</h2><section><h3>Due reviews</h3>{due.length ? <ul>{due.slice(0, 3).map(item => <li key={item.skillId}>{curriculum.skills.find(skill => skill.id === item.skillId)?.title ?? "Skill review"} · {formatDate(item.dueAt)}</li>)}</ul> : <p>Nothing due</p>}</section><section><h3>Next locked mission</h3>{locked ? <p>{locked.mission.title} · {locked.blockedReason}</p> : <p>No locked mission</p>}</section><section><h3>Recent XP</h3>{progress.recent.length ? <ul>{progress.recent.slice(0, 3).map(event => <li key={event.id}>+{event.xp} XP · {event.label}</li>)}</ul> : <p>Your first XP arrives with a completed run.</p>}</section><section><h3>Latest achievements</h3>{achievements.length ? <ul>{achievements.map(item => <li key={item.id}>{item.glyph} {item.title}</li>)}</ul> : <p>Your first achievement is waiting.</p>}</section></aside></div><details className="system-disclosure"><summary>System</summary><PlacementCard studio={studio}/><ResetPlacement studio={studio}/><p>Your work saves on this device and syncs when online.</p></details></>;
+  const hasRecommendationStart = recommendNext(studio.state).action === "diagnostic";
+  return <><PageHeading label="HOME" title="Your next run starts here.">One clear next step. Your progress stays yours.</PageHeading><div className={homeCss.layout}><div className={homeCss.primaryColumn}><Hud state={studio.state} reviewsDue={due.length} checkpointsReady={checkpointsReady}/><RecommendationCard studio={studio}/><PlacementCard studio={studio} showStart={!hasRecommendationStart}/></div><aside className={`home-queue hud-panel ${homeCss.queue}`} aria-label="Your queue"><h2>QUEUE</h2><section><h3>Due reviews</h3>{due.length ? <ul>{due.slice(0, 3).map(item => <li key={item.skillId}>{curriculum.skills.find(skill => skill.id === item.skillId)?.title ?? "Skill review"} · {formatDate(item.dueAt)}</li>)}</ul> : <p>Nothing due</p>}</section><section><h3>Next locked mission</h3>{locked ? <p>{locked.mission.title} · {locked.blockedReason}</p> : <p>No locked mission</p>}</section><section><h3>Recent XP</h3>{progress.recent.length ? <ul>{progress.recent.slice(0, 3).map(event => <li key={event.id}>+{event.xp} XP · {event.label}</li>)}</ul> : <p>Your first XP arrives with a completed run.</p>}</section><section><h3>Latest achievements</h3>{achievements.length ? <ul>{achievements.map(item => <li key={item.id}>{item.glyph} {item.title}</li>)}</ul> : <p>Your first achievement is waiting.</p>}</section></aside></div><details className="system-disclosure"><summary>System</summary><ResetPlacement studio={studio}/><p>Your work saves on this device and syncs when online.</p></details></>;
 }
 const RECOMMENDATION_EYEBROW: Record<RecommendationAction, string> = {
   resume: "RESUME", diagnostic: "PLACEMENT SCAN", "start-mission": "NEXT MISSION",
@@ -195,8 +196,6 @@ function Portfolio({ studio }: { studio: Studio }) {
 export function Dashboard({ studio }: { studio: Studio }) {
   return <main id="main-content" className="dashboard">{studio.route.completedRunId ? <Completion studio={studio} /> : studio.route.destination === "lessons" ? <Lessons studio={studio} /> : studio.route.destination === "learned" ? <Learned studio={studio} /> : studio.route.destination === "assessment" ? <Assessment studio={studio} /> : studio.route.destination === "portfolio" ? <Portfolio studio={studio} /> : <Today studio={studio} />}</main>;
 }
-
-
 
 
 

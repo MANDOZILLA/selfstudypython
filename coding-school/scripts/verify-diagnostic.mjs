@@ -12,6 +12,7 @@
  * Screenshots land in /tmp. Exits non-zero on the first failed assertion.
  */
 import { spawn, execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -19,6 +20,22 @@ import { setTimeout as sleep } from "node:timers/promises";
 const PORT = 3100;
 const BASE_URL = process.env.BASE_URL ?? `http://localhost:${PORT}`;
 const SHOULD_SERVE = process.argv.includes("--serve");
+const cwd = fileURLToPath(new URL("..", import.meta.url));
+// Python code -> exact printed output for every code-reading placement item.
+// tests/diagnostic-items.test.ts keeps this file in sync with the question bank.
+const expectedByCode = JSON.parse(readFileSync(new URL("./diagnostic-answers.json", import.meta.url), "utf8"));
+
+export function normalizeCode(value) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+/** The rendered prompt shows the code without its ``` fence; find the item whose code it contains. */
+export function expectedAnswer(promptText) {
+  const page = normalizeCode(promptText);
+  const matches = Object.entries(expectedByCode).filter(([code]) => page.includes(normalizeCode(code)));
+  if (!matches.length) throw new Error(`No expected output found for prompt: ${page.slice(0, 120)}`);
+  return matches.sort((a, b) => b[0].length - a[0].length)[0][1];
+}
 
 let failures = 0;
 function check(name, condition, detail = "") {
@@ -65,7 +82,6 @@ async function main() {
   const { chromium } = await import("playwright");
   let server;
   if (SHOULD_SERVE) {
-    const cwd = fileURLToPath(new URL("..", import.meta.url));
     execFileSync(process.execPath, ["scripts/prepare-editor.mjs"], { cwd });
     server = spawn(process.execPath, [createRequire(import.meta.url).resolve("next/dist/bin/next"), "dev", "--hostname", "127.0.0.1", "--port", String(PORT)], { cwd, stdio: "ignore" });
     await waitForServer(BASE_URL);
@@ -106,16 +122,16 @@ async function desktopFlow(browser) {
   const sessionId = /diagnostic\?session=([^&]+)/.exec(page.url())?.[1];
   const responseCount = async () => (await waitForDiagnosticState(sessionId, 0)).responses.length;
   const initial = await page.locator(".diagnostic-prompt").innerText();
-  check("placement starts with the beginner values rung", initial.includes("count = 1") || initial.includes("print('hello')"), initial.slice(0, 100));
+  check("placement starts with the beginner values rung", initial.includes("print('hello')") || initial.includes("x = 7"), initial.slice(0, 100));
   const answer = page.locator("#diagnostic-answer");
-  await answer.fill(initial.includes("count = 1") ? "6" : "hello");
+  await answer.fill(expectedAnswer(initial));
   await page.getByRole("button", { name: /submit/i }).click();
-  await page.waitForFunction(() => document.querySelector(".diagnostic-prompt")?.textContent?.length > 0);
+  await page.waitForFunction(previous => document.querySelector(".diagnostic-prompt")?.innerText !== previous, initial);
   const secondPrompt = await page.locator(".diagnostic-prompt").innerText();
-  check("placement stays on the same rung for its second item", secondPrompt.includes("count = 1") || secondPrompt.includes("print('hello')"), secondPrompt.slice(0, 100));
-  await page.locator("#diagnostic-answer").fill(secondPrompt.includes("count = 1") ? "6" : "hello");
+  check("placement stays on the same rung for its second item", secondPrompt.includes("print('hello')") || secondPrompt.includes("x = 7"), secondPrompt.slice(0, 100));
+  await page.locator("#diagnostic-answer").fill(expectedAnswer(secondPrompt));
   await page.getByRole("button", { name: /submit/i }).click();
-  await page.waitForFunction(() => document.querySelector(".diagnostic-prompt")?.textContent?.length > 0);
+  await page.waitForFunction(previous => document.querySelector(".diagnostic-prompt")?.innerText !== previous, secondPrompt);
   const nextPrompt = await page.locator(".diagnostic-prompt").innerText();
   check("a passed rung advances to conditionals", nextPrompt.includes("not (3 > 5)") || nextPrompt.includes("4 < 9") || nextPrompt.includes("score = 72"), nextPrompt.slice(0, 100));
   const beforeUnknown = await responseCount();
@@ -133,9 +149,8 @@ async function desktopFlow(browser) {
   check("placed-out mission remains practiceable", await page.locator(".lesson-row").filter({ hasText: "Your First Python Steps" }).getByRole("button", { name: "Practice again" }).isVisible());
 
   // Early stop is available immediately and also ends at the current rung.
-  // A completed placement turns the dashboard entry into "Retake", inside the System disclosure.
+  // A completed placement exposes Retake directly on the dashboard.
   await page.goto(BASE_URL, { waitUntil: "networkidle" });
-  await page.locator("details.system-disclosure > summary").click();
   await page.getByRole("button", { name: /^Retake$/ }).click();
   await page.waitForURL(url => /diagnostic\?session=/.test(url.href) && url.href !== sessionUrl);
   sessionUrl = page.url();
@@ -167,7 +182,6 @@ async function mobileFlow(browser) {
   const page = await browser.newPage({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true });
   const pageErrors = watchErrors(page);
   await page.goto(BASE_URL, { waitUntil: "networkidle" });
-  await page.locator("details.system-disclosure > summary").click();
   await page.getByRole("button", { name: /^Retake$/ }).click();
   await page.waitForURL(/diagnostic\?session=/);
   const noOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= 375);

@@ -49,6 +49,21 @@ describe("beginner missions 5, 6, and 9", () => {
       refs[4].replace("if amount > self.balance:", "if False:"),
       refs[5].replace("if self.stock[name] == 0: del self.stock[name]", "if self.stock[name] == 0: pass"),
     ];
+    // [ref index, find, replace]: bugs the original 1-2 inputs per check let through (each verified to pass the old grader).
+    const moreBugs: [number, string, string][] = [
+      [0,"return number % 2 == 0","return number % 2 == 0 and number < 9"],
+      [0,"return number % 2 == 0","return number % 2 == 0 and number >= -2"],
+      [1,"if score >= 60: return 'D'","if score > 60: return 'D'"],
+      [1,"    return 'F'","    return 'D'"],
+      [2,"text.lower().split()","text.lower().split(' ')"],
+      [2,"counts[word] = counts.get(word, 0) + 1","counts[word] = min(counts.get(word, 0) + 1, 2)"],
+      [3,"quantity < 0","quantity < 1"],
+      [3," or not name.strip()",""],
+      [4,"if amount > self.balance:","if amount >= self.balance:"],
+      [4,"        account = BankAccount(owner, opening)","        if not actions: continue\n        account = BankAccount(owner, opening)"],
+      [5,"self.stock.get(name, 0) >= quantity:\n            self.stock[name] -= quantity\n            if self.stock[name] == 0: del self.stock[name]","self.stock.get(name, 0) > 0:\n            self.stock[name] -= quantity\n            if self.stock[name] <= 0: del self.stock[name]"],
+      [5,"type(quantity) is int and quantity > 0: self.stock[name]","type(quantity) is int and quantity >= 0: self.stock[name]"],
+    ];
     for (let index = 0; index < graderIds.length; index++) {
       const graderId = graderIds[index];
       const entry = BASICS_2_CATALOG[graderId as keyof typeof BASICS_2_CATALOG];
@@ -65,7 +80,11 @@ describe("beginner missions 5, 6, and 9", () => {
       const starter = mission.stages.flatMap(s => s.tasks).flatMap(t => t.variants).find(v => v.graderId === graderId)!.starterFiles["main.py"];
       const starterResult = await run(starter);
       expect(starterResult.tests.some(t => !t.passed), `${graderId} starter`).toBe(true);
-      for (const mutant of [bugs[index], secondBugs[index]]) {
+      const extra = moreBugs.filter(([at]) => at === index).map(([, find, replace]) => {
+        expect(refs[index].includes(find), `${graderId} mutant applies`).toBe(true);
+        return refs[index].replace(find, replace);
+      });
+      for (const mutant of [bugs[index], secondBugs[index], ...extra]) {
         const mutated = await run(mutant);
         expect(mutated.tests.some(t => !t.passed), `${graderId} mutant`).toBe(true);
       }

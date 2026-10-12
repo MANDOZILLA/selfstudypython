@@ -24,6 +24,22 @@ const mutants = [
   [`class Book:\n    def __init__(self, title): self.title, self.borrowed = title, False\n    def borrow(self): pass\ndef solve(title, borrow_it):\n    book = Book(title)\n    if borrow_it: book.borrow()\n    return {"title": book.title, "borrowed": book.borrowed}\n`, `class Book:\n    def __init__(self, title): self.title, self.borrowed = title, False\n    def borrow(self): self.borrowed = True\ndef solve(title, borrow_it):\n    book = Book(title)\n    return {"title": book.title, "borrowed": book.borrowed}\n`],
 ];
 
+// [reference index, find, replace]: bugs the original inputs let through (each verified to pass the old grader).
+const moreMutants: [number, string, string][] = [
+  [0,"return f\"{item} x {count}\"","return f\"{item} x {count}\"[:10]"],
+  [0,"return f\"{item} x {count}\"","return f\"{item.split()[0]} x {count}\""],
+  [1,"if height < 20: return \"short\"","if height < 0: return \"invalid\"\n    if height < 20: return \"short\""],
+  [1,"    return \"tall\"","    return \"tall\" if height < 100 else \"giant\""],
+  [2,"if score >= 5: count += 1","if 5 <= score < 50: count += 1"],
+  [2,"if score >= 5: count += 1","if score >= 5 or score < 0: count += 1"],
+  [3,"cleaned.append(name.strip().lower())","cleaned.append(name.strip(' ').lower())"],
+  [3,"    cleaned = []\n    for name in names:\n        cleaned.append(name.strip().lower())\n    return cleaned","    for index, name in enumerate(names):\n        names[index] = name.strip().lower()\n    return names"],
+  [4,"counts[color] = counts.get(color, 0) + 1","counts[color] = min(counts.get(color, 0) + 1, 2)"],
+  [4,"    for color in colors: counts[color] = counts.get(color, 0) + 1","    for color in colors[:3]: counts[color] = counts.get(color, 0) + 1"],
+  [5,"        self.title = title","        self.title = title or 'Untitled'"],
+  [5,"        self.title = title","        self.title = title[:12]"],
+];
+
 describe("spaced review for beginner skills", () => {
   it("uses valid tasks and registered grader checks", () => {
     expect(BASICS_REVIEW_TASKS.map(task => task.id)).toEqual([
@@ -60,7 +76,11 @@ describe("spaced review for beginner skills", () => {
       const starter = variant.starterFiles["main.py"];
       const starterResult = await run(starter);
       expect(starterResult.tests.some(test => !test.passed), `${graderId} starter`).toBe(true);
-      for (const mutant of mutants[index]) {
+      const extra = moreMutants.filter(([at]) => at === index).map(([, find, replace]) => {
+        expect(references[index].includes(find), `${graderId} mutant applies`).toBe(true);
+        return references[index].replace(find, replace);
+      });
+      for (const mutant of [...mutants[index], ...extra]) {
         const mutantResult = await run(mutant);
         expect(mutantResult.tests.some(test => !test.passed), `${graderId} mutant`).toBe(true);
       }

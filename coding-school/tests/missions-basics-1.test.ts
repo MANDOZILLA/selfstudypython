@@ -24,8 +24,8 @@ for (const mission of MISSIONS_BASICS_1) {
 }
 
 const cases = [
-  { id: "first-steps-guided-v1", starter: "def solve(name, age):\n    return \"\"\n", reference: "def solve(name, age):\n    return f\"Hi {name}, next year you will be {age + 1}\"\n", mutants: ["def solve(name, age):\n    return f\"Hi {name}, next year you will be {age}\"\n", "def solve(name, age):\n    return f\"Hi {name}, next year you will be {age + 2}\"\n"] },
-  { id: "first-steps-project-v1", starter: "def solve(item, price, count):\n    return \"\"\n", reference: "def solve(item, price, count):\n    return f\"{item}: {count} x ${price:.2f} = ${price * count:.2f}\"\n", mutants: ["def solve(item, price, count):\n    return f\"{item}: {count} x ${price:.2f} = ${price + count:.2f}\"\n", "def solve(item, price, count):\n    return f\"{item}: {count} x ${price:.1f} = ${price * count:.1f}\"\n"] },
+  { id: "first-steps-guided-v1", starter: "def solve(name, age):\n    return \"\"\n", reference: "def solve(name, age):\n    return f\"Hi {name}, next year you will be {age + 1}\"\n", mutants: ["def solve(name, age):\n    return f\"Hi {name}, next year you will be {age}\"\n", "def solve(name, age):\n    return f\"Hi {name}, next year you will be {age + 2}\"\n", "def solve(name, age): return 'Hi Ada, next year you will be 37'\n"] },
+  { id: "first-steps-project-v1", starter: "def solve(item, price, count):\n    return \"\"\n", reference: "def solve(item, price, count):\n    return f\"{item}: {count} x ${price:.2f} = ${price * count:.2f}\"\n", mutants: ["def solve(item, price, count):\n    return f\"{item}: {count} x ${price + count:.2f} = ${price + count:.2f}\"\n", "def solve(item, price, count):\n    return f\"{item}: {count} x ${price:.1f} = ${price * count:.1f}\"\n", "def solve(item, price, count): return 'Tea: 3 x $2.50 = $7.50'\n"] },
   { id: "making-decisions-guided-v1", starter: "def solve(temp):\n    return \"\"\n", reference: "def solve(temp):\n    if temp < 10: return \"cold\"\n    if temp < 25: return \"mild\"\n    return \"hot\"\n", mutants: ["def solve(temp):\n    if temp <= 10: return \"cold\"\n    if temp < 25: return \"mild\"\n    return \"hot\"\n", "def solve(temp):\n    if temp < 10: return \"cold\"\n    if temp <= 25: return \"mild\"\n    return \"hot\"\n"] },
   { id: "making-decisions-project-v1", starter: "def solve(age, is_student):\n    return 0\n", reference: "def solve(age, is_student):\n    if age < 5: return 0\n    if age < 18: return 8\n    if is_student: return 9\n    return 12\n", mutants: ["def solve(age, is_student):\n    if age <= 5: return 0\n    if age < 18: return 8\n    if is_student: return 9\n    return 12\n", "def solve(age, is_student):\n    if age < 5: return 0\n    if age < 18: return 8\n    if is_student: return 12\n    return 12\n"] },
   { id: "loops-guided-v1", starter: "def solve(n):\n    total = 0\n    return total\n", reference: "def solve(n):\n    total = 0\n    for x in range(1, n + 1): total += x\n    return total\n", mutants: ["def solve(n):\n    total = 0\n    for x in range(1, n): total += x\n    return total\n", "def solve(n):\n    total = 0\n    for x in range(1, n + 1): total += x + 1\n    return total\n"] },
@@ -33,6 +33,42 @@ const cases = [
   { id: "lists-and-strings-guided-v1", starter: "def solve(names):\n    return []\n", reference: "def solve(names):\n    result = []\n    for name in names:\n        cleaned = name.strip()\n        if cleaned: result.append(cleaned)\n    return result\n", mutants: ["def solve(names):\n    return [name for name in names if name]\n", "def solve(names):\n    return [name.strip().lower() for name in names if name.strip()]\n"] },
   { id: "lists-and-strings-project-v1", starter: "def solve(sentence):\n    return {\"text\": \"\", \"words\": [], \"count\": 0, \"unique\": 0}\n", reference: "def solve(sentence):\n    text = sentence.strip()\n    words = [word.lower() for word in text.split()]\n    return {\"text\": text, \"words\": words, \"count\": len(words), \"unique\": len(set(words))}\n", mutants: ["def solve(sentence):\n    text = sentence.strip()\n    words = [word.lower() for word in text.split()]\n    return {\"text\": text, \"words\": words, \"count\": len(words), \"unique\": len(words)}\n", "def solve(sentence):\n    text = sentence.strip()\n    words = [word for word in text.split()]\n    return {\"text\": text, \"words\": words, \"count\": len(words), \"unique\": len(set(words))}\n"] },
 ];
+
+/** Bugs the original 1-3 inputs per check let through (each verified to pass the old grader). */
+const MORE_MUTANTS: Record<string, string[]> = {
+  "first-steps-guided-v1": [
+    "def solve(name, age):\n    if len(name) != 3: return ''\n    return f\"Hi {name}, next year you will be {age + 1}\"\n",
+    "def solve(name, age):\n    return f\"Hi {name}, next year you will be {max(age, 0) + 1}\"\n"
+  ],
+  "first-steps-project-v1": [
+    "def solve(item, price, count):\n    total = price * max(count, 1)\n    return f\"{item}: {count} x ${price:.2f} = ${total:.2f}\"\n",
+    "def solve(item, price, count):\n    if price < 1: price = 1\n    return f\"{item}: {count} x ${price:.2f} = ${price * count:.2f}\"\n"
+  ],
+  "making-decisions-guided-v1": [
+    "def solve(temp):\n    if temp < 0: return \"freezing\"\n    if temp < 10: return \"cold\"\n    if temp < 25: return \"mild\"\n    return \"hot\"\n",
+    "def solve(temp):\n    if temp < 10: return \"cold\"\n    if temp < 25: return \"mild\"\n    if temp > 25: return \"warm\"\n    return \"hot\"\n"
+  ],
+  "making-decisions-project-v1": [
+    "def solve(age, is_student):\n    if age < 5 and not is_student: return 0\n    if age < 18: return 8\n    if is_student: return 9\n    return 12\n",
+    "def solve(age, is_student):\n    if age < 5: return 0\n    if age < 18: return 8\n    if is_student or age > 60: return 9\n    return 12\n"
+  ],
+  "loops-guided-v1": [
+    "def solve(n):\n    return {3: 6, 0: 0, 10: 55}.get(n, n)\n",
+    "def solve(n):\n    total = 0\n    for x in range(1, n + 1, 1 if n % 2 == 1 or n == 10 else 2): total += x\n    return total\n"
+  ],
+  "loops-project-v1": [
+    "def solve(n):\n    out = []\n    for x in range(1, min(n, 15) + 1):\n        if x % 15 == 0: out.append(\"FizzBuzz\")\n        elif x % 3 == 0: out.append(\"Fizz\")\n        elif x % 5 == 0: out.append(\"Buzz\")\n        else: out.append(str(x))\n    return out\n",
+    "def solve(n):\n    out = []\n    for x in range(1, n + 1):\n        if x % 15 == 0: out.append(\"FizzBuzz\")\n        elif x % 3 == 0 and x < 16: out.append(\"Fizz\")\n        elif x % 5 == 0: out.append(\"Buzz\")\n        else: out.append(str(x))\n    return out\n"
+  ],
+  "lists-and-strings-guided-v1": [
+    "def solve(names):\n    return [name.strip(' ') for name in names if name.strip(' ')]\n",
+    "def solve(names):\n    names[:] = [name.strip() for name in names if name.strip()]\n    return names\n"
+  ],
+  "lists-and-strings-project-v1": [
+    "def solve(sentence):\n    text = sentence.strip()\n    words = [word.lower() for word in text.split(' ') if word]\n    return {\"text\": text, \"words\": words, \"count\": len(words), \"unique\": len(set(words))}\n",
+    "def solve(sentence):\n    text = sentence.strip()\n    words = [word.lower() for word in text.split()]\n    return {\"text\": text, \"words\": words, \"count\": len(words), \"unique\": len(set(words)) if len(words) != 1 else 0}\n"
+  ]
+};
 
 async function grade(source: string, graderId: string) {
   const namespace = runtime.toPy({ submission_source: source });
@@ -51,7 +87,7 @@ for (const item of cases) {
     expect(result.tests.filter(check => catalog.requiredTests.includes(check.id) && check.passed), JSON.stringify(result.tests)).toHaveLength(catalog.requiredTests.length);
     // The browser protocol rejects duplicate or missing check ids, so the reference must survive it too.
     expect(aggregateResult({ requestId: "t", exerciseId: catalog.exerciseId, graderId: item.id }, result).passed, JSON.stringify(result.tests)).toBe(true);
-    for (const source of [item.starter, ...item.mutants]) {
+    for (const source of [item.starter, ...item.mutants, ...(MORE_MUTANTS[item.id] ?? [])]) {
       const bad = await grade(source, item.id);
       expect(bad.executionOk && bad.tests.every(check => check.passed)).toBe(false);
     }
